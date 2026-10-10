@@ -1,13 +1,17 @@
 'use strict';
 
-// Page access for image-based formats: CBZ/ZIP, CBR/RAR and plain image folders.
+// Page access for image-based books: CBZ/ZIP, CBR/RAR, CB7/7z, CBT/tar and
+// plain image folders. ZIPs are read in place; RAR/7z/tar are extracted once
+// into a disk cache and then served like folders.
 
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { execFile } = require('node:child_process');
 const yauzl = require('yauzl');
 const config = require('./config');
+const log = require('./log').logger('archive');
 
 const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.bmp', '.jxl']);
 const MIME = {
@@ -20,22 +24,39 @@ const MIME = {
   '.bmp': 'image/bmp',
   '.jxl': 'image/jxl',
 };
+const IMAGE_FORMATS = new Set(['cbz', 'cbr', 'cb7', 'cbt', 'folder']);
 
 const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
 const naturalSort = (a, b) => collator.compare(a, b);
 
 function isImageName(name) {
-  const base = name.split('/').pop();
-  if (!base || base.startsWith('.') || name.includes('__MACOSX/')) return false;
+  const norm = name.replace(/\\/g, '/');
+  const base = norm.split('/').pop();
+  if (!base || base.startsWith('.') || norm.includes('__MACOSX/')) return false;
   return IMAGE_EXT.has(path.extname(base).toLowerCase());
 }
-
 const mimeFor = (name) => MIME[path.extname(name).toLowerCase()] || 'application/octet-stream';
 
-// ---------------------------------------------------------------------------
-// ZIP (CBZ)
+/** Identify an archive by its signature rather than its extension. */
+async function sniff(file) {
+  const fh = await fsp.open(file, 'r');
+  try {
+    const buf = Buffer.alloc(512);
+    const { bytesRead } = await fh.read(buf, 0, 512, 0);
+    if (buf[0] === 0x50 && buf[1] === 0x4b) return 'zip';
+    if (buf.toString('latin1', 0, 4) === 'Rar!') return 'rar';
+    if (buf[0] === 0x37 && buf[1] === 0x7a && buf[2] === 0xbc && buf[3] === 0xaf) return '7z';
+    if (bytesRead >= 262 && buf.toString('latin1', 257, 262) === 'ustar') return 'tar';
+    if (buf.toString('latin1', 0, 5) === '%PDF-') return 'pdf';
+    return null;
+  } finally {
+    await fh.close();
+  }
+}
 
-/** Small LRU of open zip handles with their sorted page entries. */
+// ---------------------------------------------------------------------------
+// ZIP
+
 const zipCache = new Map();
 const ZIP_CACHE_MAX = 12;
 
@@ -49,7 +70,7 @@ async function openZip(file) {
     return hit;
   }
   const promise = (async () => {
-    const zip = await yauzl.openPromise(file, { lazyEntries: true, autoClose: false });
+    const zip = await yauzl.openPromise(file, { lazyEntries: true, autoClose: false, strictFileNames: false });
     const entries = [];
     const others = new Map();
     for await (const entry of zip.eachEntry()) {
@@ -78,7 +99,6 @@ async function readZipEntry(zip, entry, maxBytes = 200 * 1024 * 1024) {
   return Buffer.concat(chunks);
 }
 
-/** Read a named file (case-insensitive) from any zip, e.g. an EPUB's OPF. */
 async function readZipFile(file, name) {
   const { zip, entries, others } = await openZip(file);
   const lower = name.toLowerCase();
@@ -87,128 +107,162 @@ async function readZipFile(file, name) {
 }
 
 // ---------------------------------------------------------------------------
-// RAR (CBR) – extracted once to a disk cache, then served like a folder.
+// Extracted formats (RAR / 7z / tar)
 
-const rarJobs = new Map();
+const extractJobs = new Map();
 
-function rarCacheDir(file, mtimeMs) {
+function extractDir(file, mtimeMs) {
   const hash = crypto.createHash('sha1').update(`${file}:${mtimeMs}`).digest('hex').slice(0, 20);
-  return path.join(config.cacheDir, 'rar', hash);
+  return path.join(config.cacheDir, 'extract', hash);
 }
 
 const flatten = (name) =>
-  name
-    .replace(/\\/g, '/')
-    .split('/')
-    .filter((p) => p && p !== '..' && p !== '.')
-    .join('__');
+  name.replace(/\\/g, '/').split('/').filter((p) => p && p !== '..' && p !== '.').join('__');
 
-async function ensureRarExtracted(file) {
-  const stat = await fsp.stat(file);
-  const dir = rarCacheDir(file, stat.mtimeMs);
+let sevenZip = null;
+function sevenZipPath() {
+  if (sevenZip) return sevenZip;
+  sevenZip = require('7zip-bin').path7za;
+  try {
+    fs.chmodSync(sevenZip, 0o755);
+  } catch {}
+  return sevenZip;
+}
+
+async function extractRar(file, dir) {
+  const { createExtractorFromFile } = require('node-unrar-js');
+  const extractor = await createExtractorFromFile({ filepath: file, targetPath: dir, filenameTransform: flatten });
+  const { files } = extractor.extract({ files: (h) => !h.flags.directory && (isImageName(h.name) || /comicinfo\.xml$/i.test(h.name)) });
+  for (const _ of files); // eslint-disable-line no-unused-vars -- iterating performs the extraction
+}
+
+function extract7z(file, dir) {
+  return new Promise((resolve, reject) => {
+    execFile(sevenZipPath(), ['x', '-y', '-bd', `-o${dir}`, file], { maxBuffer: 16 * 1024 * 1024 }, (err) =>
+      err ? reject(new Error(`7-Zip failed: ${err.message.split('\n')[0]}`)) : resolve(),
+    );
+  });
+}
+
+async function extractTar(file, dir) {
+  const tar = require('tar');
+  await tar.x({
+    file,
+    cwd: dir,
+    strict: false,
+    preservePaths: false, // strips absolute paths and refuses '..' entries
+    filter: (p, entry) => entry.type === 'File' && (isImageName(p) || /comicinfo\.xml$/i.test(p)),
+  });
+}
+
+async function ensureExtracted(book) {
+  const stat = await fsp.stat(book.path);
+  const dir = extractDir(book.path, stat.mtimeMs);
   const marker = path.join(dir, '.complete');
   if (fs.existsSync(marker)) {
     const now = new Date();
     fs.utimes(marker, now, now, () => {});
     return dir;
   }
-  if (rarJobs.has(dir)) return rarJobs.get(dir);
+  if (extractJobs.has(dir)) return extractJobs.get(dir);
   const job = (async () => {
-    const { createExtractorFromFile } = require('node-unrar-js');
     await fsp.rm(dir, { recursive: true, force: true });
     await fsp.mkdir(dir, { recursive: true });
-    const extractor = await createExtractorFromFile({
-      filepath: file,
-      targetPath: dir,
-      filenameTransform: flatten,
-    });
-    const { files } = extractor.extract({ files: (h) => !h.flags.directory && isImageName(h.name.replace(/\\/g, '/')) });
-    for (const _ of files); // eslint-disable-line no-unused-vars -- iterating performs the extraction
+    if (book.format === 'cbr') await extractRar(book.path, dir);
+    else if (book.format === 'cb7') await extract7z(book.path, dir);
+    else if (book.format === 'cbt') await extractTar(book.path, dir);
     await fsp.writeFile(marker, '');
     return dir;
   })();
-  rarJobs.set(dir, job);
+  extractJobs.set(dir, job);
   try {
     return await job;
   } finally {
-    rarJobs.delete(dir);
+    extractJobs.delete(dir);
   }
-}
-
-async function rarFirstImageAndInfo(file) {
-  const { createExtractorFromData } = require('node-unrar-js');
-  const data = await fsp.readFile(file);
-  const extractor = await createExtractorFromData({ data: new Uint8Array(data.buffer, data.byteOffset, data.byteLength) });
-  const names = [];
-  let comicInfo = null;
-  for (const h of extractor.getFileList().fileHeaders) {
-    if (h.flags.directory) continue;
-    const name = h.name.replace(/\\/g, '/');
-    if (isImageName(name)) names.push(h.name);
-    else if (name.split('/').pop().toLowerCase() === 'comicinfo.xml') comicInfo = h.name;
-  }
-  names.sort(naturalSort);
-  const wanted = [names[0], comicInfo].filter(Boolean);
-  const out = { pageCount: names.length, cover: null, comicInfo: null };
-  if (!wanted.length) return out;
-  const { files } = extractor.extract({ files: wanted });
-  for (const f of files) {
-    if (!f.extraction) continue;
-    if (f.fileHeader.name === names[0]) out.cover = Buffer.from(f.extraction);
-    else out.comicInfo = Buffer.from(f.extraction).toString('utf8');
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------------------
-// Folder of images
+// Folders
 
-async function listFolderImages(dir) {
-  const names = (await fsp.readdir(dir, { withFileTypes: true }))
-    .filter((d) => d.isFile() && isImageName(d.name))
-    .map((d) => d.name);
-  return names.sort(naturalSort);
+async function listImages(dir, recursive = false) {
+  const out = [];
+  async function walk(d, prefix) {
+    for (const ent of await fsp.readdir(d, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${ent.name}` : ent.name;
+      if (ent.isDirectory() && recursive) await walk(path.join(d, ent.name), rel);
+      else if (ent.isFile() && isImageName(ent.name)) out.push(rel);
+    }
+  }
+  await walk(dir, '');
+  return out.sort(naturalSort);
 }
 
 // ---------------------------------------------------------------------------
 // Public API
 
-const folderCache = new Map();
+const listCache = new Map();
 
-async function listPages(book) {
-  switch (book.format) {
-    case 'cbz': {
-      const { entries } = await openZip(book.path);
-      return entries.map((e) => e.fileName);
-    }
-    case 'cbr': {
-      const dir = await ensureRarExtracted(book.path);
-      return listFolderImages(dir);
-    }
-    case 'folder': {
-      const key = `${book.path}:${book.mtime}`;
-      if (!folderCache.has(key)) folderCache.set(key, await listFolderImages(book.path));
-      return folderCache.get(key);
-    }
-    default:
-      throw new Error(`Not an image format: ${book.format}`);
+async function pageSource(book) {
+  if (book.format === 'cbz') return { type: 'zip' };
+  const dir = book.format === 'folder' ? book.path : await ensureExtracted(book);
+  const key = `${dir}:${book.mtime}`;
+  if (!listCache.has(key)) {
+    if (listCache.size > 200) listCache.clear();
+    listCache.set(key, await listImages(dir, book.format !== 'folder'));
   }
+  return { type: 'dir', dir, pages: listCache.get(key) };
 }
 
-/** Returns { stream, mime, size } for page `index` (0-based). */
-async function openPage(book, index) {
-  if (book.format === 'cbz') {
-    const { zip, entries } = await openZip(book.path);
-    const entry = entries[index];
+async function listPages(book) {
+  const src = await pageSource(book);
+  if (src.type === 'zip') return (await openZip(book.path)).entries.map((e) => e.fileName);
+  return src.pages;
+}
+
+let sharp;
+try {
+  sharp = require('sharp');
+} catch {
+  sharp = null;
+}
+
+/**
+ * Returns { stream | buffer, mime, size } for page `index` (0-based).
+ * With `width`, the image is downscaled (data saver / OPDS clients).
+ */
+async function openPage(book, index, { width } = {}) {
+  let entry = null;
+  let file = null;
+  const src = await pageSource(book);
+  if (src.type === 'zip') {
+    const { entries } = await openZip(book.path);
+    entry = entries[index];
     if (!entry) return null;
-    const stream = await zip.openReadStreamPromise(entry);
-    return { stream, mime: mimeFor(entry.fileName), size: entry.uncompressedSize };
+  } else {
+    const name = src.pages[index];
+    if (!name) return null;
+    file = path.join(src.dir, name);
   }
-  const pages = await listPages(book);
-  const name = pages[index];
-  if (!name) return null;
-  const dir = book.format === 'cbr' ? await ensureRarExtracted(book.path) : book.path;
-  const file = path.join(dir, name);
+  const name = entry ? entry.fileName : file;
+
+  if (width && sharp) {
+    const input = entry ? await readZipEntry((await openZip(book.path)).zip, entry) : await fsp.readFile(file);
+    try {
+      const buffer = await sharp(input, { failOn: 'none' })
+        .rotate()
+        .resize({ width: Math.round(width), withoutEnlargement: true })
+        .webp({ quality: 72 })
+        .toBuffer();
+      return { buffer, mime: 'image/webp', size: buffer.length };
+    } catch {
+      return { buffer: input, mime: mimeFor(name), size: input.length };
+    }
+  }
+  if (entry) {
+    const { zip } = await openZip(book.path);
+    return { stream: await zip.openReadStreamPromise(entry), mime: mimeFor(name), size: entry.uncompressedSize };
+  }
   const stat = await fsp.stat(file);
   return { stream: fs.createReadStream(file), mime: mimeFor(name), size: stat.size };
 }
@@ -224,49 +278,52 @@ async function inspect(book) {
       comicInfo: infoEntry ? (await readZipEntry(zip, infoEntry, 1024 * 1024)).toString('utf8') : null,
     };
   }
-  if (book.format === 'cbr') return rarFirstImageAndInfo(book.path);
-  if (book.format === 'folder') {
-    const pages = await listFolderImages(book.path);
-    let comicInfo = null;
-    try {
-      comicInfo = await fsp.readFile(path.join(book.path, 'ComicInfo.xml'), 'utf8');
-    } catch {}
-    return {
-      pageCount: pages.length,
-      cover: pages[0] ? await fsp.readFile(path.join(book.path, pages[0])) : null,
-      comicInfo,
-    };
-  }
-  throw new Error(`Not an image format: ${book.format}`);
+  const src = await pageSource(book);
+  let comicInfo = null;
+  try {
+    const names = await fsp.readdir(src.dir);
+    const ci = names.find((n) => /comicinfo\.xml$/i.test(n));
+    if (ci) comicInfo = await fsp.readFile(path.join(src.dir, ci), 'utf8');
+  } catch {}
+  return {
+    pageCount: src.pages.length,
+    cover: src.pages[0] ? await fsp.readFile(path.join(src.dir, src.pages[0])) : null,
+    comicInfo,
+  };
 }
 
-/** Drop extracted RAR caches that haven't been used for `days` days. */
-async function pruneRarCache(days = 14) {
-  const root = path.join(config.cacheDir, 'rar');
-  let dirs;
-  try {
-    dirs = await fsp.readdir(root);
-  } catch {
-    return;
-  }
-  const cutoff = Date.now() - days * 86400_000;
-  for (const d of dirs) {
-    const dir = path.join(root, d);
+/** Drop extraction caches unused for `days` days. */
+async function pruneCache(days = 14) {
+  for (const sub of ['extract', 'rar']) {
+    const root = path.join(config.cacheDir, sub);
+    let dirs;
     try {
-      const stat = await fsp.stat(path.join(dir, '.complete'));
-      if (stat.mtimeMs > cutoff) continue;
-    } catch {}
-    await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
+      dirs = await fsp.readdir(root);
+    } catch {
+      continue;
+    }
+    const cutoff = Date.now() - days * 86400_000;
+    for (const d of dirs) {
+      const dir = path.join(root, d);
+      try {
+        const stat = await fsp.stat(path.join(dir, '.complete'));
+        if (sub === 'extract' && stat.mtimeMs > cutoff) continue;
+      } catch {}
+      await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
   }
+  log.file('extraction cache pruned');
 }
 
 module.exports = {
   IMAGE_EXT,
+  IMAGE_FORMATS,
   isImageName,
   naturalSort,
+  sniff,
   listPages,
   openPage,
   inspect,
   readZipFile,
-  pruneRarCache,
+  pruneCache,
 };

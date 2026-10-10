@@ -20,36 +20,48 @@
     <meta name="theme-color" content="#121318" media="(prefers-color-scheme: dark)" />
 
     <script>
-      // Apply theme before first paint to avoid a flash.
+      // Apply the cached theme before first paint to avoid a flash.
       try {
-        var t = localStorage.getItem('flyleaf.theme');
-        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
-        var h = localStorage.getItem('flyleaf.hue');
-        if (h) document.documentElement.style.setProperty('--seed-hue', h);
+        var t = JSON.parse(localStorage.getItem('flyleaf.themeState') || '{}');
+        var r = document.documentElement;
+        if (t.mode === 'light' || t.mode === 'dark') r.dataset.theme = t.mode;
+        if (t.hue != null) r.style.setProperty('--seed-hue', t.hue);
+        if (t.chroma != null) r.style.setProperty('--seed-chroma', t.chroma);
+        if (t.oled) r.dataset.oled = '';
+        if (t.noMotion) r.classList.add('no-motion');
       } catch (e) {}
     </script>
 
     <link rel="stylesheet" href="/css/m3.css" />
     <link rel="stylesheet" href="/css/app.css" />
+    <link rel="stylesheet" href="/css/reader.css" />
     <script type="module" src="/js/main.js"></script>
   </head>
   <body class="bare">
-    <nav class="nav-rail" aria-label="Main">
-      <div class="brand" aria-hidden="true"><span class="icon filled">auto_stories</span></div>
-      <a href="#/" data-nav="home"><span class="pill state"><span class="icon">home</span></span>Home</a>
-      <a href="#/library" data-nav="library"><span class="pill state"><span class="icon">local_library</span></span>Library</a>
-      <a href="#/stats" data-nav="stats"><span class="pill state"><span class="icon">insights</span></span>Stats</a>
-      <div class="spacer"></div>
-      <a href="#/settings" data-nav="settings"><span class="pill state"><span class="icon">settings</span></span>Settings</a>
-    </nav>
+    <header class="app-bar">
+      <div class="start">
+        <button class="icon-btn state menu-toggle" type="button" aria-label="Open navigation" title="Menu">
+          <span class="icon">menu</span>
+        </button>
+        <a class="brand" href="#/" aria-label="Flyleaf home">
+          <span class="logo"><span class="icon filled">auto_stories</span></span>
+          <span class="word">Flyleaf</span>
+        </a>
+      </div>
+      <div class="app-search" role="search"></div>
+      <div class="end"></div>
+    </header>
+
+    <nav class="drawer" aria-label="Library navigation"></nav>
+    <div class="scrim"></div>
 
     <main id="view"></main>
 
-    <nav class="nav-bar" aria-label="Main">
+    <nav class="bottom-nav" aria-label="Main">
       <a href="#/" data-nav="home"><span class="pill state"><span class="icon">home</span></span>Home</a>
       <a href="#/library" data-nav="library"><span class="pill state"><span class="icon">local_library</span></span>Library</a>
-      <a href="#/stats" data-nav="stats"><span class="pill state"><span class="icon">insights</span></span>Stats</a>
-      <a href="#/settings" data-nav="settings"><span class="pill state"><span class="icon">settings</span></span>Settings</a>
+      <a href="#/want-to-read" data-nav="want"><span class="pill state"><span class="icon">bookmark_heart</span></span>Want to read</a>
+      <a href="#/bookmarks" data-nav="bookmarks"><span class="pill state"><span class="icon">bookmarks</span></span>Bookmarks</a>
     </nav>
 
     <div class="snackbar-host" aria-live="polite"></div>

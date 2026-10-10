@@ -16,8 +16,12 @@ export function h(tag, props, ...children) {
     if (v == null || v === false) continue;
     if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === 'class') el.className += ` ${v}`;
-    else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
-    else if (k === 'dataset') Object.assign(el.dataset, v);
+    else if (k === 'style' && typeof v === 'object') {
+      for (const [sk, sv] of Object.entries(v)) {
+        if (sk.startsWith('--')) el.style.setProperty(sk, sv);
+        else el.style[sk] = sv;
+      }
+    } else if (k === 'dataset') Object.assign(el.dataset, v);
     else if (k in el && k !== 'list' && k !== 'form' && typeof v !== 'string') el[k] = v;
     else el.setAttribute(k, v === true ? '' : v);
   }
@@ -35,26 +39,28 @@ function append(el, children) {
 export const icon = (name, cls = '') => h(`span.icon${cls ? `.${cls}` : ''}`, { 'aria-hidden': 'true' }, name);
 
 export function iconButton(name, label, onclick, variant = '') {
-  return h(`button.icon-btn.state${variant ? `.${variant}` : ''}`, { type: 'button', title: label, 'aria-label': label, onclick }, icon(name));
+  return h(`button.icon-btn.state${variant ? `.${variant.split(' ').join('.')}` : ''}`, { type: 'button', title: label, 'aria-label': label, onclick }, icon(name));
 }
 
 export function button(label, { variant = 'filled', icon: ic, onclick, type = 'button', ...rest } = {}) {
   return h(`button.btn.state.${variant.split(' ').join('.')}`, { type, onclick, ...rest }, ic && icon(ic), label);
 }
 
-export function clear(el) {
-  while (el.firstChild) el.firstChild.remove();
+/** Give children a staggered entrance animation. */
+export function stagger(el) {
+  el.classList.add('stagger');
+  [...el.children].forEach((c, i) => c.style.setProperty('--i', i));
   return el;
 }
 
 // ---------------------------------------------------------------------------
-// Ripples on buttons/chips/list items.
+// Ripples
 
 document.addEventListener(
   'pointerdown',
   (e) => {
-    const target = e.target.closest('.btn, .icon-btn, .chip, .list-item, .fab, .menu button, .segmented button, .tabs button, .pill');
-    if (!target || target.disabled) return;
+    const target = e.target.closest('.btn, .icon-btn, .chip, .list-item, .fab, .menu button, .segmented button, .tabs button, .pill, .nav-item, .setting-row.state');
+    if (!target || target.disabled || document.documentElement.classList.contains('no-motion')) return;
     if (getComputedStyle(target).position === 'static') target.style.position = 'relative';
     target.style.overflow = 'hidden';
     target.style.isolation = 'isolate';
@@ -70,19 +76,9 @@ document.addEventListener(
 );
 
 // ---------------------------------------------------------------------------
-// Theme
+// Local storage
 
-export const HUES = [
-  { name: 'Indigo', hue: 268 },
-  { name: 'Ocean', hue: 230 },
-  { name: 'Teal', hue: 190 },
-  { name: 'Forest', hue: 145 },
-  { name: 'Amber', hue: 70 },
-  { name: 'Rose', hue: 10 },
-  { name: 'Orchid', hue: 320 },
-];
-
-const store = {
+export const store = {
   get(k, d = null) {
     try {
       return localStorage.getItem(`flyleaf.${k}`) ?? d;
@@ -97,29 +93,6 @@ const store = {
     } catch {}
   },
 };
-export { store };
-
-export function getTheme() {
-  return store.get('theme', 'system');
-}
-export function setTheme(mode) {
-  store.set('theme', mode === 'system' ? null : mode);
-  if (mode === 'light' || mode === 'dark') document.documentElement.dataset.theme = mode;
-  else delete document.documentElement.dataset.theme;
-  syncThemeColor();
-}
-export function getHue() {
-  return Number(store.get('hue', 268));
-}
-export function setHue(hue) {
-  store.set('hue', String(hue));
-  document.documentElement.style.setProperty('--seed-hue', hue);
-  syncThemeColor();
-}
-export function isDark() {
-  const t = getTheme();
-  return t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-}
 
 /** Resolve any CSS colour (incl. oklch) to #rrggbb via canvas. */
 export function resolveColor(css) {
@@ -149,7 +122,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => sync
 
 export function snackbar(message, { action, onAction, duration = 4000 } = {}) {
   const host = document.querySelector('.snackbar-host');
-  clear(host);
+  host.replaceChildren();
   const bar = h(
     'div.snackbar',
     { role: 'status' },
@@ -176,7 +149,7 @@ export function snackbar(message, { action, onAction, duration = 4000 } = {}) {
  */
 export function dialog({ title, icon: ic, content, actions = [], className = '', dismissible = true, onOpen }) {
   return new Promise((resolve) => {
-    const dlg = h(`dialog.dialog${className ? `.${className}` : ''}`);
+    const dlg = h(`dialog.dialog${className ? `.${className.split(' ').join('.')}` : ''}`);
     let result;
     const close = (value) => {
       result = value;
@@ -194,14 +167,17 @@ export function dialog({ title, icon: ic, content, actions = [], className = '',
               variant: a.variant || 'text',
               type: a.submit ? 'submit' : 'button',
               form: a.submit || undefined,
-              onclick: a.submit ? undefined : async () => {
-                if (a.onClick) {
-                  const v = await a.onClick(close);
-                  if (v === false) return;
-                  if (v !== undefined) return close(v);
-                }
-                if (a.value !== undefined || !a.onClick) close(a.value);
-              },
+              icon: a.icon,
+              onclick: a.submit
+                ? undefined
+                : async () => {
+                    if (a.onClick) {
+                      const v = await a.onClick(close);
+                      if (v === false) return;
+                      if (v !== undefined) return close(v);
+                    }
+                    if (a.value !== undefined || !a.onClick) close(a.value);
+                  },
             }),
           ),
         ),
@@ -232,9 +208,32 @@ export function confirmDialog({ title, message, confirm = 'Confirm', danger = fa
     content: h('p', message),
     actions: [
       { label: 'Cancel', value: false },
-      { label: confirm, value: true, variant: danger ? 'text danger' : 'text' },
+      { label: confirm, value: true, variant: danger ? 'text danger' : 'filled' },
     ],
   }).then(Boolean);
+}
+
+/** A form inside a dialog. `onSubmit` returns/throws; errors show inline. */
+export function formDialog({ title, fields, submit = 'Save', onSubmit, className = '', icon: ic, extra }) {
+  const id = `form-${Math.random().toString(36).slice(2, 8)}`;
+  const err = h('div');
+  const form = h('form', { id }, err, fields, extra);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    err.replaceChildren();
+    const btn = form.closest('dialog')?.querySelector(`button[form="${id}"]`);
+    if (btn) btn.disabled = true;
+    try {
+      const v = await onSubmit();
+      form.closest('dialog').close();
+      return v;
+    } catch (e2) {
+      err.append(formError(e2.message));
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+  return dialog({ title, icon: ic, className, content: form, actions: [{ label: 'Cancel' }, { label: submit, submit: id, variant: 'filled' }] });
 }
 
 /** Outlined text field. */
@@ -242,7 +241,7 @@ export function field(label, { type = 'text', value = '', name, support, require
   const id = `f-${Math.random().toString(36).slice(2, 9)}`;
   let input;
   if (options) {
-    input = h('select', { id, name, required, ...rest }, options.map((o) => h('option', { value: o.value, selected: String(o.value) === String(value) }, o.label)));
+    input = h('select', { id, name, required, ...rest }, options.map((o) => h('option', { value: o.value ?? '', selected: String(o.value ?? '') === String(value ?? '') }, o.label)));
   } else if (multiline) {
     input = h('textarea', { id, name, placeholder: ' ', required, ...rest });
     input.value = value ?? '';
@@ -267,41 +266,83 @@ export function formError(message) {
   return h('div.form-error', { role: 'alert' }, icon('error'), h('span', message));
 }
 
-// ---------------------------------------------------------------------------
-// Menus
+/** Editable chip list (genres, tags). Returns element with .value getter. */
+export function chipInput(label, values = [], { suggestions = [] } = {}) {
+  let list = [...values];
+  const set = h('div.chip-set', { style: { marginTop: '8px' } });
+  const listId = `dl-${Math.random().toString(36).slice(2, 8)}`;
+  const f = field(label, { support: 'Press Enter or comma to add', list: listId });
+  f.input.setAttribute('list', listId);
+  const dl = h('datalist', { id: listId }, suggestions.map((s) => h('option', { value: s })));
+  const render = () =>
+    set.replaceChildren(
+      ...list.map((v, i) =>
+        h('span.chip.input-chip.selected', v, h('button', { type: 'button', 'aria-label': `Remove ${v}`, onclick: () => { list.splice(i, 1); render(); } }, icon('close'))),
+      ),
+    );
+  const add = () => {
+    for (const part of f.input.value.split(',')) {
+      const v = part.trim();
+      if (v && !list.some((x) => x.toLowerCase() === v.toLowerCase())) list.push(v);
+    }
+    f.input.value = '';
+    render();
+  };
+  f.input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      add();
+    } else if (e.key === 'Backspace' && !f.input.value && list.length) {
+      list.pop();
+      render();
+    }
+  });
+  f.input.addEventListener('change', () => f.input.value.trim() && add());
+  render();
+  const wrap = h('div', f, dl, set);
+  Object.defineProperty(wrap, 'value', { get: () => (f.input.value.trim() && add(), list) });
+  return wrap;
+}
 
-export function menu(anchor, items) {
+// ---------------------------------------------------------------------------
+// Menus & action sheets
+
+export function menu(anchor, items, { at } = {}) {
   document.querySelectorAll('.menu').forEach((m) => m.remove());
   const el = h(
     'div.menu',
     { role: 'menu' },
-    items.map((it) =>
+    items.filter(Boolean).map((it) =>
       it === '-'
         ? h('hr')
-        : h(
-            'button.state',
-            {
-              role: it.checked !== undefined ? 'menuitemradio' : 'menuitem',
-              'aria-checked': it.checked !== undefined ? String(Boolean(it.checked)) : null,
-              onclick: () => {
-                close();
-                it.onClick?.();
+        : it.header
+          ? h('div.label-medium', { style: { padding: '8px 16px 4px', color: 'var(--md-on-surface-variant)' } }, it.header)
+          : h(
+              'button.state',
+              {
+                role: it.checked !== undefined ? 'menuitemradio' : 'menuitem',
+                'aria-checked': it.checked !== undefined ? String(Boolean(it.checked)) : null,
+                disabled: it.disabled,
+                onclick: () => {
+                  close();
+                  it.onClick?.();
+                },
               },
-            },
-            it.icon && icon(it.icon),
-            h('span', it.label),
-          ),
+              it.icon && icon(it.icon),
+              h('span', { style: { flex: '1' } }, it.label),
+              it.trailing && h('span.label-small', { style: { color: 'var(--md-on-surface-variant)' } }, it.trailing),
+            ),
     ),
   );
   document.body.append(el);
-  const r = anchor.getBoundingClientRect();
+  const r = at ? { left: at.x, right: at.x, top: at.y, bottom: at.y } : anchor.getBoundingClientRect();
   const mw = el.offsetWidth;
   const mh = el.offsetHeight;
   let left = Math.min(r.right - mw, innerWidth - mw - 8);
   if (left < 8) left = Math.min(r.left, innerWidth - mw - 8);
   let top = r.bottom + 4;
   if (top + mh > innerHeight - 8) top = Math.max(8, r.top - mh - 4);
-  Object.assign(el.style, { left: `${Math.max(8, left)}px`, top: `${top}px` });
+  Object.assign(el.style, { left: `${Math.max(8, left)}px`, top: `${top}px`, maxHeight: `${innerHeight - 16}px`, overflowY: 'auto' });
   const onDoc = (e) => {
     if (!el.contains(e.target)) close();
   };
@@ -319,8 +360,30 @@ export function menu(anchor, items) {
   return close;
 }
 
-// ---------------------------------------------------------------------------
-// Bottom sheet
+/** Bottom sheet on touch/compact screens, dropdown menu elsewhere. */
+export function actions(anchor, items, { title, at } = {}) {
+  const compact = matchMedia('(pointer: coarse)').matches || innerWidth < 600;
+  if (!compact) return menu(anchor, items, { at });
+  return sheet((close) =>
+    h('div',
+      title && h('div.title-medium', { style: { padding: '4px 24px 8px' } }, title),
+      h('div.list', items.filter(Boolean).map((it) =>
+        it === '-'
+          ? h('hr.divider', { style: { margin: '4px 0' } })
+          : it.header
+            ? h('div.label-medium', { style: { padding: '12px 24px 4px', color: 'var(--md-on-surface-variant)' } }, it.header)
+            : h('button.list-item.state', {
+                type: 'button',
+                disabled: it.disabled,
+                onclick: () => {
+                  close();
+                  it.onClick?.();
+                },
+              }, it.icon && icon(it.icon), h('span.text', it.label), it.checked && icon('check')),
+      )),
+    ),
+  );
+}
 
 export function sheet(build) {
   const dlg = h('dialog.sheet', h('div.handle'));
@@ -333,7 +396,6 @@ export function sheet(build) {
     }
   });
   dlg.addEventListener('close', () => dlg.remove());
-  // Swipe down on the handle area to dismiss.
   let startY = null;
   dlg.addEventListener('touchstart', (e) => {
     startY = dlg.scrollTop <= 0 ? e.touches[0].clientY : null;
@@ -354,20 +416,15 @@ export function segmented(options, value, onChange) {
   };
   for (const o of options) {
     wrap.append(
-      h(
-        'button',
-        {
-          type: 'button',
-          dataset: { value: String(o.value) },
-          title: o.title || o.label || '',
-          onclick: () => {
-            render(o.value);
-            onChange(o.value);
-          },
+      h('button', {
+        type: 'button',
+        dataset: { value: String(o.value) },
+        title: o.title || o.label || '',
+        onclick: () => {
+          render(o.value);
+          onChange(o.value);
         },
-        o.icon && icon(o.icon),
-        o.label,
-      ),
+      }, o.icon && icon(o.icon), o.label),
     );
   }
   render(value);
@@ -380,17 +437,49 @@ export function toggleSwitch(checked, onChange, label) {
   return h('label.switch', input, h('span.track'));
 }
 
+/** Long-press (touch) or right-click → callback with coordinates. */
+export function onContext(el, fn) {
+  let timer = null;
+  let start = null;
+  el.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    fn({ x: e.clientX, y: e.clientY });
+  });
+  el.addEventListener('touchstart', (e) => {
+    const t = e.touches[0];
+    start = { x: t.clientX, y: t.clientY };
+    timer = setTimeout(() => {
+      timer = null;
+      navigator.vibrate?.(10);
+      el.dataset.longpress = '1';
+      fn(start);
+    }, 520);
+  }, { passive: true });
+  const cancel = () => clearTimeout(timer);
+  el.addEventListener('touchmove', (e) => {
+    const t = e.touches[0];
+    if (start && Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) cancel();
+  }, { passive: true });
+  el.addEventListener('touchend', cancel);
+  el.addEventListener('click', (e) => {
+    if (el.dataset.longpress) {
+      e.preventDefault();
+      delete el.dataset.longpress;
+    }
+  }, true);
+}
+
 // ---------------------------------------------------------------------------
-// Covers & tiles
+// Covers
 
-const FORMAT_ICON = { epub: 'menu_book', pdf: 'picture_as_pdf', cbz: 'photo_library', cbr: 'photo_library', folder: 'photo_library' };
+const FORMAT_ICON = { epub: 'menu_book', mobi: 'menu_book', azw3: 'menu_book', fb2: 'menu_book', txt: 'article', pdf: 'picture_as_pdf' };
 
-export function cover(item, { showProgress = true, count } = {}) {
-  const el = h('div.cover');
+export function cover(item, { showProgress = true, count, blur = item.blur, finished } = {}) {
+  const el = h(`div.cover${blur ? '.blurred' : ''}`);
   const ph = h('div.placeholder', h('div.ph-title', item.title || item.name || ''), icon(FORMAT_ICON[item.format] || 'collections_bookmark'));
   el.append(ph);
   if (item.coverUrl) {
-    const img = h('img', { alt: '', loading: 'lazy', decoding: 'async', draggable: false });
+    const img = h('img', { alt: '', loading: 'lazy', decoding: 'async', draggable: 'false' });
     img.addEventListener('load', () => {
       img.classList.add('loaded');
       ph.remove();
@@ -399,46 +488,25 @@ export function cover(item, { showProgress = true, count } = {}) {
     img.src = item.coverUrl;
     el.prepend(img);
   }
+  if (blur) el.append(h('div.nsfw', icon('visibility_off')));
   const p = item.progress;
-  if (showProgress && p?.finished) {
+  const done = finished ?? (typeof p === 'object' ? p?.finished : false);
+  if (showProgress && done) {
     el.append(h('div.corner', { title: 'Finished' }, icon('check', 'filled')));
   } else if (count != null) {
-    el.append(h('div.corner.count', String(count)));
+    el.append(h('div.corner.count', { title: `${count} unread` }, String(count)));
   }
-  if (showProgress && p && !p.finished && p.percent > 0) {
-    el.append(h('div.bar', h('span', { style: { width: `${Math.max(3, p.percent * 100)}%` } })));
+  const pct = typeof p === 'number' ? p : p?.percent;
+  if (showProgress && !done && pct > 0) {
+    el.append(h('div.bar', h('span', { style: { width: `${Math.max(3, pct * 100)}%` } })));
   }
   return el;
 }
 
-export function bookTile(book, { sub } = {}) {
-  return h(
-    'a.tile',
-    { href: `#/book/${book.id}`, title: book.title },
-    cover(book),
-    h('div.t-title', book.title),
-    h('div.t-sub', sub ?? bookSubtitle(book)),
-  );
-}
-
-export function seriesTile(s) {
-  const unread = s.count - (s.finished || 0);
-  return h(
-    'a.tile',
-    { href: `#/series/${s.libraryId}/${encodeURIComponent(s.name)}`, title: s.name },
-    cover({ ...s, title: s.name }, { showProgress: false, count: unread > 0 ? unread : undefined }),
-    h('div.t-title', s.name),
-    h('div.t-sub', `${s.count} ${s.count === 1 ? 'item' : 'items'}${unread === 0 ? ' · read' : ''}`),
-  );
-}
-
-export function bookSubtitle(book) {
-  const p = book.progress;
-  if (p?.finished) return 'Finished';
-  if (p && p.percent > 0) return `${Math.round(p.percent * 100)}% read`;
-  if (book.author) return book.author;
-  if (book.series && book.seriesIndex != null) return `${book.series} · ${book.seriesIndex}`;
-  return book.format.toUpperCase();
+/** Name the clicked cover so the View Transition morphs it into the hero artwork. */
+export function markHero(coverEl) {
+  document.querySelectorAll('[style*="view-transition-name"]').forEach((e) => (e.style.viewTransitionName = ''));
+  if (coverEl) coverEl.style.viewTransitionName = 'hero-cover';
 }
 
 // ---------------------------------------------------------------------------
@@ -446,10 +514,10 @@ export function bookSubtitle(book) {
 
 export function formatDuration(seconds, { short = false } = {}) {
   seconds = Math.round(seconds || 0);
-  const h = Math.floor(seconds / 3600);
+  const hrs = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  if (short) return h ? `${h}h ${m}m` : m ? `${m}m` : `${seconds}s`;
-  if (h) return `${h} hr ${m} min`;
+  if (short) return hrs ? `${hrs}h ${m}m` : m ? `${m}m` : `${seconds}s`;
+  if (hrs) return `${hrs} hr ${m} min`;
   if (m) return `${m} min`;
   return seconds ? `${seconds} sec` : '0 min';
 }
@@ -476,18 +544,8 @@ export function formatBytes(n) {
   return `${n.toFixed(i ? 1 : 0)} ${u[i]}`;
 }
 
-/** Sticky top bar that tints when the page scrolls. */
-export function topBar(title, ...actions) {
-  const bar = h('header.top-bar', ...actions.filter((a) => a?.dataset?.lead === '1'), h('h1.title', title), ...actions.filter((a) => a?.dataset?.lead !== '1'));
-  const onScroll = () => bar.classList.toggle('scrolled', scrollY > 4);
-  addEventListener('scroll', onScroll, { passive: true });
-  bar.cleanup = () => removeEventListener('scroll', onScroll);
-  return bar;
-}
-
-export function leading(el) {
-  el.dataset.lead = '1';
-  return el;
+export function pageHeader(title, ...actions) {
+  return h('div.page-head.enter', h('h1', title), ...actions.filter(Boolean));
 }
 
 export function loading() {
@@ -497,3 +555,33 @@ export function loading() {
 export function emptyState(ic, title, text, action) {
   return h('div.empty', icon(ic), h('h2.title-large', title), text && h('p.body-medium', text), action);
 }
+
+export async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const t = h('textarea', { style: { position: 'fixed', opacity: '0' } });
+    t.value = text;
+    document.body.append(t);
+    t.select();
+    document.execCommand('copy');
+    t.remove();
+  }
+  snackbar('Copied to clipboard');
+}
+
+export const STATUS_LABEL = { ongoing: 'Ongoing', completed: 'Completed', hiatus: 'On hiatus', cancelled: 'Cancelled', upcoming: 'Upcoming' };
+export const USER_STATUS = [
+  { value: 'reading', label: 'Reading', icon: 'auto_stories' },
+  { value: 'plan', label: 'Plan to read', icon: 'schedule' },
+  { value: 'completed', label: 'Completed', icon: 'task_alt' },
+  { value: 'on_hold', label: 'On hold', icon: 'pause_circle' },
+  { value: 'dropped', label: 'Dropped', icon: 'do_not_disturb_on' },
+];
+export const AGE_RATINGS = [
+  { value: '', label: 'Unknown' },
+  { value: 0, label: 'Everyone' },
+  { value: 1, label: 'Teen (13+)' },
+  { value: 2, label: 'Mature (17+)' },
+  { value: 3, label: 'Adults only (18+)' },
+];

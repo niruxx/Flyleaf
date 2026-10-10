@@ -1,15 +1,12 @@
 import { api } from '../api.js';
-import { onLeave } from '../router.js';
-import { h, icon, topBar, cover, formatDuration, segmented, emptyState } from '../ui.js';
-import { accountButton } from './common.js';
+import { h, icon, cover, formatDuration, segmented, emptyState, pageHeader, stagger } from '../ui.js';
 
 const KIND_LABEL = { books: 'Books', manga: 'Manga', comics: 'Comics' };
 
 export async function statsView(view, params, stale) {
-  const bar = topBar('Reading stats', accountButton());
-  onLeave(bar.cleanup);
-  const page = h('div.page');
-  view.append(bar, page);
+  const page = h('div.page', { style: { maxWidth: '1100px' } });
+  view.append(page, );
+  page.append(pageHeader('Reading stats'));
 
   let days = 30;
   const body = h('div');
@@ -37,12 +34,12 @@ export async function statsView(view, params, stale) {
     const activeInPeriod = s.daily.filter((d) => d.seconds > 0).length;
 
     body.append(
-      h('div.stat-grid',
+      stagger(h('div.stat-grid',
         stat('schedule', formatDuration(periodSeconds, { short: true }), days === 7 ? 'This week' : days === 30 ? 'Last 30 days' : 'Last 12 months'),
         stat('local_fire_department', `${s.streak} ${s.streak === 1 ? 'day' : 'days'}`, 'Current streak'),
         stat('task_alt', String(s.finished), 'Finished'),
         stat('hourglass_top', formatDuration(s.totalSeconds, { short: true }), 'All-time reading'),
-      ),
+      )),
       h('section.section', chart(s, days), h('p.body-small.muted', { style: { marginTop: '8px' } },
         `${activeInPeriod} active ${activeInPeriod === 1 ? 'day' : 'days'} · average ${formatDuration(activeInPeriod ? periodSeconds / activeInPeriod : 0, { short: true })} per reading day`)),
     );
@@ -66,9 +63,9 @@ export async function statsView(view, params, stale) {
       body.append(
         h('section.section', h('div.section-head', h('h2', 'Most read')),
           h('div.list.card', s.topBooks.map(({ book, seconds }) =>
-            h('a.list-item.state', { href: `#/book/${book.id}` },
+            h('a.list-item.state', { href: `#/series/${book.seriesId}` },
               h('div', { style: { width: '40px', flex: 'none' } }, cover(book, { showProgress: false })),
-              h('div.text', h('div.headline', book.title), h('div.supporting', book.series || book.author || '')),
+              h('div.text', h('div.headline', book.series || book.title), h('div.supporting', book.label || book.author || '')),
               h('span.trailing', formatDuration(seconds, { short: true })),
             ),
           )),

@@ -12,12 +12,12 @@ export function setUnauthorizedHandler(fn) {
   onUnauthorized = fn;
 }
 
-export async function request(method, url, body, { raw = false, keepalive = false } = {}) {
-  const headers = { 'X-Flyleaf': '1' };
+export async function request(method, url, body, { raw = false, keepalive = false, headers: extra = {} } = {}) {
+  const headers = { 'X-Flyleaf': '1', ...extra };
   let payload;
-  if (body instanceof Blob) {
+  if (body instanceof Blob || body instanceof ArrayBuffer) {
     payload = body;
-    headers['Content-Type'] = body.type || 'application/octet-stream';
+    headers['Content-Type'] ||= body.type || 'application/octet-stream';
   } else if (body !== undefined) {
     payload = JSON.stringify(body);
     headers['Content-Type'] = 'application/json';
@@ -39,7 +39,11 @@ export async function request(method, url, body, { raw = false, keepalive = fals
 
 const qs = (params) => {
   const s = new URLSearchParams();
-  for (const [k, v] of Object.entries(params || {})) if (v !== undefined && v !== null && v !== '') s.set(k, v);
+  for (const [k, v] of Object.entries(params || {})) {
+    if (v === undefined || v === null || v === '' || v === false) continue;
+    if (Array.isArray(v)) v.forEach((x) => s.append(k, x));
+    else s.set(k, v);
+  }
   const str = s.toString();
   return str ? `?${str}` : '';
 };
@@ -48,44 +52,118 @@ export function localDay(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+const GET = (u) => request('GET', u);
+const POST = (u, b = {}) => request('POST', u, b);
+const PUT = (u, b = {}) => request('PUT', u, b);
+const PATCH = (u, b = {}) => request('PATCH', u, b);
+const DEL = (u) => request('DELETE', u);
+
 export const api = {
-  status: () => request('GET', '/api/status'),
-  setup: (body) => request('POST', '/api/setup', body),
-  login: (body) => request('POST', '/api/login', body),
-  logout: () => request('POST', '/api/logout', {}),
-  changePassword: (current, next) => request('POST', '/api/me/password', { current, next }),
+  status: () => GET('/api/status'),
+  setup: (b) => POST('/api/setup', b),
+  login: (b) => POST('/api/login', b),
+  logout: () => POST('/api/logout'),
 
-  home: () => request('GET', '/api/home'),
-  libraries: () => request('GET', '/api/libraries'),
-  createLibrary: (body) => request('POST', '/api/libraries', body),
-  updateLibrary: (id, body) => request('PATCH', `/api/libraries/${id}`, body),
-  deleteLibrary: (id) => request('DELETE', `/api/libraries/${id}`),
-  scanLibrary: (id) => request('POST', `/api/libraries/${id}/scan`, {}),
-  scanAll: () => request('POST', '/api/scan', {}),
-  scanStatus: () => request('GET', '/api/scan/status'),
-  cleanupLibrary: (id) => request('POST', `/api/libraries/${id}/cleanup`, {}),
-  browse: (path) => request('GET', `/api/fs${qs({ path })}`),
+  me: () => GET('/api/me'),
+  updateMe: (b) => PATCH('/api/me', b),
+  savePrefs: (b) => PUT('/api/me/prefs', b),
+  changePassword: (current, next) => POST('/api/me/password', { current, next }),
 
-  books: (params) => request('GET', `/api/books${qs(params)}`),
-  series: (params) => request('GET', `/api/series${qs(params)}`),
-  book: (id) => request('GET', `/api/books/${id}`),
-  updateBook: (id, body) => request('PATCH', `/api/books/${id}`, body),
-  refreshBook: (id) => request('POST', `/api/books/${id}/refresh`, {}),
+  home: () => GET('/api/home'),
+  search: (q, limit) => GET(`/api/search${qs({ q, limit })}`),
+  genres: () => GET('/api/genres'),
+  userTags: () => GET('/api/user-tags'),
+
+  libraries: () => GET('/api/libraries'),
+  createLibrary: (b) => POST('/api/libraries', b),
+  updateLibrary: (id, b) => PATCH(`/api/libraries/${id}`, b),
+  deleteLibrary: (id) => DEL(`/api/libraries/${id}`),
+  scanLibrary: (id) => POST(`/api/libraries/${id}/scan`),
+  matchLibrary: (id) => POST(`/api/libraries/${id}/match`),
+  scanAll: () => POST('/api/scan'),
+  scanStatus: () => GET('/api/scan/status'),
+  cleanupLibrary: (id) => POST(`/api/libraries/${id}/cleanup`),
+  browse: (path) => GET(`/api/fs${qs({ path })}`),
+
+  seriesList: (params) => GET(`/api/series${qs(params)}`),
+  series: (id) => GET(`/api/series/${id}`),
+  setSeriesUser: (id, b) => PUT(`/api/series/${id}/user`, b),
+  setSeriesFinished: (id, finished) => POST(`/api/series/${id}/finished`, { finished }),
+  updateSeries: (id, b) => PATCH(`/api/series/${id}`, b),
+  unlockSeries: (id) => POST(`/api/series/${id}/unlock`),
+  refreshSeries: (id) => POST(`/api/series/${id}/refresh`),
+  setSeriesCover: (id, blob) => request('PUT', `/api/series/${id}/cover`, blob),
+  setSeriesCoverUrl: (id, url) => POST(`/api/series/${id}/cover/url`, { url }),
+  setSeriesCoverFromBook: (id, bookId) => POST(`/api/series/${id}/cover/book`, { bookId }),
+  resetSeriesCover: (id) => DEL(`/api/series/${id}/cover`),
+  addRelation: (id, relatedId, kind) => POST(`/api/series/${id}/relations`, { relatedId, kind }),
+  removeRelation: (id, relatedId) => DEL(`/api/series/${id}/relations/${relatedId}`),
+  providers: () => GET('/api/metadata/providers'),
+  metadataSearch: (provider, q) => GET(`/api/metadata/search${qs({ provider, q })}`),
+  applyMetadata: (id, b) => POST(`/api/series/${id}/metadata`, b),
+  setSeriesProfile: (id, profileId) => PUT(`/api/series/${id}/profile`, { profileId }),
+  saveReaderSettings: (seriesId, settings) => PUT(`/api/series/${seriesId}/reader-settings`, { settings }),
+
+  book: (id) => GET(`/api/books/${id}`),
+  reader: (id) => GET(`/api/books/${id}/reader`),
+  updateBook: (id, b) => PATCH(`/api/books/${id}`, b),
+  refreshBook: (id) => POST(`/api/books/${id}/refresh`),
   setCover: (id, blob) => request('PUT', `/api/books/${id}/cover`, blob),
   generatedCover: (id, blob) => request('POST', `/api/books/${id}/cover/generated`, blob),
-  pages: (id) => request('GET', `/api/books/${id}/pages`),
-  setFinished: (id, finished) => request('POST', `/api/books/${id}/finished`, { finished }),
-  setSeriesFinished: (libraryId, series, finished) => request('POST', '/api/series/finished', { libraryId, series, finished }),
-  saveProgress: (id, body, opts) => request('PUT', `/api/books/${id}/progress`, { day: localDay(), ...body }, opts),
+  pages: (id) => GET(`/api/books/${id}/pages`),
+  setFinished: (id, finished) => POST(`/api/books/${id}/finished`, { finished }),
+  saveProgress: (id, b, opts) => request('PUT', `/api/books/${id}/progress`, { day: localDay(), ...b }, opts),
 
-  stats: (days) => request('GET', `/api/stats${qs({ days, today: localDay() })}`),
+  annotations: (kind) => GET(`/api/annotations${qs({ kind })}`),
+  addAnnotation: (bookId, b) => POST(`/api/books/${bookId}/annotations`, b),
+  updateAnnotation: (id, b) => PATCH(`/api/annotations/${id}`, b),
+  deleteAnnotation: (id) => DEL(`/api/annotations/${id}`),
 
-  users: () => request('GET', '/api/users'),
-  createUser: (body) => request('POST', '/api/users', body),
-  updateUser: (id, body) => request('PATCH', `/api/users/${id}`, body),
-  deleteUser: (id) => request('DELETE', `/api/users/${id}`),
-  signOutUser: (id) => request('DELETE', `/api/users/${id}/sessions`),
+  collections: () => GET('/api/collections'),
+  collection: (id) => GET(`/api/collections/${id}`),
+  createCollection: (b) => POST('/api/collections', b),
+  updateCollection: (id, b) => PATCH(`/api/collections/${id}`, b),
+  deleteCollection: (id) => DEL(`/api/collections/${id}`),
+  addToCollection: (id, seriesIds) => POST(`/api/collections/${id}/items`, { seriesIds }),
+  removeFromCollection: (id, seriesId) => DEL(`/api/collections/${id}/items/${seriesId}`),
+
+  profiles: () => GET('/api/profiles'),
+  createProfile: (b) => POST('/api/profiles', b),
+  updateProfile: (id, b) => PATCH(`/api/profiles/${id}`, b),
+  deleteProfile: (id) => DEL(`/api/profiles/${id}`),
+
+  apiKeys: () => GET('/api/api-keys'),
+  createApiKey: (name) => POST('/api/api-keys', { name }),
+  regenerateApiKey: (id) => POST(`/api/api-keys/${id}/regenerate`),
+  deleteApiKey: (id) => DEL(`/api/api-keys/${id}`),
+
+  devices: () => GET('/api/devices'),
+  addDevice: (b) => POST('/api/devices', b),
+  deleteDevice: (id) => DEL(`/api/devices/${id}`),
+  sendBook: (id, deviceId) => POST(`/api/books/${id}/send`, { deviceId }),
+  sendSeries: (id, deviceId) => POST(`/api/series/${id}/send`, { deviceId }),
+
+  fonts: () => GET('/api/fonts'),
+  uploadFont: (name, file) => request('POST', '/api/fonts', file, { headers: { 'X-Font-Name': name, 'Content-Type': 'application/octet-stream' } }),
+  deleteFont: (id) => DEL(`/api/fonts/${id}`),
+
+  importMalStack: (url) => POST('/api/import/mal-stack', { url }),
+  importMalList: (file) => request('POST', '/api/import/mal-list', file, { headers: { 'Content-Type': 'application/octet-stream' } }),
+
+  stats: (days) => GET(`/api/stats${qs({ days, today: localDay() })}`),
+
+  users: () => GET('/api/users'),
+  createUser: (b) => POST('/api/users', b),
+  updateUser: (id, b) => PATCH(`/api/users/${id}`, b),
+  deleteUser: (id) => DEL(`/api/users/${id}`),
+  signOutUser: (id) => DEL(`/api/users/${id}/sessions`),
+
+  adminSettings: () => GET('/api/admin/settings'),
+  saveAdminSettings: (b) => PUT('/api/admin/settings', b),
+  testSmtp: (to) => POST('/api/admin/smtp/test', { to }),
 };
 
 export const fileUrl = (book) => `/api/books/${book.id}/file?v=${book.version}`;
-export const pageUrl = (book, n) => `/api/books/${book.id}/pages/${n}?v=${book.version}`;
+export const pageUrl = (book, n, width) => `/api/books/${book.id}/pages/${n}?v=${book.version}${width ? `&w=${width}` : ''}`;
+export const downloadUrl = (book) => `/api/books/${book.id}/download`;
+export const seriesDownloadUrl = (id) => `/api/series/${id}/download`;

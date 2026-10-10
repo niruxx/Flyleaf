@@ -42,6 +42,48 @@ function validateUsername(username) {
   return null;
 }
 
+const PREF_DEFAULTS = {
+  blurUnreadSummaries: false,
+  promptOnDownload: true,
+  disableAnimations: false,
+  collapseRelationships: false,
+  colorScape: true,
+  dataSaver: false,
+  blurMature: true,
+  opdsEmbedProgress: true,
+  opdsContinueFrom: true,
+  theme: null,
+  keybinds: null,
+  enabledFonts: null,
+};
+
+/** Normalise a users row into req.user. */
+function toUser(row) {
+  let prefs = {};
+  try {
+    prefs = JSON.parse(row.prefs || '{}');
+  } catch {}
+  return {
+    id: row.id,
+    username: row.username,
+    displayName: row.display_name || row.username,
+    email: row.email || null,
+    role: row.role,
+    maxAgeRating: row.max_age_rating,
+    ageIncludeUnknown: Boolean(row.age_include_unknown),
+    prefs: { ...PREF_DEFAULTS, ...prefs },
+  };
+}
+
+/** Resolve an OPDS / third-party API key to a user. */
+function userFromApiKey(key) {
+  if (!key || key.length < 16) return null;
+  const row = q('SELECT u.*, k.id AS key_id FROM api_keys k JOIN users u ON u.id = k.user_id WHERE k.key = ?').get(String(key));
+  if (!row) return null;
+  q('UPDATE api_keys SET last_used_at = ? WHERE id = ?').run(Date.now(), row.key_id);
+  return toUser(row);
+}
+
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
 function createSession(res, userId, userAgent) {
@@ -91,7 +133,7 @@ function sessionMiddleware(req, res, next) {
   const token = parseCookies(req.headers.cookie)[COOKIE];
   if (!token) return next();
   const row = q(`
-    SELECT s.token_hash, s.expires_at, u.id, u.username, u.display_name, u.role, u.last_seen_at
+    SELECT s.token_hash, s.expires_at, u.*
     FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = ?`).get(sha256(token));
   const now = Date.now();
@@ -99,7 +141,7 @@ function sessionMiddleware(req, res, next) {
     if (row) q('DELETE FROM sessions WHERE token_hash = ?').run(row.token_hash);
     return next();
   }
-  req.user = { id: row.id, username: row.username, displayName: row.display_name, role: row.role };
+  req.user = toUser(row);
   // Slide the session forward at most once an hour.
   if (!row.last_seen_at || now - row.last_seen_at > 3600_000) {
     const expires = now + config.sessionDays * 86400_000;
@@ -158,6 +200,9 @@ function pruneSessions() {
 }
 
 module.exports = {
+  toUser,
+  userFromApiKey,
+  PREF_DEFAULTS,
   hashPassword,
   verifyPassword,
   validatePassword,

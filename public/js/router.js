@@ -1,4 +1,6 @@
-// Hash router and shared session state.
+// Hash router, shared session state and animated route transitions.
+
+import { motionEnabled } from './theme.js';
 
 export const session = { user: null };
 
@@ -7,9 +9,13 @@ let leaveHandlers = [];
 let renderToken = 0;
 let currentPath = null;
 let prevPath = null;
+const listeners = new Set();
 
 /** The route shown before the current one (null on first load). */
 export const previousPath = () => prevPath;
+export const currentRoute = () => currentPath;
+/** Called after every route render with the matched route info. */
+export const onRoute = (fn) => listeners.add(fn);
 
 export function route(pattern, handler, { bare = false, nav = null, auth = true } = {}) {
   const keys = [];
@@ -35,52 +41,75 @@ export function navigate(path, { replace = false } = {}) {
 }
 
 export const isAdmin = () => session.user?.role === 'admin';
+export const prefs = () => session.user?.prefs || {};
 
-export async function render() {
-  const token = ++renderToken;
-  for (const fn of leaveHandlers.splice(0)) {
-    try {
-      fn();
-    } catch (e) {
-      console.error(e);
-    }
-  }
+function resolve() {
   const [path = '/', query = ''] = (location.hash.replace(/^#/, '') || '/').split('?');
-  let match = null;
-  if (path !== currentPath) {
-    prevPath = currentPath;
-    currentPath = path;
-  }
   const params = { query: new URLSearchParams(query) };
   for (const r of routes) {
     const m = path.match(r.re);
     if (m) {
-      match = r;
       r.keys.forEach((k, i) => (params[k] = m[i + 1] != null ? decodeURIComponent(m[i + 1]) : undefined));
-      break;
+      return { r, params, path, full: location.hash.replace(/^#/, '') || '/' };
     }
   }
+  return null;
+}
+
+export async function render() {
+  const token = ++renderToken;
+  const match = resolve();
   if (!match) return navigate('/', { replace: true });
-  if (match.auth && !session.user) return navigate('/login', { replace: true });
+  if (match.r.auth && !session.user) return navigate('/login', { replace: true });
 
-  document.body.classList.toggle('bare', match.bare);
-  document.querySelectorAll('[data-nav]').forEach((a) => {
-    if (a.dataset.nav === match.nav) a.setAttribute('aria-current', 'page');
-    else a.removeAttribute('aria-current');
-  });
+  const run = async () => {
+    for (const fn of leaveHandlers.splice(0)) {
+      try {
+        fn();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    if (match.full !== currentPath) {
+      prevPath = currentPath;
+      currentPath = match.full;
+    }
+    // Dialogs, sheets and menus live on <body>; don't let them leak into the next page.
+    document.querySelectorAll('dialog[open]').forEach((d) => d.close());
+    document.querySelectorAll('.menu, .sel-toolbar').forEach((m) => m.remove());
+    document.body.classList.toggle('bare', match.r.bare);
+    document.body.classList.remove('drawer-open');
+    const view = document.getElementById('view');
+    view.replaceChildren();
+    window.scrollTo(0, 0);
+    for (const fn of listeners) fn(match);
+    try {
+      await match.r.handler(view, match.params, () => token !== renderToken);
+    } catch (err) {
+      console.error(err);
+      if (token !== renderToken) return;
+      const { h, icon } = await import('./ui.js');
+      view.replaceChildren(
+        h('div.empty', icon('error'), h('h2.title-large', 'Something went wrong'), h('p.body-medium', err.message), h('a.btn.tonal', { href: '#/' }, 'Go home')),
+      );
+    }
+  };
 
-  const view = document.getElementById('view');
-  view.replaceChildren();
-  window.scrollTo(0, 0);
-  try {
-    await match.handler(view, params, () => token !== renderToken);
-  } catch (err) {
-    console.error(err);
-    if (token !== renderToken) return;
-    const { h, icon } = await import('./ui.js');
-    view.replaceChildren(
-      h('div.empty', icon('error'), h('h2.title-large', 'Something went wrong'), h('p.body-medium', err.message), h('a.btn.tonal', { href: '#/' }, 'Go home')),
-    );
+  // Animate between pages with the View Transitions API where available.
+  if (document.startViewTransition && motionEnabled() && currentPath !== null && !match.r.bare && !document.body.classList.contains('bare')) {
+    let resolveReady;
+    const ready = new Promise((r) => (resolveReady = r));
+    const vt = document.startViewTransition(async () => {
+      // Snapshot once the new page has content (or after a short cap so slow pages don't stall).
+      const p = run();
+      await Promise.race([p, new Promise((r) => setTimeout(r, 350))]);
+      resolveReady();
+    });
+    vt.finished.catch(() => {});
+    vt.ready.catch(() => resolveReady());
+    await ready;
+  } else {
+    await run();
   }
 }
 

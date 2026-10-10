@@ -98,6 +98,151 @@ const migrations = [
     value TEXT
   );
   `,
+  // v2: series model, collections, annotations, reading profiles, API keys, devices, fonts.
+  `
+  ALTER TABLE users ADD COLUMN email TEXT;
+  ALTER TABLE users ADD COLUMN prefs TEXT;
+  ALTER TABLE users ADD COLUMN max_age_rating INTEGER;
+  ALTER TABLE users ADD COLUMN age_include_unknown INTEGER NOT NULL DEFAULT 1;
+
+  ALTER TABLE libraries ADD COLUMN mode TEXT NOT NULL DEFAULT 'komga';
+  ALTER TABLE libraries ADD COLUMN auto_metadata INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE libraries ADD COLUMN cover_policy TEXT NOT NULL DEFAULT 'missing';
+  ALTER TABLE libraries ADD COLUMN sources TEXT;
+
+  CREATE TABLE series (
+    id               INTEGER PRIMARY KEY,
+    library_id       INTEGER NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+    key              TEXT NOT NULL,
+    name             TEXT NOT NULL,
+    localized_name   TEXT,
+    sort_name        TEXT,
+    summary          TEXT,
+    status           TEXT,
+    publisher        TEXT,
+    year             INTEGER,
+    age_rating       INTEGER,
+    language         TEXT,
+    genres           TEXT NOT NULL DEFAULT '[]',
+    tags             TEXT NOT NULL DEFAULT '[]',
+    people           TEXT NOT NULL DEFAULT '[]',
+    links            TEXT NOT NULL DEFAULT '[]',
+    provider_ids     TEXT NOT NULL DEFAULT '{}',
+    locked           TEXT NOT NULL DEFAULT '[]',
+    cover            TEXT,
+    metadata_source  TEXT,
+    metadata_at      INTEGER,
+    created_at       INTEGER NOT NULL,
+    updated_at       INTEGER NOT NULL,
+    UNIQUE (library_id, key)
+  );
+
+  CREATE TABLE series_relations (
+    series_id   INTEGER NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+    related_id  INTEGER NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL,
+    PRIMARY KEY (series_id, related_id)
+  );
+
+  ALTER TABLE books ADD COLUMN series_id INTEGER REFERENCES series(id) ON DELETE SET NULL;
+  ALTER TABLE books ADD COLUMN volume REAL;
+  ALTER TABLE books ADD COLUMN chapter REAL;
+  ALTER TABLE books ADD COLUMN special INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE books ADD COLUMN embedded TEXT;
+  CREATE INDEX books_series_id ON books(series_id);
+
+  CREATE TABLE user_series (
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    series_id     INTEGER NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+    want_to_read  INTEGER NOT NULL DEFAULT 0,
+    want_added_at INTEGER,
+    status        TEXT,
+    blur          INTEGER NOT NULL DEFAULT 0,
+    user_tags     TEXT NOT NULL DEFAULT '[]',
+    reader_settings TEXT,
+    updated_at    INTEGER NOT NULL,
+    PRIMARY KEY (user_id, series_id)
+  );
+
+  CREATE TABLE collections (
+    id          INTEGER PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    summary     TEXT,
+    promoted    INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  );
+  CREATE TABLE collection_items (
+    collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+    series_id     INTEGER NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+    added_at      INTEGER NOT NULL,
+    PRIMARY KEY (collection_id, series_id)
+  );
+
+  CREATE TABLE annotations (
+    id          INTEGER PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    book_id     INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL CHECK (kind IN ('highlight', 'bookmark')),
+    locator     TEXT NOT NULL,
+    page        INTEGER,
+    percent     REAL,
+    text        TEXT,
+    note        TEXT,
+    color       TEXT,
+    chapter     TEXT,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  );
+  CREATE INDEX annotations_book ON annotations(user_id, book_id);
+
+  CREATE TABLE reading_profiles (
+    id          INTEGER PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    settings    TEXT NOT NULL DEFAULT '{}',
+    is_default  INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL
+  );
+  CREATE TABLE profile_bindings (
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    target      TEXT NOT NULL CHECK (target IN ('library', 'series')),
+    target_id   INTEGER NOT NULL,
+    profile_id  INTEGER NOT NULL REFERENCES reading_profiles(id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, target, target_id)
+  );
+
+  CREATE TABLE api_keys (
+    id           INTEGER PRIMARY KEY,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name         TEXT NOT NULL,
+    key          TEXT NOT NULL UNIQUE,
+    created_at   INTEGER NOT NULL,
+    last_used_at INTEGER
+  );
+
+  CREATE TABLE devices (
+    id          INTEGER PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    email       TEXT NOT NULL,
+    platform    TEXT NOT NULL DEFAULT 'other',
+    created_at  INTEGER NOT NULL
+  );
+
+  CREATE TABLE fonts (
+    id          INTEGER PRIMARY KEY,
+    name        TEXT NOT NULL,
+    file        TEXT NOT NULL,
+    created_at  INTEGER NOT NULL
+  );
+
+  -- Regroup everything into series on the next scan. Ebook libraries default to
+  -- metadata/filename grouping; comics and manga to folder-per-series.
+  UPDATE libraries SET mode = 'kavita' WHERE kind = 'books';
+  UPDATE books SET needs_meta = 1;
+  `,
 ];
 
 const version = db.prepare('PRAGMA user_version').get().user_version;

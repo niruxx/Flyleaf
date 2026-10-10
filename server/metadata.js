@@ -3,6 +3,7 @@
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const { readZipFile } = require('./archive');
+const { quietly } = require('./log');
 
 // ---------------------------------------------------------------------------
 // Tiny XML helpers – good enough for OPF and ComicInfo, which are simple.
@@ -82,9 +83,17 @@ async function epubMetadata(file) {
   const metaByName = (n) => metas.find((m) => m.attrs.name === n)?.attrs.content || null;
   const metaByProp = (p) => metas.find((m) => m.attrs.property === p)?.text || null;
 
-  const creators = elements(opf, 'creator').map((c) => c.text).filter(Boolean);
+  const creatorEls = elements(opf, 'creator');
+  const creators = creatorEls.map((c) => c.text).filter(Boolean);
+  const people = creatorEls
+    .filter((c) => c.text)
+    .map((c) => ({ name: c.text, role: /ill|art/.test(c.attrs['opf:role'] || '') ? 'Artist' : 'Writer' }));
   const series = metaByName('calibre:series') || metaByProp('belongs-to-collection');
   const seriesIndex = metaByName('calibre:series_index') || metaByProp('group-position');
+  const date = first(opf, 'date');
+  const links = [...elements(opf, 'source'), ...elements(opf, 'identifier')]
+    .map((e) => e.text)
+    .filter((t) => /^https?:\/\//i.test(t || ''));
 
   // Locate the cover image.
   const items = elements(opf, 'item').map((i) => i.attrs);
@@ -105,9 +114,15 @@ async function epubMetadata(file) {
   return {
     title: first(opf, 'title'),
     author: creators.join(', ') || null,
+    people,
     description: stripHtml(first(opf, 'description')),
     series: series || null,
     seriesIndex: seriesIndex != null && seriesIndex !== '' ? Number(seriesIndex) : null,
+    subjects: elements(opf, 'subject').map((s) => s.text).filter(Boolean),
+    publisher: first(opf, 'publisher'),
+    year: date ? Number(String(date).slice(0, 4)) || null : null,
+    language: first(opf, 'language'),
+    links,
     cover,
   };
 }
@@ -117,38 +132,64 @@ async function epubMetadata(file) {
 
 let pdfjsPromise;
 async function pdfMetadata(file) {
-  pdfjsPromise ??= import('pdfjs-dist/legacy/build/pdf.mjs');
+  // pdf.js prints polyfill warnings when imported in Node; keep them out of the terminal.
+  pdfjsPromise ??= quietly(() => import('pdfjs-dist/legacy/build/pdf.mjs'));
   const pdfjs = await pdfjsPromise;
   const data = new Uint8Array(await fsp.readFile(file));
-  const task = pdfjs.getDocument({ data, isEvalSupported: false, disableFontFace: true, verbosity: 0 });
-  const doc = await task.promise;
-  try {
-    const { info } = await doc.getMetadata().catch(() => ({ info: {} }));
-    return {
-      title: info?.Title?.trim() || null,
-      author: info?.Author?.trim() || null,
-      pageCount: doc.numPages,
-    };
-  } finally {
-    await task.destroy();
-  }
+  return quietly(async () => {
+    const task = pdfjs.getDocument({ data, isEvalSupported: false, disableFontFace: true, verbosity: 0 });
+    const doc = await task.promise;
+    try {
+      const { info } = await doc.getMetadata().catch(() => ({ info: {} }));
+      return {
+        title: info?.Title?.trim() || null,
+        author: info?.Author?.trim() || null,
+        pageCount: doc.numPages,
+      };
+    } finally {
+      await task.destroy();
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
 // ComicInfo.xml
 
+const ROLES = [
+  ['Writer', 'Writer'],
+  ['Penciller', 'Artist'],
+  ['Inker', 'Inker'],
+  ['Colorist', 'Colorist'],
+  ['Letterer', 'Letterer'],
+  ['CoverArtist', 'Cover artist'],
+  ['Editor', 'Editor'],
+  ['Translator', 'Translator'],
+];
+const splitList = (s) => (s ? s.split(/[,;]/).map((x) => x.trim()).filter(Boolean) : []);
+
 function parseComicInfo(xml) {
   if (!xml) return {};
   const get = (n) => first(xml, n);
-  const number = get('Number');
-  const volume = get('Volume');
-  const writers = [get('Writer'), get('Penciller')].filter(Boolean);
+  const num = (v) => (v != null && v !== '' && !Number.isNaN(Number(v)) ? Number(v) : null);
+  const people = [];
+  for (const [tag, role] of ROLES) for (const name of splitList(get(tag))) people.push({ name, role });
   return {
     title: get('Title'),
     series: get('Series'),
-    seriesIndex: number != null && !Number.isNaN(Number(number)) ? Number(number) : volume ? Number(volume) : null,
-    author: writers[0] || null,
+    localizedSeries: get('LocalizedSeries'),
+    number: num(get('Number')),
+    volume: num(get('Volume')),
+    count: num(get('Count')),
+    author: people.find((p) => p.role === 'Writer')?.name || people[0]?.name || null,
+    people,
     description: stripHtml(get('Summary')),
+    genres: splitList(get('Genre')),
+    tags: splitList(get('Tags')),
+    publisher: get('Publisher'),
+    year: num(get('Year')),
+    language: get('LanguageISO'),
+    ageRating: get('AgeRating'),
+    links: splitList(get('Web')).filter((u) => /^https?:\/\//i.test(u)),
     manga: /^yes/i.test(get('Manga') || ''),
   };
 }

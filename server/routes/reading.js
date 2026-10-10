@@ -2,7 +2,7 @@
 
 const express = require('express');
 const { q, tx } = require('../db');
-const { toBook, BOOK_SELECT } = require('./library');
+const { toBook, getBook } = require('../serialize');
 
 const router = express.Router();
 
@@ -20,28 +20,25 @@ function serverDay() {
  */
 router.put('/books/:id/progress', (req, res) => {
   const bookId = Number(req.params.id);
-  const book = q('SELECT id, page_count FROM books WHERE id = ?').get(bookId);
-  if (!book) return res.status(404).json({ error: 'Book not found.' });
+  if (!getBook(bookId, req.user)) return res.status(404).json({ error: 'Book not found.' });
 
   const body = req.body || {};
   const now = Date.now();
   const percent = Number.isFinite(Number(body.percent)) ? Math.min(Math.max(Number(body.percent), 0), 1) : null;
   const page = Number.isInteger(body.page) && body.page >= 0 ? body.page : null;
   const position = typeof body.position === 'string' ? body.position.slice(0, 2000) : null;
-  const settings = body.settings && typeof body.settings === 'object' ? JSON.stringify(body.settings).slice(0, 4000) : null;
   const seconds = Math.min(Math.max(Math.round(Number(body.seconds) || 0), 0), 600);
   const day = typeof body.day === 'string' && DAY_RE.test(body.day) ? body.day : serverDay();
   const finished = body.finished === true || (percent != null && percent >= 0.999) ? 1 : null;
 
   tx(() => {
-    q(`INSERT INTO progress (user_id, book_id, position, page, percent, finished, settings, started_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    q(`INSERT INTO progress (user_id, book_id, position, page, percent, finished, started_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (user_id, book_id) DO UPDATE SET
          position   = COALESCE(excluded.position, position),
          page       = COALESCE(excluded.page, page),
          percent    = COALESCE(?, percent),
          finished   = MAX(finished, excluded.finished),
-         settings   = COALESCE(excluded.settings, settings),
          updated_at = excluded.updated_at`).run(
       req.user.id,
       bookId,
@@ -49,7 +46,6 @@ router.put('/books/:id/progress', (req, res) => {
       page,
       percent ?? 0,
       finished ?? 0,
-      settings,
       now,
       now,
       percent,
@@ -65,7 +61,7 @@ router.put('/books/:id/progress', (req, res) => {
 // Mark as read / unread.
 router.post('/books/:id/finished', (req, res) => {
   const bookId = Number(req.params.id);
-  if (!q('SELECT 1 FROM books WHERE id = ?').get(bookId)) return res.status(404).json({ error: 'Book not found.' });
+  if (!getBook(bookId, req.user)) return res.status(404).json({ error: 'Book not found.' });
   const now = Date.now();
   if (req.body?.finished) {
     q(`INSERT INTO progress (user_id, book_id, percent, finished, started_at, updated_at) VALUES (?, ?, 1, 1, ?, ?)
@@ -74,24 +70,6 @@ router.post('/books/:id/finished', (req, res) => {
     q('DELETE FROM progress WHERE user_id = ? AND book_id = ?').run(req.user.id, bookId);
   }
   res.json({ ok: true });
-});
-
-// Mark a whole series read/unread.
-router.post('/series/finished', (req, res) => {
-  const { libraryId, series, finished } = req.body || {};
-  const ids = q('SELECT id FROM books WHERE library_id = ? AND series = ?').all(Number(libraryId), String(series)).map((r) => r.id);
-  const now = Date.now();
-  tx(() => {
-    for (const id of ids) {
-      if (finished) {
-        q(`INSERT INTO progress (user_id, book_id, percent, finished, started_at, updated_at) VALUES (?, ?, 1, 1, ?, ?)
-           ON CONFLICT (user_id, book_id) DO UPDATE SET finished = 1, percent = 1, updated_at = excluded.updated_at`).run(req.user.id, id, now, now);
-      } else {
-        q('DELETE FROM progress WHERE user_id = ? AND book_id = ?').run(req.user.id, id);
-      }
-    }
-  });
-  res.json({ ok: true, count: ids.length });
 });
 
 router.get('/stats', (req, res) => {
@@ -118,8 +96,8 @@ router.get('/stats', (req, res) => {
                  GROUP BY book_id ORDER BY seconds DESC LIMIT 8`).all(uid);
   const topBooks = top
     .map((t) => {
-      const row = q(`${BOOK_SELECT} WHERE b.id = ?`).get(uid, t.book_id);
-      return row ? { book: toBook(row), seconds: t.seconds } : null;
+      const row = getBook(t.book_id, req.user);
+      return row ? { book: toBook(row, false, req.user), seconds: t.seconds } : null;
     })
     .filter(Boolean);
 

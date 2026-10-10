@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const config = require('./config');
+const log = require('./log').logger('covers');
 
 fs.mkdirSync(config.coverDir, { recursive: true });
 
@@ -12,7 +13,7 @@ try {
   sharp = require('sharp');
   sharp.cache(false);
 } catch {
-  console.warn('[covers] sharp not available – covers will be stored at original size.');
+  log.warn('sharp not available – covers will be stored at original size.');
 }
 
 const SIGNATURES = [
@@ -26,14 +27,13 @@ function sniffExt(buf) {
   return null;
 }
 
-async function removeCovers(bookId) {
+async function removeByPrefix(prefix) {
   for (const f of await fsp.readdir(config.coverDir)) {
-    if (f.startsWith(`${bookId}.`)) await fsp.rm(path.join(config.coverDir, f), { force: true });
+    if (f.startsWith(prefix)) await fsp.rm(path.join(config.coverDir, f), { force: true });
   }
 }
 
-/** Store a cover image for a book; returns the file name or null when unusable. */
-async function saveCover(bookId, buffer) {
+async function store(prefix, buffer) {
   if (!buffer?.length) return null;
   let out = null;
   let ext = null;
@@ -54,14 +54,38 @@ async function saveCover(bookId, buffer) {
     if (!ext) return null;
     out = buffer;
   }
-  await removeCovers(bookId);
-  const name = `${bookId}${ext}`;
+  await removeByPrefix(prefix);
+  // A timestamp in the name keeps browser caches honest when artwork changes.
+  const name = `${prefix}${Date.now().toString(36)}${ext}`;
   await fsp.writeFile(path.join(config.coverDir, name), out);
   return name;
 }
+
+/** Book (volume) cover. */
+const saveCover = (bookId, buffer) => store(`${bookId}.`, buffer);
+const removeCovers = (bookId) => removeByPrefix(`${bookId}.`);
+/** Series artwork (custom or from a metadata provider). */
+const saveSeriesCover = (seriesId, buffer) => store(`s${seriesId}.`, buffer);
+const removeSeriesCover = (seriesId) => removeByPrefix(`s${seriesId}.`);
 
 function coverPath(name) {
   return path.join(config.coverDir, path.basename(name));
 }
 
-module.exports = { saveCover, removeCovers, coverPath, sniffExt };
+/** Download an image from a URL (provider artwork, "set cover from URL"). */
+async function fetchImage(url, maxBytes = 15 * 1024 * 1024) {
+  if (!/^https?:\/\//i.test(url)) throw new Error('Only http(s) image URLs are supported.');
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'Flyleaf/2.0 (self-hosted reader)' },
+    signal: AbortSignal.timeout(20000),
+    redirect: 'follow',
+  });
+  if (!res.ok) throw new Error(`Image download failed (${res.status})`);
+  const len = Number(res.headers.get('content-length') || 0);
+  if (len > maxBytes) throw new Error('Image is too large.');
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length > maxBytes) throw new Error('Image is too large.');
+  return buf;
+}
+
+module.exports = { saveCover, removeCovers, saveSeriesCover, removeSeriesCover, coverPath, sniffExt, fetchImage };

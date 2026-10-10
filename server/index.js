@@ -3,6 +3,7 @@
 const path = require('node:path');
 const express = require('express');
 const config = require('./config');
+const log = require('./log').logger('server');
 require('./db');
 const auth = require('./auth');
 const scanner = require('./scanner');
@@ -22,10 +23,15 @@ app.use((req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// OPDS (API-key authenticated, read-only) – mounted before the session API.
+
+app.use('/api/opds', require('./opds').router);
+
+// ---------------------------------------------------------------------------
 // API
 
 const api = express.Router();
-api.use(express.json({ limit: '256kb' }));
+api.use(express.json({ limit: '512kb' }));
 api.use(auth.sessionMiddleware);
 api.use(auth.csrfGuard);
 api.use((req, res, next) => {
@@ -36,13 +42,18 @@ api.use((req, res, next) => {
 const authRoutes = require('./routes/auth');
 api.use(authRoutes.router);
 api.use(auth.requireUser);
+api.use('/me', authRoutes.me);
 api.use('/users', authRoutes.users);
+api.use('/admin', require('./routes/admin').router);
 api.use(require('./routes/library').router);
+api.use(require('./routes/series').router);
+api.use(require('./routes/books').router);
 api.use(require('./routes/reading').router);
+api.use(require('./routes/personal').router);
 
 api.use((req, res) => res.status(404).json({ error: 'Not found.' }));
 api.use((err, req, res, next) => {
-  console.error(err);
+  log.error(`${req.method} ${req.originalUrl}:`, err);
   if (res.headersSent) return next(err);
   res.status(err.status || 500).json({ error: err.expose ? err.message : 'Something went wrong on the server.' });
 });
@@ -53,21 +64,23 @@ app.use('/api', api);
 // Static front-end and vendored client libraries
 
 const nm = (p) => path.join(config.root, 'node_modules', p);
-const staticOpts = { maxAge: '7d', immutable: false };
 const vendor = {
-  '/vendor/epub': nm('epubjs/dist'),
-  '/vendor/jszip': nm('jszip/dist'),
   '/vendor/pdfjs': nm('pdfjs-dist/legacy/build'),
+  '/vendor/foliate': nm('foliate-js'),
   '/vendor/symbols': nm('material-symbols'),
   '/vendor/roboto-flex': nm('@fontsource-variable/roboto-flex'),
+  '/vendor/fonts/literata': nm('@fontsource/literata'),
+  '/vendor/fonts/merriweather': nm('@fontsource/merriweather'),
+  '/vendor/fonts/atkinson-hyperlegible': nm('@fontsource/atkinson-hyperlegible'),
+  '/vendor/fonts/opendyslexic': nm('@fontsource/opendyslexic'),
 };
 for (const [url, dir] of Object.entries(vendor)) {
   app.use(
     url,
     express.static(dir, {
-      ...staticOpts,
+      maxAge: '7d',
       setHeaders(res, file) {
-        if (file.endsWith('.mjs')) res.type('text/javascript');
+        if (file.endsWith('.mjs') || file.endsWith('.js')) res.type('text/javascript');
       },
     }),
   );
@@ -87,22 +100,34 @@ app.use(
 
 // SPA fallback.
 app.use((req, res, next) => {
-  if (req.method !== 'GET' || req.path.startsWith('/api/')) return next();
+  if (req.method !== 'GET' || req.path.startsWith('/api/') || req.path.startsWith('/vendor/')) return next();
   res.set('Cache-Control', 'no-cache');
   res.sendFile(path.join(publicDir, 'index.html'));
 });
 
 // ---------------------------------------------------------------------------
 
-app.listen(config.port, config.host, () => {
-  console.log(`Flyleaf is running at http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`);
-  console.log(`Data directory: ${config.dataDir}`);
+const server = app.listen(config.port, config.host, () => {
+  const host = config.host === '0.0.0.0' ? 'localhost' : config.host;
+  log.info(`Flyleaf is running at http://${host}:${config.port}  (data: ${config.dataDir})`);
+});
+server.on('error', (err) => {
+  log.error(err.code === 'EADDRINUSE' ? `Port ${config.port} is already in use. Set PORT in .env to use another.` : err.message);
+  process.exit(1);
 });
 
 auth.pruneSessions();
-archive.pruneRarCache().catch(() => {});
+archive.pruneCache().catch(() => {});
 scanner.requestScan(null);
 if (config.scanInterval > 0) {
   setInterval(() => scanner.requestScan(null), config.scanInterval * 60_000).unref();
 }
 setInterval(auth.pruneSessions, 6 * 3600_000).unref();
+
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => {
+    log.info('Shutting down');
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 3000).unref();
+  });
+}

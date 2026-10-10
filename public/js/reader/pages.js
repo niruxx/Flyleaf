@@ -1,23 +1,19 @@
-// Page-based reader for comics/manga (CBZ, CBR, image folders) and PDFs.
+// Page-based reader for manga/comics (CBZ, CBR, CB7, CBT, image folders) and PDFs.
 
 import { api, pageUrl, fileUrl } from '../api.js';
-import { h, segmented, resolveColor } from '../ui.js';
-import { loadDefaults, saveDefaults } from './reader.js';
+import { h, resolveColor } from '../ui.js';
 
-const BACKGROUNDS = {
-  black: ['#000000', '#ffffff'],
-  gray: ['#3a3a3f', '#ffffff'],
-  white: ['#ffffff', '#1b1b1f'],
-};
 const MAX_CANVAS_PIXELS = 12_000_000; // stay well under iOS Safari's canvas limits
 
 // ---------------------------------------------------------------------------
 // Sources
 
 class ImageSource {
-  constructor(book) {
+  constructor(book, { dataSaver }) {
     this.book = book;
     this.cache = new Map();
+    // Data saver: ask the server for screen-sized, compressed pages.
+    this.width = dataSaver ? Math.min(1280, Math.round(Math.max(screen.width, screen.height) * Math.min(devicePixelRatio || 1, 2))) : null;
   }
   async init() {
     const { count } = await api.pages(this.book.id);
@@ -32,19 +28,13 @@ class ImageSource {
         img.alt = `Page ${i + 1}`;
         img.onload = () => (img.decode ? img.decode().catch(() => {}) : Promise.resolve()).then(() => resolve(img));
         img.onerror = () => reject(new Error(`Page ${i + 1} failed to load`));
-        img.src = pageUrl(this.book, i);
+        img.src = pageUrl(this.book, i, this.width);
       });
       p.catch(() => this.cache.delete(i));
       this.cache.set(i, p);
     }
-    // Each caller gets its own element so the same page can appear in two places.
-    return this.cache.get(i).then((img) => {
-      if (!img.isConnected) return img;
-      const copy = img.cloneNode();
-      return copy;
-    });
+    return this.cache.get(i).then((img) => (img.isConnected ? img.cloneNode() : img));
   }
-  /** Keep only pages near `center` cached. */
   trim(center, keep = 8) {
     for (const i of this.cache.keys()) if (Math.abs(i - center) > keep) this.cache.delete(i);
   }
@@ -62,7 +52,6 @@ class PdfSource {
   async init() {
     const pdfjs = await import('/vendor/pdfjs/pdf.min.mjs');
     pdfjs.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs';
-    this.pdfjs = pdfjs;
     this.task = pdfjs.getDocument({ url: fileUrl(this.book), isEvalSupported: false, withCredentials: true });
     this.doc = await this.task.promise;
     this.count = this.doc.numPages;
@@ -75,7 +64,6 @@ class PdfSource {
     }
     return this.sizes.get(i);
   }
-  /** Render page i so that it is `cssWidth` CSS pixels wide. */
   load(i, { cssWidth }) {
     const dpr = Math.min(devicePixelRatio || 1, 2.5);
     const key = `${i}@${Math.round(cssWidth)}`;
@@ -121,7 +109,7 @@ class PdfSource {
           const dest = typeof it.dest === 'string' ? await this.doc.getDestination(it.dest) : it.dest;
           if (dest?.[0]) page = typeof dest[0] === 'object' ? await this.doc.getPageIndex(dest[0]) : dest[0];
         } catch {}
-        flat.push({ label: it.title, page, depth });
+        flat.push({ label: it.title, page, depth, target: page });
         if (it.items?.length && depth < 3) await walk(it.items, depth + 1);
       }
     };
@@ -143,37 +131,44 @@ class PdfSource {
 // Engine
 
 export class PageEngine {
-  constructor(book, shell, tracker) {
+  constructor(book, shell, tracker, data) {
     this.book = book;
     this.shell = shell;
     this.tracker = tracker;
+    this.s = shell.settings;
     this.isPdf = book.format === 'pdf';
-    this.source = this.isPdf ? new PdfSource(book) : new ImageSource(book);
-    const kindKey = this.isPdf ? 'pdf' : book.kind;
-    this.kindKey = kindKey;
-    const defaults = {
-      mode: 'single',
-      dir: book.kind === 'manga' ? 'rtl' : 'ltr',
-      fit: this.isPdf && innerWidth < 600 ? 'width' : 'height',
-      bg: this.isPdf ? 'theme' : 'black',
-    };
-    this.settings = { ...loadDefaults(kindKey, defaults), ...(book.progress?.settings || {}) };
+    this.source = this.isPdf ? new PdfSource(book) : new ImageSource(book, { dataSaver: data.dataSaver });
     this.page = 0;
+    this.half = 0; // 0/1 when a wide page is split in two
     this.renderSeq = 0;
     this.cleanups = [];
+    this.toc = [];
   }
 
-  async open() {
+  get dir() {
+    return this.s.resolvedDir || this.s.direction;
+  }
+  get count() {
+    return this.source.count;
+  }
+  scrollMode() {
+    return this.s.layout === 'webtoon';
+  }
+  splitting() {
+    return this.s.layout === 'single' && (this.s.pageSplit === 'split' || this.s.pageSplit === 'split-reverse');
+  }
+
+  async open(startLocator) {
     this.shell.setLoading(true);
     await this.source.init();
     if (!this.source.count) throw new Error('This book has no pages.');
     const saved = this.book.progress;
-    this.page = saved?.page != null && !saved.finished ? Math.min(saved.page, this.source.count - 1) : 0;
+    let start = saved?.page != null && !saved.finished ? saved.page : 0;
+    if (startLocator != null && /^\d+$/.test(startLocator)) start = Number(startLocator);
+    this.page = Math.min(start, this.count - 1);
     this.applyTheme();
-    this.shell.setSettings((close) => this.settingsSheet(close));
     this.build();
 
-    // Only rebuild for real size changes: iOS Safari fires resize whenever its toolbar collapses.
     let lastW = innerWidth;
     let lastH = innerHeight;
     const onResize = debounce(() => {
@@ -181,19 +176,15 @@ export class PageEngine {
       const heightChanged = Math.abs(innerHeight - lastH) > 120;
       lastW = innerWidth;
       lastH = innerHeight;
+      // iOS Safari fires resize when its toolbar collapses – only rebuild for real changes.
       if (widthChanged || (this.isPdf && !this.scrollMode() && heightChanged)) this.build();
     }, 200);
     addEventListener('resize', onResize);
     this.cleanups.push(() => removeEventListener('resize', onResize));
 
     if (this.isPdf) {
-      this.source.outline().then((toc) => {
-        this.toc = toc;
-        this.shell.setTocAvailable(toc.length > 0);
-      });
-      if (!this.book.coverUrl) {
-        this.source.thumbnail().then((blob) => blob && api.generatedCover(this.book.id, blob)).catch(() => {});
-      }
+      this.source.outline().then((toc) => (this.toc = toc));
+      if (!this.book.coverUrl) this.source.thumbnail().then((blob) => blob && api.generatedCover(this.book.id, blob)).catch(() => {});
     }
   }
 
@@ -205,132 +196,94 @@ export class PageEngine {
   // ----- settings -----
 
   applyTheme() {
-    let [bg, fg] = BACKGROUNDS[this.settings.bg] || [];
-    if (!bg) {
-      const css = getComputedStyle(document.documentElement);
-      bg = resolveColor(css.getPropertyValue('--md-surface-container-lowest').trim());
-      fg = resolveColor(css.getPropertyValue('--md-on-surface').trim());
-    }
-    this.shell.setTheme(bg, fg);
+    let bg = this.s.background || '#000000';
+    if (!/^#[0-9a-f]{6}$/i.test(bg)) bg = resolveColor(bg);
+    const lum = parseInt(bg.slice(1, 3), 16) * 0.3 + parseInt(bg.slice(3, 5), 16) * 0.59 + parseInt(bg.slice(5, 7), 16) * 0.11;
+    this.shell.setTheme(bg, lum > 140 ? '#1b1b1f' : '#ffffff');
     const r = this.shell.root;
-    r.classList.toggle('rtl', this.settings.dir === 'rtl');
-    r.classList.toggle('double', this.settings.mode === 'double');
-    for (const f of ['height', 'width', 'original']) r.classList.toggle(`fit-${f}`, this.settings.fit === f);
-    this.shell.setArrows(this.settings.dir === 'rtl');
+    r.classList.toggle('rtl', this.dir === 'rtl');
+    r.classList.toggle('double', this.s.layout === 'double');
+    for (const f of ['screen', 'width', 'height', 'original']) r.classList.toggle(`fit-${f}`, this.s.scaling === f);
+    r.style.setProperty('--strip-gap', `${this.s.webtoonGap || 0}px`);
+    this.shell.setArrows(this.dir === 'rtl');
   }
 
-  setSetting(key, value) {
-    this.settings[key] = value;
-    saveDefaults(this.kindKey, this.settings);
-    this.tracker.saveSettings(this.settings);
+  applySetting(key) {
     this.applyTheme();
-    if (key !== 'bg') this.build();
-  }
-
-  settingsSheet() {
-    const s = this.settings;
-    return h('div',
-      h('div.sheet-section', h('h3', 'Layout'),
-        segmented([
-          { value: 'single', label: 'Single', icon: 'crop_portrait' },
-          { value: 'double', label: 'Double', icon: 'menu_book' },
-          { value: 'strip', label: 'Scroll', icon: 'view_day' },
-        ], s.mode, (v) => this.setSetting('mode', v))),
-      h('div.sheet-section', h('h3', 'Reading direction'),
-        segmented([
-          { value: 'ltr', label: 'Left to right', icon: 'arrow_forward' },
-          { value: 'rtl', label: 'Right to left', icon: 'arrow_back' },
-        ], s.dir, (v) => this.setSetting('dir', v))),
-      h('div.sheet-section', h('h3', 'Page fit'),
-        segmented([
-          { value: 'height', label: 'Screen', icon: 'fit_screen' },
-          { value: 'width', label: 'Width', icon: 'width' },
-          { value: 'original', label: 'Original', icon: 'zoom_in' },
-        ], s.fit, (v) => this.setSetting('fit', v))),
-      h('div.sheet-section', h('h3', 'Background'),
-        segmented([
-          { value: 'black', label: 'Black' },
-          { value: 'gray', label: 'Gray' },
-          { value: 'white', label: 'White' },
-          { value: 'theme', label: 'Theme' },
-        ], s.bg, (v) => this.setSetting('bg', v))),
-      h('p.body-small.muted', { style: { padding: '4px 24px 8px' } },
-        `Saved for this book and used as the default for other ${this.isPdf ? 'PDFs' : this.book.kind}.`),
-    );
-  }
-
-  openToc() {
-    if (!this.toc?.length) return;
-    import('../ui.js').then(({ sheet }) =>
-      sheet((close) =>
-        h('div.toc', h('div.sheet-section', h('h3', 'Contents')),
-          this.toc.map((t) =>
-            h(`button.list-item.state.depth-${Math.min(t.depth, 3)}`, {
-              type: 'button',
-              onclick: () => {
-                close();
-                this.go(t.page);
-              },
-            }, h('span.text', t.label), h('span.trailing', String(t.page + 1))),
-          ),
-        ),
-      ),
-    );
+    if (['layout', 'direction', 'scaling', 'pageSplit', 'webtoonGap'].includes(key)) {
+      this.half = 0;
+      this.build();
+    }
   }
 
   // ----- navigation -----
 
-  get count() {
-    return this.source.count;
-  }
-  scrollMode() {
-    return this.settings.mode === 'strip';
-  }
-  /** Pages shown together with page p. */
   spreadOf(p) {
-    if (this.settings.mode !== 'double' || p === 0) return [p];
+    if (this.s.layout !== 'double' || p === 0) return [p];
     const start = p % 2 === 1 ? p : p - 1;
     return [start, start + 1].filter((x) => x < this.count);
   }
   next() {
     if (this.scrollMode()) return this.scrollBy(1);
-    // In fit-width mode, scroll down through a tall page before turning.
-    if (this.container && this.settings.fit !== 'height') {
+    if (this.container && this.s.scaling !== 'screen' && !this.wideFit) {
       const c = this.container;
       if (c.scrollTop + c.clientHeight < c.scrollHeight - 4) {
         c.scrollBy({ top: c.clientHeight * 0.85, behavior: 'smooth' });
         return;
       }
     }
+    if (this.splitting() && this.currentWide && this.half === 0) {
+      this.half = 1;
+      return this.renderPaged('next');
+    }
     const spread = this.spreadOf(this.page);
     const nextPage = spread[spread.length - 1] + 1;
     if (nextPage >= this.count) return this.shell.showEnd();
-    this.go(nextPage);
+    this.half = 0;
+    this.go(nextPage, { dir: 'next' });
   }
   prev() {
     if (this.scrollMode()) return this.scrollBy(-1);
-    if (this.container && this.settings.fit !== 'height' && this.container.scrollTop > 4) {
+    if (this.container && this.s.scaling !== 'screen' && this.container.scrollTop > 4) {
       this.container.scrollBy({ top: -this.container.clientHeight * 0.85, behavior: 'smooth' });
       return;
     }
+    if (this.splitting() && this.currentWide && this.half === 1) {
+      this.half = 0;
+      return this.renderPaged('prev');
+    }
     const spread = this.spreadOf(this.page);
     if (spread[0] === 0) return this.shell.toast('Start of book');
-    this.go(this.spreadOf(spread[0] - 1)[0], { fromEnd: true });
+    this.half = 0;
+    this.wantSecondHalf = true;
+    this.go(this.spreadOf(spread[0] - 1)[0], { dir: 'prev' });
   }
   left() {
-    this.settings.dir === 'rtl' ? this.next() : this.prev();
+    this.dir === 'rtl' ? this.next() : this.prev();
   }
   right() {
-    this.settings.dir === 'rtl' ? this.prev() : this.next();
+    this.dir === 'rtl' ? this.prev() : this.next();
   }
   goToStart() {
     this.go(0);
   }
+  goToEnd() {
+    this.go(this.count - 1);
+  }
+  goTo(target) {
+    this.go(Number(target));
+  }
+  goToLocator(loc) {
+    this.go(Number(loc));
+  }
   scrollBy(dir) {
     this.container?.scrollBy({ top: dir * this.container.clientHeight * 0.85, behavior: 'smooth' });
   }
+  currentLocator() {
+    return { locator: String(this.page), page: this.page, percent: (this.page + 1) / this.count };
+  }
 
-  go(p, { fromEnd = false } = {}) {
+  go(p, { dir } = {}) {
     p = Math.max(0, Math.min(this.count - 1, p));
     if (this.scrollMode()) {
       this.page = p;
@@ -338,7 +291,7 @@ export class PageEngine {
       return;
     }
     this.page = this.spreadOf(p)[0];
-    this.renderPaged(fromEnd);
+    this.renderPaged(dir);
   }
 
   report() {
@@ -349,6 +302,7 @@ export class PageEngine {
     this.shell.setSliderValue(this.page);
     this.shell.setSubtitle(`Page ${spread[0] + 1} of ${this.count}`);
     this.tracker.update({ page: this.page, position: String(this.page), percent: (last + 1) / this.count });
+    this.shell.pageTurned();
   }
 
   // ----- layout -----
@@ -361,7 +315,7 @@ export class PageEngine {
       min: 0,
       max: this.count - 1,
       value: this.page,
-      rtl: this.settings.dir === 'rtl',
+      rtl: this.dir === 'rtl',
       onInput: (v) => this.shell.setPosition(`${v + 1} / ${this.count}`),
       onChange: (v) => this.go(v),
     });
@@ -377,7 +331,7 @@ export class PageEngine {
     this.renderPaged();
   }
 
-  async renderPaged(fromEnd = false) {
+  async renderPaged(dir) {
     const seq = ++this.renderSeq;
     const spread = this.spreadOf(this.page);
     this.report();
@@ -395,10 +349,32 @@ export class PageEngine {
     clearTimeout(loadingTimer);
     if (seq !== this.renderSeq) return;
     this.shell.setLoading(false);
-    const wrap = h('div.spread', els);
+
+    // Wide (double-page) scans: split into halves or force-fit, per the page-splitting setting.
+    const el0 = els[0];
+    const w = el0.naturalWidth || el0.width;
+    const hgt = el0.naturalHeight || el0.height;
+    this.currentWide = spread.length === 1 && w > hgt * 1.1;
+    this.wideFit = this.currentWide && this.s.pageSplit === 'fit';
+    if (this.wantSecondHalf) {
+      if (this.currentWide && this.splitting()) this.half = 1;
+      this.wantSecondHalf = false;
+    }
+    if (this.currentWide && this.splitting()) {
+      const firstIsRight = (this.dir === 'rtl') !== (this.s.pageSplit === 'split-reverse');
+      const leftHalf = this.half === 0 ? !firstIsRight : firstIsRight;
+      const half = Math.floor(w / 2);
+      const c = document.createElement('canvas');
+      c.width = half;
+      c.height = hgt;
+      c.getContext('2d').drawImage(el0, leftHalf ? 0 : half, 0, half, hgt, 0, 0, half, hgt);
+      els = [c];
+    }
+
+    const wrap = h(`div.spread${this.wideFit ? '.fit-wide' : ''}${dir ? `.turn-${dir}` : ''}`, els);
     this.container.replaceChildren(wrap);
-    this.container.scrollTop = fromEnd && this.settings.fit !== 'height' ? this.container.scrollHeight : 0;
-    this.container.scrollLeft = this.settings.dir === 'rtl' ? this.container.scrollWidth : 0;
+    this.container.scrollTop = dir === 'prev' && this.s.scaling !== 'screen' ? this.container.scrollHeight : 0;
+    this.container.scrollLeft = this.dir === 'rtl' ? this.container.scrollWidth : 0;
     this.preload(spread);
   }
 
@@ -406,20 +382,20 @@ export class PageEngine {
     if (!this.isPdf) return {};
     const W = this.shell.stage.clientWidth || innerWidth;
     const H = this.shell.stage.clientHeight || innerHeight;
-    const perPage = this.settings.mode === 'double' && spread.length > 1 ? W / 2 : W;
-    if (this.settings.fit === 'width') return { cssWidth: perPage };
+    const perPage = this.s.layout === 'double' && spread.length > 1 ? W / 2 : W;
     const size = await this.source.pageSize(spread[0]);
-    if (this.settings.fit === 'original') return { cssWidth: size.w * 1.5 };
+    if (this.s.scaling === 'width') return { cssWidth: perPage };
+    if (this.s.scaling === 'height') return { cssWidth: (H * size.w) / size.h };
+    if (this.s.scaling === 'original') return { cssWidth: size.w * 1.5 };
     return { cssWidth: Math.min(perPage, (H * size.w) / size.h) };
   }
 
   preload(spread) {
     const last = spread[spread.length - 1];
-    const ahead = this.isPdf ? 2 : 4;
+    const ahead = this.isPdf ? 2 : this.source.width ? 2 : 4;
     const tasks = [];
     for (let i = 1; i <= ahead; i++) if (last + i < this.count) tasks.push(last + i);
     if (spread[0] > 0) tasks.push(spread[0] - 1);
-    // Preload sequentially so the next page is ready first.
     (async () => {
       for (const i of tasks) {
         try {
@@ -441,27 +417,25 @@ export class PageEngine {
     el.addEventListener('pointermove', (e) => {
       if (start && e.pointerId === start.id && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10) moved = true;
     });
-    const end = (e) => {
+    el.addEventListener('pointerup', (e) => {
       if (!start || e.pointerId !== start.id) return;
       const dx = e.clientX - start.x;
       const dy = e.clientY - start.y;
       const zoomed = (window.visualViewport?.scale || 1) > 1.05;
       const canScrollX = el.scrollWidth > el.clientWidth + 4;
-      if (!zoomed && !canScrollX && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - start.t < 800) {
+      if (this.shell.swipeEnabled() && !zoomed && !canScrollX && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - start.t < 800) {
         dx < 0 ? this.right() : this.left();
       }
       start = null;
-    };
-    el.addEventListener('pointerup', end);
+    });
     el.addEventListener('pointercancel', () => (start = null));
     el.addEventListener('click', (e) => {
       if (moved) return;
       const r = el.getBoundingClientRect();
       this.shell.handleTap((e.clientX - r.left) / r.width);
     });
-    // Mouse wheel / trackpad turns pages when the page fits the screen.
     el.addEventListener('wheel', (e) => {
-      if (this.settings.fit !== 'height' || Math.abs(e.deltaY) < 20 || e.ctrlKey) return;
+      if (this.s.scaling !== 'screen' || Math.abs(e.deltaY) < 20 || e.ctrlKey) return;
       e.preventDefault();
       const now = Date.now();
       if (now - (this.lastWheel || 0) < 350) return;
@@ -470,13 +444,13 @@ export class PageEngine {
     }, { passive: false });
   }
 
-  // ----- strip (webtoon) mode -----
+  // ----- webtoon (continuous scroll) -----
 
   buildStrip() {
     const strip = h('div.strip');
     this.container = strip;
     const W = () => Math.min(strip.clientWidth || innerWidth, 800);
-    strip.style.setProperty('--strip-width', this.settings.fit === 'width' || this.isPdf ? '100%' : '800px');
+    strip.style.setProperty('--strip-width', this.s.scaling === 'width' || this.isPdf ? '100%' : '800px');
     const pages = [];
     for (let i = 0; i < this.count; i++) pages.push(h('div.pg', { dataset: { i: String(i) } }));
     strip.append(...pages);
@@ -485,6 +459,7 @@ export class PageEngine {
     this.shell.setLoading(false);
 
     const loaded = new Set();
+    this.stripLoaded = loaded;
     const loadPage = async (i) => {
       if (loaded.has(i)) return;
       loaded.add(i);
@@ -510,6 +485,7 @@ export class PageEngine {
       const c = pg.querySelector('canvas');
       if (c) c.width = c.height = 0;
       pg.replaceChildren();
+      pg.classList.remove('ready');
       loaded.delete(i);
     };
 
@@ -518,8 +494,11 @@ export class PageEngine {
     }, { root: strip, rootMargin: '150% 0px' });
     pages.forEach((p) => io.observe(p));
 
+    // Only celebrate the end after the reader actually scrolls there (not after a jump or layout switch).
+    let userScrolled = false;
+    for (const ev of ['wheel', 'touchmove', 'keydown', 'pointerdown']) strip.addEventListener(ev, () => (userScrolled = true), { passive: true });
     let raf = 0;
-    const onScroll = () => {
+    strip.addEventListener('scroll', () => {
       if (raf) return;
       raf = requestAnimationFrame(() => {
         raf = 0;
@@ -533,14 +512,13 @@ export class PageEngine {
           for (const j of loaded) if (Math.abs(j - i) > 12) unloadPage(j);
           this.source.trim(i, 14);
         }
-        if (strip.scrollTop + strip.clientHeight >= strip.scrollHeight - 2 && this.page >= this.count - 1 && !this.endShown) {
+        if (userScrolled && strip.scrollTop + strip.clientHeight >= strip.scrollHeight - 2 && this.page >= this.count - 1 && !this.endShown) {
           this.endShown = true;
           this.report();
           this.shell.showEnd();
         }
       });
-    };
-    strip.addEventListener('scroll', onScroll, { passive: true });
+    }, { passive: true });
 
     let moved = false;
     let sx = 0;
@@ -557,10 +535,8 @@ export class PageEngine {
       if (moved) return;
       const r = strip.getBoundingClientRect();
       const x = (e.clientX - r.left) / r.width;
-      // In scroll mode, side taps scroll by a screen; the centre toggles the menu.
-      if (x < 0.3) this.scrollBy(-1);
-      else if (x > 0.7) this.scrollBy(1);
-      else this.shell.toggleChrome();
+      if (!this.s.tapToPaginate || (x >= 0.3 && x <= 0.7)) return this.shell.toggleChrome();
+      this.scrollBy(x < 0.3 ? -1 : 1);
     });
 
     this.stripCleanup = () => {
@@ -576,7 +552,6 @@ export class PageEngine {
     const pages = this.stripPages;
     if (!pages) return;
     this.page = p;
-    // Load the target first so it has a real height, then scroll to it.
     const pg = pages[p];
     pg.scrollIntoView({ block: 'start' });
     const el = await this.source.load(p, { cssWidth: pg.clientWidth || innerWidth }).catch(() => null);
@@ -584,6 +559,7 @@ export class PageEngine {
       pg.replaceChildren(el);
       pg.classList.add('ready');
       pg.style.height = '';
+      this.stripLoaded?.add(p);
     }
     pg.scrollIntoView({ block: 'start' });
     if (!initial) this.report();

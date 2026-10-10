@@ -1,108 +1,79 @@
 import { api } from '../api.js';
-import { onLeave, isAdmin, session } from '../router.js';
-import { h, icon, iconButton, topBar, cover, bookTile, loading, emptyState, timeAgo } from '../ui.js';
-import { accountButton, scanIndicator, themeToggle } from './common.js';
+import { isAdmin, session, render } from '../router.js';
+import { h, icon, loading, emptyState, stagger } from '../ui.js';
+import { seriesCard, resumeCard } from '../components/cards.js';
+import { scanIndicator } from './scan.js';
+import { refreshShell } from '../shell.js';
 
 const KIND_ICON = { books: 'menu_book', manga: 'auto_stories', comics: 'photo_library' };
 
 export async function homeView(view, params, stale) {
-  const bar = topBar(
-    'Flyleaf',
-    iconButton('search', 'Search', () => (location.hash = '#/library?search')),
-    themeToggle(),
-    accountButton(),
-  );
-  onLeave(bar.cleanup);
   const page = h('div.page');
-  view.append(bar, page);
+  view.append(page);
   page.append(loading());
-  const scan = isAdmin() ? scanIndicator(() => load()) : null;
+  const scan = isAdmin()
+    ? scanIndicator(() => {
+        refreshShell();
+        render();
+      })
+    : null;
 
-  async function load() {
-    const data = await api.home();
-    if (stale()) return;
-    page.replaceChildren();
+  const data = await api.home();
+  if (stale()) return;
+  page.replaceChildren();
 
-    const hour = new Date().getHours();
-    const greet = hour < 5 ? 'Good night' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-    page.append(
-      h('div.section', { style: { marginTop: '8px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' } },
-        h('h2.headline-small', `${greet}, ${session.user.displayName}`),
+  const hour = new Date().getHours();
+  const greet = hour < 5 ? 'Good night' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const totalItems = data.libraries.reduce((a, l) => a + l.bookCount, 0);
+  const totalSeries = data.libraries.reduce((a, l) => a + l.seriesCount, 0);
+  page.append(
+    h('section.hero.enter',
+      h('h1', `${greet}, ${session.user.displayName}`),
+      h('p', data.continueReading.length ? 'Pick up where you left off, or find something new.' : 'Your library is ready when you are.'),
+      h('div.stats-row',
+        h('span.chip', icon('collections_bookmark'), `${totalSeries} series`),
+        h('span.chip', icon('book_2'), `${totalItems} books`),
+        data.wantToRead.length > 0 && h('a.chip', { href: '#/want-to-read' }, icon('bookmark_heart'), `${data.wantToRead.length} want to read`),
         scan,
       ),
-    );
+    ),
+  );
 
-    if (!data.libraries.length) {
-      page.append(
-        isAdmin()
-          ? emptyState('library_add', 'Add your first library', 'Point Flyleaf at a folder of EPUB, PDF, CBZ or CBR files and it will index them for you.',
-              h('a.btn.filled.state', { href: '#/settings' }, icon('create_new_folder'), 'Add a library'))
-          : emptyState('shelves', 'Nothing here yet', 'The owner hasn’t added any libraries yet.'),
-      );
-      return;
-    }
-
-    if (data.continueReading.length) {
-      page.append(
-        h('section.section', h('div.section-head', h('h2', 'Continue reading')),
-          h('div.continue', data.continueReading.map(resumeCard))),
-      );
-    }
-
-    if (data.recentlyAdded.length) {
-      page.append(
-        h('section.section',
-          h('div.section-head', h('h2', 'Recently added'), h('a.btn.text.state', { href: '#/library' }, 'See all')),
-          h('div.shelf', data.recentlyAdded.map((b) => bookTile(b))),
-        ),
-      );
-    }
-
+  if (!data.libraries.length) {
     page.append(
-      h('section.section',
-        h('div.section-head', h('h2', 'Libraries')),
-        h('div.list.card', { style: { padding: '8px 0' } },
-          data.libraries.map((l) =>
-            h('a.list-item.state', { href: `#/library/${l.id}` },
-              icon(KIND_ICON[l.kind]),
-              h('div.text', h('div.headline', l.name),
-                h('div.supporting', `${l.bookCount} ${l.kind === 'books' ? 'books' : 'items'}${l.seriesCount ? ` · ${l.seriesCount} series` : ''}`)),
-              icon('chevron_right'),
-            ),
-          ),
-        ),
-      ),
+      isAdmin()
+        ? emptyState('library_add', 'Add your first library', 'Point Flyleaf at a folder of EPUB, MOBI, PDF, CBZ, CBR or CB7 files and it will index them for you.',
+            h('a.btn.filled.state', { href: '#/settings/libraries' }, icon('create_new_folder'), 'Add a library'))
+        : emptyState('shelves', 'Nothing here yet', 'The owner hasn’t added any libraries yet.'),
     );
+    return;
   }
 
-  await load();
-}
+  const reload = () => render();
+  const shelf = (title, items, href, build = (s) => seriesCard(s, { onChange: reload })) =>
+    items.length > 0 &&
+    h('section.section.enter',
+      h('div.section-head', h('h2', title), href && h('a.btn.text.state', { href }, 'See all', icon('chevron_right'))),
+      stagger(h('div.shelf', items.map(build))),
+    );
 
-function resumeCard(book) {
-  const p = book.progress;
-  const pct = Math.round((p?.percent || 0) * 100);
-  const where = book.pageCount && p?.page != null ? `Page ${p.page + 1} of ${book.pageCount}` : `${pct}%`;
-  return h(
-    'a.resume-card.state',
-    { href: `#/book/${book.id}` },
-    cover(book, { showProgress: false }),
-    h('div.info',
-      h('div.t', book.title),
-      h('div.s', book.series ? `${book.series}${book.seriesIndex != null ? ` · ${book.seriesIndex}` : ''}` : book.author || ''),
-      h('div.s', `${where} · ${timeAgo(p?.updatedAt)}`),
-      h('div.grow'),
-      h('div.row',
-        h('div.progress', h('span', { style: { width: `${pct}%` } })),
-        h('button.icon-btn.filled.state.play', {
-          type: 'button',
-          title: 'Resume',
-          'aria-label': `Resume ${book.title}`,
-          onclick: (e) => {
-            e.preventDefault();
-            location.hash = `#/read/${book.id}`;
-          },
-        }, icon('play_arrow', 'filled')),
-      ),
+  page.append(
+    data.continueReading.length > 0 &&
+      h('section.section.enter', h('div.section-head', h('h2', 'Continue reading')), stagger(h('div.continue', data.continueReading.map(resumeCard)))),
+    shelf('Want to read', data.wantToRead, '#/want-to-read'),
+    shelf('Recently added', data.recentlyAdded, '#/library?sort=added'),
+    shelf('Recently updated', data.recentlyUpdated, '#/library?sort=updated'),
+    h('section.section.enter',
+      h('div.section-head', h('h2', 'Libraries')),
+      stagger(h('div.list.card', { style: { padding: '8px 0', borderRadius: 'var(--shape-xl)' } },
+        data.libraries.map((l) =>
+          h('a.list-item.state', { href: `#/library/${l.id}` },
+            icon(KIND_ICON[l.kind]),
+            h('div.text', h('div.headline', l.name), h('div.supporting', `${l.seriesCount} series · ${l.bookCount} ${l.kind === 'books' ? 'books' : 'volumes & chapters'}`)),
+            icon('chevron_right'),
+          ),
+        ),
+      )),
     ),
   );
 }
