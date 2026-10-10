@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Flyleaf</title>
+    <meta name="description" content="Your self-hosted library for books, manga and comics." />
+
+    <!-- Installable web app (iOS + Android) -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Flyleaf" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="format-detection" content="telephone=no" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <meta name="theme-color" content="#fbf8ff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#121318" media="(prefers-color-scheme: dark)" />
+
+    <script>
+      // Apply theme before first paint to avoid a flash.
+      try {
+        var t = localStorage.getItem('flyleaf.theme');
+        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+        var h = localStorage.getItem('flyleaf.hue');
+        if (h) document.documentElement.style.setProperty('--seed-hue', h);
+      } catch (e) {}
+    </script>
+
+    <link rel="stylesheet" href="/css/m3.css" />
+    <link rel="stylesheet" href="/css/app.css" />
+    <script type="module" src="/js/main.js"></script>
+  </head>
+  <body class="bare">
+    <nav class="nav-rail" aria-label="Main">
+      <div class="brand" aria-hidden="true"><span class="icon filled">auto_stories</span></div>
+      <a href="#/" data-nav="home"><span class="pill state"><span class="icon">home</span></span>Home</a>
+      <a href="#/library" data-nav="library"><span class="pill state"><span class="icon">local_library</span></span>Library</a>
+      <a href="#/stats" data-nav="stats"><span class="pill state"><span class="icon">insights</span></span>Stats</a>
+      <div class="spacer"></div>
+      <a href="#/settings" data-nav="settings"><span class="pill state"><span class="icon">settings</span></span>Settings</a>
+    </nav>
+
+    <main id="view"></main>
+
+    <nav class="nav-bar" aria-label="Main">
+      <a href="#/" data-nav="home"><span class="pill state"><span class="icon">home</span></span>Home</a>
+      <a href="#/library" data-nav="library"><span class="pill state"><span class="icon">local_library</span></span>Library</a>
+      <a href="#/stats" data-nav="stats"><span class="pill state"><span class="icon">insights</span></span>Stats</a>
+      <a href="#/settings" data-nav="settings"><span class="pill state"><span class="icon">settings</span></span>Settings</a>
+    </nav>
+
+    <div class="snackbar-host" aria-live="polite"></div>
+  </body>
+</html>
