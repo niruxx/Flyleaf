@@ -123,7 +123,8 @@ function browse(kind) {
     };
     const persist = () => store.set(prefKey, JSON.stringify({ sort: state.sort }));
 
-    page.append(pageHeader(title, ...headActions), sub && h('p.muted.enter', { style: { marginTop: '-14px', marginBottom: '16px' } }, sub));
+    page.append(pageHeader(title, ...headActions));
+    if (sub) page.append(h('p.muted.enter', { style: { marginTop: '-14px', marginBottom: '16px' } }, sub));
 
     // Toolbar
     const readRow = h('div.chip-row', READ_FILTERS.map((f) =>

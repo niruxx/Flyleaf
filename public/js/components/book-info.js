@@ -97,7 +97,7 @@ function render(b, close) {
   ]);
 
   const metaFacts = facts([
-    b.series && ['Series', b.series],
+    b.series && b.series !== b.title && ['Series', b.series],
     b.volume != null && ['Volume', String(b.volume)],
     b.chapter != null && ['Chapter', String(b.chapter)],
     writers.length && ['Written by', writers.join(', ')],

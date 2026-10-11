@@ -60,9 +60,13 @@
 ### 🌐 Share & sync
 - **Admin + read-only guest accounts** – share over the internet with port forwarding
 - Per-user **progress, resume, reading time & stats** and **reading lists**
-- Per-user **age limits**, **library access** and **permissions** (downloads, Content Finder, API keys)
+- Per-user **age limits**, **library access** and **permissions** (downloads, uploads, Content Finder, API keys)
 - **OPDS 1.2 + OPDS-PSE** for Panels, Chunky, KOReader, Moon+ … with progress sync
 - **Send to Kindle / Kobo** by email, download single books or whole series
+
+### ⬆️ Upload from any device
+- An **Upload** tab: drag and drop files or whole folders, pick the library and folder (or create one), and optionally add the new series to a collection
+- Live per-file progress, uploads keep going if you switch pages, and the library rescans when they finish
 
 ### 🧭 Content Finder & plugins
 - A **Content Finder** tab that searches **Project Gutenberg**, **Standard Ebooks** and any **OPDS catalog**, and downloads straight into a library
@@ -76,7 +80,8 @@
 ### 🎨 Feels like an app
 - Material 3 throughout: **9 themes** + any custom colour, light/dark/auto
 - **Colorscape** – series pages tint themselves from their artwork
-- Smooth **page transitions & animations** (or turn them off)
+- Smooth, direction-aware **page transitions**, skeleton loading, scroll-in reveals, 3D cover tilt, a circular dark-mode reveal and springy controls (or turn them all off)
+- **Book details** for every file: format, pages, size, location, ISBN, publisher, your reading time and an estimate of time left, plus a detailed list view for volumes
 - **iPhone/Android web app** – full-screen, home-screen icon, safe-area aware
 
 </td>
@@ -84,6 +89,14 @@
 </table>
 
 ---
+
+## 🆕 What's new
+
+- ⬆️ **Upload tab** – drag and drop books, comics or whole folders into any library folder from your phone or computer, with live progress, and add the new series straight to a collection.
+- ℹ️ **Book details** – a Details panel for every file (format, pages, size, location, ISBN, publisher, your reading time and time left), a detailed list view for volumes, and more facts on series pages.
+- ✨ **Smoother motion** – direction-aware page transitions, skeleton loading, scroll-in reveals, 3D cover tilt, a circular dark-mode reveal, and closing animations for dialogs, menus and sheets.
+- 🧩 **Mihon/Tachiyomi extensions** through Suwayomi-Server, and the **Content Finder** with Lua plugins.
+- 🔌 **REST API & webhooks**, **DOCX/RTF** support, comic archives **read in place**, and per-guest **library access & permissions**.
 
 ## 📸 Screenshots
 
@@ -214,6 +227,7 @@ Set these in `/etc/flyleaf/flyleaf.env` (service install) or a `.env` file next 
 | `TRUST_PROXY` | `false` | Set to `true` behind an HTTPS reverse proxy |
 | `SECURE_COOKIES` | `false` | Set to `true` when served over HTTPS |
 | `LOG_LEVEL` | `info` | Terminal verbosity: `debug`, `info`, `warn`, `error` |
+| `MAX_UPLOAD_MB` | `4096` | Largest file the Upload page accepts |
 
 > 🤫 **Quiet console.** The terminal only shows one line per scan and real errors. Everything else (unreadable files, metadata lookups, library noise) goes to `data/logs/flyleaf.log`.
 
@@ -292,6 +306,48 @@ Comics and manga default to Komga style. You can switch at any time and Flyleaf 
 
 Comics stream page-by-page (OPDS-PSE) and your position syncs back to Flyleaf. Toggle **Embed progress indicator** and **Include "Continue from" entry** to taste. Set a **Public URL** in *Settings → Server* if you use a domain.
 
+### ℹ️ Book details
+
+- **One file:** open **⋮ → Details** on any book or volume. You'll see:
+  - your reading: when you started, time spent, reading days, an estimate of time left at your own pace, and highlight and bookmark counts;
+  - the book: series, volume or chapter, writers and artists, publisher, year, language, genres and ISBN (linked to Open Library);
+  - the file: name, format, size, date added and modified, library, and its full path (admin only).
+- **A series:** the series page shows formats, total size and pages, your time spent reading, your notes, when it was added and (admin) its folder.
+- **Volumes as a list:** use the **grid / list** toggle next to the volumes heading for one row per file with format, pages, size, date added and progress. Your choice is remembered.
+
+ISBNs are read from EPUB, MOBI/AZW3 and ComicInfo (`GTIN`) metadata. Files added before this update get theirs when the file changes. To pick one up right away, an admin can open **⋮ → Edit volume → Re-read from file**; this replaces manual edits to that volume.
+
+### ✨ Animations & effects
+
+Pages slide in the direction you're navigating, while the top bar and menu stay put. Loading shows placeholder shapes instead of spinners, and content rises in as you scroll to it. Other touches:
+- Covers sharpen as they load, then lift, tilt and catch a sheen when you hover with a mouse.
+- The dark-mode toggle spreads the new theme out in a circle.
+- Buttons and chips squish when pressed.
+- Dialogs, menus and sheets animate both in and out.
+- The bars turn translucent and blurred as you scroll.
+
+Only transform and opacity are animated, so it stays smooth on phones. To turn it all off, use *Settings → Preferences → Disable animations*. Flyleaf also follows your device's **reduce motion** setting.
+
+### ⬆️ Uploading
+
+**Upload** (left menu) sends files from your phone or computer into a library:
+
+1. Pick the **library** and **folder**; you can also create a new folder. Each library type gets a hint: in Komga-style libraries, put each series in its own folder.
+2. Optionally choose a **collection**; the new series are added to it once they're scanned.
+3. Drag in files, or a whole folder. A folder of images becomes one chapter, for example `Series/Chapter 1/001.jpg…`. You can also use **Choose files** or **Choose a folder**.
+
+Supported: EPUB, KEPUB, MOBI/AZW3, PDF, DOCX, RTF, FB2, TXT, CBZ, CBR, CB7, CBT and images. The admin can always upload. Guests need **Upload** turned on in *Settings → Users*, and can only upload into libraries they can see. Existing files are never overwritten; a second copy gets a ` (2)` suffix. If Flyleaf runs as a service and the library is under `/home`, run `flyleaf allow-write /path/to/library` first.
+
+Uploading from a script uses a **full-access** API key. Send each file as the raw request body, then finish the batch so the library rescans:
+
+```bash
+KEY=…; LIB=1
+curl -X PUT -H "Authorization: Bearer $KEY" -H "Content-Type: application/octet-stream" \
+  --data-binary @"Dune.epub" "http://localhost:7878/api/uploads/file?library=$LIB&folder=Frank%20Herbert&name=Dune.epub"
+curl -X POST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"libraryId":1,"files":["Frank Herbert/Dune.epub"]}' http://localhost:7878/api/uploads/done
+```
+
 ### 🧭 Content Finder
 
 **Content Finder** (left menu) searches the sources installed as plugins and downloads what you pick into one of your libraries. Flyleaf then rescans that library so the book appears straight away.
@@ -352,7 +408,7 @@ Everything the web app does goes through the same REST API, so scripts can do it
 curl -H "Authorization: Bearer <key>" http://localhost:7878/api/series?sort=added
 ```
 
-The same page lists every endpoint (also served as an OpenAPI 3.1 spec at `/api/openapi.json`). The admin can add **webhooks** there too. Flyleaf POSTs JSON for `book.added`, `book.finished`, `progress.updated`, `library.scanned`, `download.completed`, `download.failed` and `user.created`, and signs every request with `X-Flyleaf-Signature: sha256=<HMAC>`.
+The same page lists every endpoint (also served as an OpenAPI 3.1 spec at `/api/openapi.json`). The admin can add **webhooks** there too. Flyleaf POSTs JSON for `book.added`, `book.finished`, `progress.updated`, `library.scanned`, `download.completed`, `download.failed`, `upload.completed` and `user.created`, and signs every request with `X-Flyleaf-Signature: sha256=<HMAC>`.
 
 ### 📧 Send to Kindle / Kobo
 
@@ -365,7 +421,7 @@ Then use **⋮ → Send to…** on any book or series.
 ### 👥 Users & sharing outside your network
 
 - The first visit creates the **admin**. Add **guests** in *Settings → Users*. Guests can read, bookmark, highlight and keep their own progress, collections and stats, but can't change libraries, metadata or other users.
-- Per guest, set an **age restriction** (Everyone / 13+ / 17+ / 18+), **which libraries** they see, and whether they may **download**, use **Content Finder** or create **API keys**. Everything they can't see is hidden everywhere: the app, search, OPDS and the API.
+- Per guest, set an **age restriction** (Everyone / 13+ / 17+ / 18+), **which libraries** they see, and whether they may **download**, **upload**, use **Content Finder** or create **API keys**. Everything they can't see is hidden everywhere: the app, search, OPDS and the API.
 - To share over the internet, **port-forward** the Flyleaf port on your router, or better, put it behind **HTTPS**:
 
 ```bash
@@ -379,7 +435,7 @@ caddy reverse-proxy --from books.example.com --to localhost:7878
 ```nginx
 server {
   server_name books.example.com;
-  client_max_body_size 50m;
+  client_max_body_size 4g;   # match MAX_UPLOAD_MB for the Upload page
   location / {
     proxy_pass http://127.0.0.1:7878;
     proxy_set_header Host $host;
@@ -411,6 +467,8 @@ Open Flyleaf in **Safari**, then tap **Share → Add to Home Screen**. It launch
 | Service status / logs | `flyleaf status` · `flyleaf logs` · `/opt/flyleaf_data/logs/flyleaf.log` |
 | A file won't open | Check the log. Damaged archives are skipped during scans and listed there. |
 | Metadata source errors | Some sources rate-limit. Wait a minute or add an API key in *Settings → Metadata sources*. |
+| Upload fails with **can't write** or **out of disk space** | Run `flyleaf allow-write /path/to/library`, make sure the service user can write there, and check free space with `df -h` |
+| Upload rejected as **too large** | Raise `MAX_UPLOAD_MB` in `/etc/flyleaf/flyleaf.env`, then `flyleaf restart`. A reverse proxy may have its own limit (nginx: `client_max_body_size`) |
 | Content Finder download says it **can't write** | Run `flyleaf allow-write /path/to/library`, and make sure the service user can write there |
 | **Mihon extensions** source says it can't reach Suwayomi | Check the URL in the plugin settings from the Flyleaf server (`curl http://localhost:4567/api/v1/settings/about`). If Suwayomi's log ends with a Chromium/`libcef` crash, start it with `kcefEnabled=false` (`KCEF_ENABLED=false` in Docker) |
 
@@ -419,7 +477,7 @@ Open Flyleaf in **Safari**, then tap **Share → Add to Home Screen**. It launch
 ## 🛠️ Under the hood
 
 - **Server:** Node.js + Express 5, built-in `node:sqlite` (no native database to compile), `sharp` for thumbnails
-- **Front end:** plain ES modules, no build step, hand-built Material 3 design tokens (OKLCH)
+- **Front end:** plain ES modules, no build step, hand-built Material 3 design tokens (OKLCH); motion uses the View Transitions API, IntersectionObserver and CSS transforms
 - **Readers:** [foliate-js](https://github.com/johnfactotum/foliate-js) for EPUB/MOBI/FB2, [pdf.js](https://mozilla.github.io/pdf.js/) for PDF, and a custom engine for comics and webtoons
 - **Archives (read in place):** yauzl (zip), node-unrar-js WASM (rar, in memory), 7-Zip streaming (7z), a tar indexer (tar)
 - **Documents:** mammoth (DOCX), a built-in RTF reader, both converted to EPUB on the fly and cached

@@ -34,7 +34,7 @@ if [[ -f $MANIFEST ]] && systemctl list-unit-files "$APP.service" >/dev/null 2>&
 fi
 RUN_AS=${M[SERVICE_USER]:-$(stat -c %U "$APP_DIR")}
 as_owner() {
-  if [[ $EUID -eq 0 && $RUN_AS != root ]]; then sudo -u "$RUN_AS" env HOME="${M[DATA_DIR]:-$APP_DIR}" PATH="$PATH" "$@"; else "$@"; fi
+  if [[ $EUID -eq 0 && $RUN_AS != root ]]; then runuser -u "$RUN_AS" -- env HOME="${M[DATA_DIR]:-$APP_DIR}" PATH="$PATH" "$@"; else "$@"; fi
 }
 
 # Data directory: the installer's, or FLYLEAF_DATA_DIR from .env, or ./data.
@@ -95,7 +95,8 @@ trap 'warn "Update failed – restarting the previous version"; as_owner git res
 info "Pulling $(git rev-parse --short "$upstream")…"
 as_owner git merge --quiet --ff-only "$upstream"
 info "Installing npm packages…"
-as_owner "$NPM_BIN" install --omit=dev --no-audit --no-fund --loglevel=error
+# --allow-git: the EPUB reader (foliate-js) is installed straight from GitHub.
+as_owner "$NPM_BIN" install --allow-git=all --omit=dev --no-audit --no-fund --loglevel=error
 trap - ERR
 
 # 4. Restart.

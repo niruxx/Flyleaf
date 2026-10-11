@@ -39,9 +39,10 @@ html[data-nav='back']::view-transition-new(root) { animation: 380ms var(--ease-o
 html[data-nav='theme']::view-transition-old(root),
 html[data-nav='theme']::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
 html[data-nav='theme']::view-transition-new(root) { z-index: 1; }
-html[data-nav='theme']::view-transition-group(app-bar),
-html[data-nav='theme']::view-transition-group(drawer),
-html[data-nav='theme']::view-transition-group(bottom-nav) { display: none; }
+/* The bars join the page snapshot so they're revealed in the new theme too. */
+html[data-nav='theme'] .app-bar,
+html[data-nav='theme'] .drawer,
+html[data-nav='theme'] .bottom-nav { view-transition-name: none; }
 
 /* ---------------------------------------------------------------------------
    Scroll reveal (motion.js adds .reveal to content that starts off-screen). */

@@ -3514,8 +3514,9 @@ span.plugin-icon {
   text-align: left;
   cursor: pointer;
 }
-.up-folder > span {
+.up-folder-name {
   flex: 1;
+  text-align: left;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

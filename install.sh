@@ -104,7 +104,9 @@ pkg_install() {
   case $FAMILY in
     fedora) dnf install -y "${missing[@]}" ;;
     debian) apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing[@]}" ;;
-    arch) pacman -Sy --noconfirm --needed "${missing[@]}" ;;
+    # No -y: syncing the database without upgrading is a partial upgrade, which Arch doesn't support.
+    arch) pacman -S --noconfirm --needed "${missing[@]}" \
+      || die "pacman couldn't install ${missing[*]}. Update the system first (sudo pacman -Syu), then run this again." ;;
   esac
   installed_pkgs+=("${missing[@]}")
 }
@@ -212,7 +214,8 @@ record CONF_DIR "$CONF_DIR"
 chown -R "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR" "$DATA_DIR"
 
 info "Installing npm packages (this can take a minute)…"
-sudo -u "$SERVICE_USER" env HOME="$DATA_DIR" PATH="$(dirname "$NODE_BIN"):$PATH" \
+# runuser (util-linux) is always there; sudo may not be on a minimal system run as root.
+runuser -u "$SERVICE_USER" -- env HOME="$DATA_DIR" PATH="$(dirname "$NODE_BIN"):$PATH" \
   "$NPM_BIN" --prefix "$INSTALL_DIR" install --allow-git=all --omit=dev --no-audit --no-fund --loglevel=error
 ok "Dependencies installed"
 
@@ -241,7 +244,9 @@ cat > "$UNIT" <<EOF
 [Unit]
 Description=Flyleaf – self-hosted books, manga & comics
 Documentation=file://$INSTALL_DIR/README.md
-After=network-online.target
+# Wait for the network and for local/network mounts, so libraries on NFS/SMB shares
+# exist before the first scan (otherwise their books would be marked missing).
+After=network-online.target local-fs.target remote-fs.target
 Wants=network-online.target
 
 [Service]
@@ -253,6 +258,7 @@ EnvironmentFile=$CONF_DIR/flyleaf.env
 ExecStart=$NODE_BIN --disable-warning=ExperimentalWarning $INSTALL_DIR/server/index.js
 Restart=on-failure
 RestartSec=5
+TimeoutStopSec=20
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
@@ -297,24 +303,26 @@ cat > "$CLI" <<CLIEOF
 #!/usr/bin/env bash
 # Flyleaf helper – installed by install.sh
 set -e
+# Run as root directly when we already are; otherwise ask sudo.
+as_root() { if [[ \$EUID -eq 0 ]]; then "\$@"; else sudo "\$@"; fi; }
 case "\${1:-help}" in
   status) systemctl status $APP --no-pager ;;
   logs) journalctl -u $APP -f ;;
-  restart) sudo systemctl restart $APP && echo "Flyleaf restarted" ;;
-  update) sudo $INSTALL_DIR/update.sh ;;
-  uninstall) sudo $INSTALL_DIR/uninstall.sh ;;
+  restart) as_root systemctl restart $APP && echo "Flyleaf restarted" ;;
+  update) as_root $INSTALL_DIR/update.sh ;;
+  uninstall) as_root $INSTALL_DIR/uninstall.sh ;;
   allow-write)
     # Let the service write into a library folder (Content Finder downloads) despite ProtectHome=read-only.
     [[ -n "\$2" && -d "\$2" ]] || { echo "Usage: flyleaf allow-write <library folder>"; exit 1; }
     dir=\$(realpath "\$2")
-    sudo mkdir -p /etc/systemd/system/$APP.service.d
-    printf '[Service]\\nReadWritePaths=%s\\n' "\$dir" | sudo tee "/etc/systemd/system/$APP.service.d/write-\$(echo "\$dir" | sha1sum | cut -c1-10).conf" >/dev/null
-    sudo systemctl daemon-reload && sudo systemctl restart $APP
+    as_root mkdir -p /etc/systemd/system/$APP.service.d
+    printf '[Service]\\nReadWritePaths=%s\\n' "\$dir" | as_root tee "/etc/systemd/system/$APP.service.d/write-\$(echo "\$dir" | sha1sum | cut -c1-10).conf" >/dev/null
+    as_root systemctl daemon-reload && as_root systemctl restart $APP
     echo "Flyleaf can now write to \$dir (make sure '$SERVICE_USER' has write permission there too)." ;;
   reset-password)
     [[ -n "\$2" && -n "\$3" ]] || { echo "Usage: flyleaf reset-password <username> <new-password>"; exit 1; }
-    sudo -u $SERVICE_USER env FLYLEAF_DATA_DIR=$DATA_DIR $NODE_BIN --disable-warning=ExperimentalWarning $INSTALL_DIR/scripts/reset-password.js "\$2" "\$3"
-    sudo systemctl restart $APP ;;
+    as_root runuser -u $SERVICE_USER -- env FLYLEAF_DATA_DIR=$DATA_DIR $NODE_BIN --disable-warning=ExperimentalWarning $INSTALL_DIR/scripts/reset-password.js "\$2" "\$3"
+    as_root systemctl restart $APP ;;
   *) echo "Usage: flyleaf {status|logs|restart|update|allow-write <folder>|reset-password|uninstall}" ;;
 esac
 CLIEOF
@@ -332,7 +340,9 @@ for _ in $(seq 1 20); do
   curl -fs "http://127.0.0.1:$PORT/api/status" >/dev/null 2>&1 && break
   sleep 0.5
 done
-lan_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+# hostname -I isn't on every distro (e.g. Arch); ip (iproute2) is.
+lan_ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit }}')
+[[ -n $lan_ip ]] || lan_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
 if curl -fs "http://127.0.0.1:$PORT/api/status" >/dev/null 2>&1; then
   ok "Flyleaf is running"
 else

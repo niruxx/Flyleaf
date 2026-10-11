@@ -90,7 +90,7 @@ export async function uploadView(view, params, stale) {
     );
     folderList.replaceChildren(
       ...(r.folders.length
-        ? r.folders.map((f) => h('button.up-folder.state', { type: 'button', onclick: () => { state.folder = r.path ? `${r.path}/${f}` : f; loadFolders(); } }, icon('folder', 'filled'), h('span', f), icon('chevron_right')))
+        ? r.folders.map((f) => h('button.up-folder.state', { type: 'button', onclick: () => { state.folder = r.path ? `${r.path}/${f}` : f; loadFolders(); } }, icon('folder', 'filled'), h('span.up-folder-name', f), icon('chevron_right')))
         : [h('div.up-empty-folder', icon('folder_open'), r.files ? `${r.files} ${r.files === 1 ? 'file' : 'files'} here, no sub-folders` : 'Empty folder')]),
     );
     const mode = r.library.mode;
@@ -205,7 +205,7 @@ export async function uploadView(view, params, stale) {
     const waiting = items.filter((i) => i.status === 'waiting' || i.status === 'failed');
     const done = items.filter((i) => i.status === 'done').length;
     const pct = total ? Math.round((loaded / total) * 100) : 0;
-    queue.replaceChildren(
+    queue.replaceChildren(...[
       h('div.up-queue-head',
         h('div', h('div.title-medium', state.running ? `Uploading ${done + 1 > items.length ? items.length : done + 1} of ${items.length}…` : `${items.length} ${items.length === 1 ? 'file' : 'files'} · ${formatBytes(total)}`),
           h('div.body-small.muted', state.running ? `${formatBytes(loaded)} of ${formatBytes(total)}` : `Into ${target.textContent}`)),
@@ -226,7 +226,7 @@ export async function uploadView(view, params, stale) {
             onclick: start,
           }),
       ),
-    );
+    ].filter(Boolean));
   }
 
   function row(i) {
