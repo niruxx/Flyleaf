@@ -11,7 +11,7 @@ const path = require('node:path');
 const zlib = require('node:zlib');
 const { q, tx } = require('../db');
 const config = require('../config');
-const { requireAdmin } = require('../auth');
+const { requireAdmin, requirePermission } = require('../auth');
 const profiles = require('../profiles');
 const mailer = require('../mailer');
 const { getBook, getSeries, listSeries, seriesBooks } = require('../serialize');
@@ -238,27 +238,34 @@ router.put('/series/:id/profile', (req, res) => {
 // ---------------------------------------------------------------------------
 // API keys (OPDS & third-party clients)
 
-router.get('/api-keys', (req, res) => {
-  res.json(q('SELECT id, name, key, created_at, last_used_at FROM api_keys WHERE user_id = ? ORDER BY created_at').all(req.user.id).map((k) => ({
-    id: k.id, name: k.name, key: k.key, createdAt: k.created_at, lastUsedAt: k.last_used_at,
+// Keys are managed from a signed-in browser session only, never with another key.
+const keyAdmin = [
+  requirePermission('apiAccess', 'API access isn’t enabled for your account.'),
+  (req, res, next) => (req.user.apiKey ? res.status(403).json({ error: 'API keys can’t manage API keys.' }) : next()),
+];
+
+router.get('/api-keys', keyAdmin, (req, res) => {
+  res.json(q('SELECT id, name, key, scope, created_at, last_used_at FROM api_keys WHERE user_id = ? ORDER BY created_at').all(req.user.id).map((k) => ({
+    id: k.id, name: k.name, key: k.key, scope: k.scope, createdAt: k.created_at, lastUsedAt: k.last_used_at,
   })));
 });
 
-router.post('/api-keys', (req, res) => {
+router.post('/api-keys', keyAdmin, (req, res) => {
   const name = String(req.body?.name || 'OPDS').trim().slice(0, 60) || 'OPDS';
+  const scope = req.body?.scope === 'full' ? 'full' : 'read';
   const key = crypto.randomBytes(24).toString('base64url');
-  q('INSERT INTO api_keys (user_id, name, key, created_at) VALUES (?, ?, ?, ?)').run(req.user.id, name, key, Date.now());
+  q('INSERT INTO api_keys (user_id, name, key, scope, created_at) VALUES (?, ?, ?, ?, ?)').run(req.user.id, name, key, scope, Date.now());
   res.status(201).json({ key });
 });
 
-router.post('/api-keys/:id/regenerate', (req, res) => {
+router.post('/api-keys/:id/regenerate', keyAdmin, (req, res) => {
   const key = crypto.randomBytes(24).toString('base64url');
   const r = q('UPDATE api_keys SET key = ?, created_at = ?, last_used_at = NULL WHERE id = ? AND user_id = ?').run(key, Date.now(), Number(req.params.id), req.user.id);
   if (!r.changes) return res.status(404).json({ error: 'Key not found.' });
   res.json({ key });
 });
 
-router.delete('/api-keys/:id', (req, res) => {
+router.delete('/api-keys/:id', keyAdmin, (req, res) => {
   q('DELETE FROM api_keys WHERE id = ? AND user_id = ?').run(Number(req.params.id), req.user.id);
   res.json({ ok: true });
 });
@@ -301,13 +308,15 @@ async function sendBooks(req, res, books) {
   }
 }
 
-router.post('/books/:id/send', async (req, res) => {
+const canDownload = requirePermission('download', 'Downloading isn’t enabled for your account.');
+
+router.post('/books/:id/send', canDownload, async (req, res) => {
   const book = readable(req, res);
   if (!book) return;
   await sendBooks(req, res, [book]);
 });
 
-router.post('/series/:id/send', async (req, res) => {
+router.post('/series/:id/send', canDownload, async (req, res) => {
   if (!getSeries(req.params.id, req.user)) return res.status(404).json({ error: 'Series not found.' });
   const ids = seriesBooks(req.params.id, req.user).map((b) => b.id);
   await sendBooks(req, res, ids.map((id) => q('SELECT * FROM books WHERE id = ?').get(id)).filter((b) => b && !b.missing));
@@ -468,4 +477,4 @@ router.post('/import/mal-list', express.raw({ type: () => true, limit: '20mb' })
   res.json({ total: entries.length, matched, unmatched: unmatched.slice(0, 200) });
 });
 
-module.exports = { router, BUILTIN_FONTS };
+module.exports = { router, BUILTIN_FONTS, addToCollection };

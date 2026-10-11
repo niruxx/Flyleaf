@@ -16,7 +16,7 @@ const KIND_OPTIONS = [
 ];
 const row = (ic, title, sub, control) => h('div.setting-row', ic && icon(ic), h('div.text', h('div', title), sub && h('div.s', sub)), control);
 const group = (...rows) => h('div.settings-group', ...rows);
-const reload = (tab) => navigate(`/settings/${tab}`, { replace: true });
+const reload = (tab) => location.hash.startsWith(`#/settings/${tab}`) && navigate(`/settings/${tab}`, { replace: true });
 
 // ---------------------------------------------------------------------------
 // Libraries
@@ -244,7 +244,8 @@ export async function usersPanel(panel, stale) {
       h('div.text',
         h('div', `${u.displayName}${isSelf ? ' (you)' : ''}`),
         h('div.s', `@${u.username}${u.email ? ` · ${u.email}` : ''} · ${u.role === 'admin' ? 'Admin' : 'Guest · read-only'}`),
-        h('div.s', `${u.maxAgeRating == null ? 'No age restriction' : `Up to ${age?.label}`} · active ${timeAgo(u.lastSeenAt)} · ${formatDuration(u.secondsRead, { short: true })} read · ${u.finished} finished`),
+        h('div.s', `${u.maxAgeRating == null ? 'No age restriction' : `Up to ${age?.label}`} · ${u.libraryIds ? `${u.libraryIds.length} ${u.libraryIds.length === 1 ? 'library' : 'libraries'}` : 'All libraries'} · active ${timeAgo(u.lastSeenAt)} · ${formatDuration(u.secondsRead, { short: true })} read · ${u.finished} finished`),
+        u.role !== 'admin' && h('div.perm-chips', PERMISSIONS.filter((p) => u.permissions?.[p.key]).map((p) => h('span.mini-chip', icon(p.icon), p.label))),
       ),
       more,
     );
@@ -256,6 +257,13 @@ export async function usersPanel(panel, stale) {
   );
 }
 
+const PERMISSIONS = [
+  { key: 'download', icon: 'download', label: 'Download & Send to', sub: 'Download original files and zips, and email books to e-readers.' },
+  { key: 'contentFinder', icon: 'travel_explore', label: 'Content Finder', sub: 'Search plugin sources and download new books into the libraries they can see.' },
+  { key: 'upload', icon: 'upload', label: 'Upload', sub: 'Upload files and folders into the libraries they can see.' },
+  { key: 'apiAccess', icon: 'key', label: 'API keys', sub: 'Create keys for OPDS reading apps and the REST API.' },
+];
+
 export async function userDialog(user, { onSaved } = {}) {
   const username = field('Username', { value: user?.username || '', required: true, autocapitalize: 'none', support: '3–32 letters, numbers, . - _' });
   const display = field('Display name', { value: user?.displayName || '' });
@@ -263,18 +271,57 @@ export async function userDialog(user, { onSaved } = {}) {
   const password = !user && field('Password', { type: 'password', required: true, autocomplete: 'new-password', support: 'At least 8 characters. Share it with your guest.' });
   const age = field('Age restriction', { value: user?.maxAgeRating ?? '', options: [{ value: '', label: 'No restriction' }, ...AGE_RATINGS.filter((a) => a.value !== '').map((a) => ({ value: a.value, label: `Up to ${a.label}` }))] });
   const unknown = h('input', { type: 'checkbox', checked: user ? user.ageIncludeUnknown : true });
+
+  // Library access: everything, or a chosen set.
+  const libs = await api.libraries();
+  const restricted = Array.isArray(user?.libraryIds);
+  const allLibs = h('input', { type: 'checkbox', checked: !restricted });
+  const libChecks = libs.map((l) => {
+    const input = h('input', { type: 'checkbox', checked: !restricted || user.libraryIds.includes(l.id), disabled: !restricted });
+    input.dataset.id = l.id;
+    return h('label.check', input, l.name);
+  });
+  allLibs.addEventListener('change', () => {
+    for (const c of libChecks) {
+      const input = c.querySelector('input');
+      input.disabled = allLibs.checked;
+      if (allLibs.checked) input.checked = true;
+    }
+  });
+  const perms = { download: true, contentFinder: false, apiAccess: true, upload: false, ...(user?.permissions || {}) };
+  const permRows = PERMISSIONS.map((p) => {
+    const input = h('input', { type: 'checkbox', checked: perms[p.key] });
+    input.dataset.key = p.key;
+    return h('label.perm-row', icon(p.icon), h('div', h('div.body-large', p.label), h('div.body-small.muted', p.sub)), input);
+  });
+
   await formDialog({
     title: user ? `Edit ${user.displayName}` : 'Add guest',
     icon: user ? 'edit' : 'person_add',
-    fields: [username, display, email, password, age, h('label.check', unknown, 'Include series with no age rating')],
+    className: 'fullscreen-compact',
+    fields: [
+      username, display, email, password,
+      h('p.label-large', { style: { margin: '16px 0 4px' } }, 'Content'),
+      age, h('label.check', unknown, 'Include series with no age rating'),
+      libs.length > 0 && h('div', { style: { marginTop: '8px' } },
+        h('label.check', allLibs, h('strong', 'All libraries, including ones added later')),
+        h('div.check-grid', { style: { paddingLeft: '28px' } }, libChecks)),
+      h('p.label-large', { style: { margin: '16px 0 4px' } }, 'Permissions'),
+      h('div.perm-list', permRows),
+      h('p.body-small.muted', 'Guests always have their own progress, collections, bookmarks and stats, and can never change libraries, metadata or other users.'),
+    ],
     submit: user ? 'Save' : 'Create',
     onSubmit: async () => {
+      const libraryIds = allLibs.checked ? null : libChecks.map((c) => c.querySelector('input')).filter((i) => i.checked).map((i) => Number(i.dataset.id));
+      if (libraryIds && !libraryIds.length) throw new Error('Pick at least one library, or allow all libraries.');
       const body = {
         username: username.input.value.trim(),
         displayName: display.input.value,
         email: email.input.value.trim(),
         maxAgeRating: age.input.value === '' ? null : Number(age.input.value),
         ageIncludeUnknown: unknown.checked,
+        libraryIds,
+        permissions: Object.fromEntries(permRows.map((r) => r.querySelector('input')).map((i) => [i.dataset.key, i.checked])),
       };
       if (user) await api.updateUser(user.id, body);
       else await api.createUser({ ...body, password: password.input.value });

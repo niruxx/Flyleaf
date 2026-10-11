@@ -1,6 +1,6 @@
 import { api } from '../api.js';
 import { isAdmin, session, render } from '../router.js';
-import { h, icon, loading, emptyState, stagger } from '../ui.js';
+import { h, icon, skeleton, emptyState, stagger } from '../ui.js';
 import { seriesCard, resumeCard } from '../components/cards.js';
 import { scanIndicator } from './scan.js';
 import { refreshShell } from '../shell.js';
@@ -10,7 +10,7 @@ const KIND_ICON = { books: 'menu_book', manga: 'auto_stories', comics: 'photo_li
 export async function homeView(view, params, stale) {
   const page = h('div.page');
   view.append(page);
-  page.append(loading());
+  page.append(skeleton('home'));
   const scan = isAdmin()
     ? scanIndicator(() => {
         refreshShell();

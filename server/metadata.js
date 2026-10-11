@@ -91,6 +91,7 @@ async function epubMetadata(file) {
   const series = metaByName('calibre:series') || metaByProp('belongs-to-collection');
   const seriesIndex = metaByName('calibre:series_index') || metaByProp('group-position');
   const date = first(opf, 'date');
+  const isbn = findIsbn(elements(opf, 'identifier').map((e) => `${e.attrs['opf:scheme'] || ''} ${e.text || ''}`));
   const links = [...elements(opf, 'source'), ...elements(opf, 'identifier')]
     .map((e) => e.text)
     .filter((t) => /^https?:\/\//i.test(t || ''));
@@ -122,10 +123,23 @@ async function epubMetadata(file) {
     publisher: first(opf, 'publisher'),
     year: date ? Number(String(date).slice(0, 4)) || null : null,
     language: first(opf, 'language'),
+    isbn,
     links,
     cover,
   };
 }
+
+/** The first valid ISBN-10/13 among identifier strings ("urn:isbn:…", "ISBN 978…"). */
+function findIsbn(values) {
+  for (const v of values) {
+    const digits = String(v).replace(/^.*?(?:isbn[:\s]*)/i, '').replace(/[^0-9Xx]/g, '');
+    if (digits.length === 13 && /^97[89]/.test(digits) && isbn13ok(digits)) return digits;
+    if (digits.length === 10 && isbn10ok(digits)) return digits.toUpperCase();
+  }
+  return null;
+}
+const isbn13ok = (d) => [...d].reduce((a, c, i) => a + Number(c) * (i % 2 ? 3 : 1), 0) % 10 === 0;
+const isbn10ok = (d) => [...d].reduce((a, c, i) => a + (c.toUpperCase() === 'X' ? 10 : Number(c)) * (10 - i), 0) % 11 === 0;
 
 // ---------------------------------------------------------------------------
 // PDF (metadata + page count only; covers are rendered client-side)
@@ -191,6 +205,7 @@ function parseComicInfo(xml) {
     ageRating: get('AgeRating'),
     links: splitList(get('Web')).filter((u) => /^https?:\/\//i.test(u)),
     manga: /^yes/i.test(get('Manga') || ''),
+    isbn: findIsbn([get('GTIN') || '']),
   };
 }
 
@@ -200,4 +215,5 @@ module.exports = {
   epubMetadata,
   pdfMetadata,
   parseComicInfo,
+  findIsbn,
 };

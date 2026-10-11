@@ -2,6 +2,7 @@ import { api, setUnauthorizedHandler } from './api.js';
 import { route, render, session, navigate } from './router.js';
 import { syncThemeColor } from './ui.js';
 import { initShell, afterSignIn } from './shell.js';
+import { initMotion } from './motion.js';
 import { setupView, loginView } from './views/auth.js';
 import { welcomeView } from './views/welcome.js';
 import { homeView } from './views/home.js';
@@ -28,6 +29,9 @@ route('/collection/:id', collectionView);
 route('/series/:id', seriesView);
 route('/bookmarks', bookmarksView);
 route('/stats', statsView);
+route('/finder', (...a) => import('./views/finder.js').then((m) => m.finderView(...a)));
+route('/upload', (...a) => import('./views/upload.js').then((m) => m.uploadView(...a)));
+route('/finder/downloads', (...a) => import('./views/finder.js').then((m) => m.downloadsView(...a)));
 route('/settings/:tab?', settingsView);
 route('/read/:id', readerView, { bare: true });
 // Old links from v1.
@@ -44,6 +48,7 @@ setUnauthorizedHandler(() => {
 async function boot() {
   syncThemeColor();
   initShell();
+  initMotion();
   let status;
   try {
     status = await api.status();

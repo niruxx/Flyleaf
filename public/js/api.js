@@ -105,6 +105,7 @@ export const api = {
   saveReaderSettings: (seriesId, settings) => PUT(`/api/series/${seriesId}/reader-settings`, { settings }),
 
   book: (id) => GET(`/api/books/${id}`),
+  bookInfo: (id) => GET(`/api/books/${id}/info`),
   reader: (id) => GET(`/api/books/${id}/reader`),
   updateBook: (id, b) => PATCH(`/api/books/${id}`, b),
   refreshBook: (id) => POST(`/api/books/${id}/refresh`),
@@ -133,7 +134,7 @@ export const api = {
   deleteProfile: (id) => DEL(`/api/profiles/${id}`),
 
   apiKeys: () => GET('/api/api-keys'),
-  createApiKey: (name) => POST('/api/api-keys', { name }),
+  createApiKey: (name, scope = 'read') => POST('/api/api-keys', { name, scope }),
   regenerateApiKey: (id) => POST(`/api/api-keys/${id}/regenerate`),
   deleteApiKey: (id) => DEL(`/api/api-keys/${id}`),
 
@@ -161,7 +162,45 @@ export const api = {
   adminSettings: () => GET('/api/admin/settings'),
   saveAdminSettings: (b) => PUT('/api/admin/settings', b),
   testSmtp: (to) => POST('/api/admin/smtp/test', { to }),
+
+  openapi: () => GET('/api/openapi.json'),
+  webhooks: () => GET('/api/admin/webhooks'),
+  createWebhook: (b) => POST('/api/admin/webhooks', b),
+  updateWebhook: (id, b) => PATCH(`/api/admin/webhooks/${id}`, b),
+  deleteWebhook: (id) => DEL(`/api/admin/webhooks/${id}`),
+  testWebhook: (id) => POST(`/api/admin/webhooks/${id}/test`),
+
+  finderSources: () => GET('/api/finder/sources'),
+  finderSearch: (plugin, q, page) => GET(`/api/finder/${encodeURIComponent(plugin)}/search${qs({ q, page })}`),
+  finderLatest: (plugin, page) => GET(`/api/finder/${encodeURIComponent(plugin)}/latest${qs({ page })}`),
+  finderBrowse: (plugin, id, page) => GET(`/api/finder/${encodeURIComponent(plugin)}/browse${qs({ id, page })}`),
+  finderDetails: (plugin, id) => GET(`/api/finder/${encodeURIComponent(plugin)}/details${qs({ id })}`),
+  finderDownload: (plugin, b) => POST(`/api/finder/${encodeURIComponent(plugin)}/download`, b),
+  downloads: () => GET('/api/finder/downloads/list'),
+  cancelDownload: (id) => DEL(`/api/finder/downloads/${id}`),
+  clearDownloads: () => DEL('/api/finder/downloads'),
+
+  plugins: () => GET('/api/admin/plugins'),
+  pluginCatalog: () => GET('/api/admin/plugins/catalog'),
+  installPlugin: (b) => POST('/api/admin/plugins', b),
+  updatePlugin: (id) => POST(`/api/admin/plugins/${encodeURIComponent(id)}/update`),
+  configurePlugin: (id, b) => PATCH(`/api/admin/plugins/${encodeURIComponent(id)}`, b),
+  removePlugin: (id) => DEL(`/api/admin/plugins/${encodeURIComponent(id)}`),
+  addPluginRepo: (url) => POST('/api/admin/plugins/repos', { url }),
+  removePluginRepo: (id) => DEL(`/api/admin/plugins/repos/${id}`),
+  uploadFolders: (library, path) => GET(`/api/uploads/folders${qs({ library, path })}`),
+  createUploadFolder: (b) => POST('/api/uploads/folders', b),
+  finishUpload: (b) => POST('/api/uploads/done', b),
+  uploadLimits: () => GET('/api/uploads/limits'),
+  mihonStatus: () => GET('/api/admin/plugins/mihon/status'),
+  mihonExtensions: () => GET('/api/admin/plugins/mihon/extensions'),
+  mihonRepos: () => GET('/api/admin/plugins/mihon/repos'),
+  setMihonRepos: (repos) => PUT('/api/admin/plugins/mihon/repos', { repos }),
+  mihonAction: (pkg, action) => POST(`/api/admin/plugins/mihon/extensions/${encodeURIComponent(pkg)}/${action}`),
 };
+
+/** Whether the signed-in user has a permission (admins have all). */
+export const can = (user, perm) => Boolean(user && (user.role === 'admin' || user.permissions?.[perm]));
 
 export const fileUrl = (book) => `/api/books/${book.id}/file?v=${book.version}`;
 export const pageUrl = (book, n, width) => `/api/books/${book.id}/pages/${n}?v=${book.version}${width ? `&w=${width}` : ''}`;

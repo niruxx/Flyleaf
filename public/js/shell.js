@@ -1,10 +1,11 @@
 // App chrome: top app bar with centred search, navigation drawer, bottom navigation.
 
-import { api } from './api.js';
+import { api, can } from './api.js';
 import { session, navigate, onRoute, isAdmin } from './router.js';
 import { h, icon, iconButton, menu, cover } from './ui.js';
 import { setTheme } from './prefs.js';
 import { isDark, themeState } from './theme.js';
+import { themeReveal } from './motion.js';
 
 let drawerData = { libraries: [], collections: [], genres: [] };
 let showAllGenres = false;
@@ -42,9 +43,12 @@ export async function refreshShell() {
 
 function buildEnd(end) {
   const u = session.user;
-  const toggle = iconButton(isDark() ? 'light_mode' : 'dark_mode', 'Toggle dark mode', () => {
-    setTheme({ mode: isDark() ? 'light' : 'dark' });
-    toggle.querySelector('.icon').textContent = isDark() ? 'light_mode' : 'dark_mode';
+  const toggle = iconButton(isDark() ? 'light_mode' : 'dark_mode', 'Toggle dark mode', (e) => {
+    // The new theme spreads out in a circle from the button.
+    themeReveal(e, () => {
+      setTheme({ mode: isDark() ? 'light' : 'dark' });
+      toggle.querySelector('.icon').textContent = isDark() ? 'light_mode' : 'dark_mode';
+    });
   });
   const avatar = h('button.avatar', { type: 'button', title: u.displayName, 'aria-label': 'Account menu' }, (u.displayName || u.username || '?').trim()[0]);
   avatar.addEventListener('click', () => {
@@ -199,6 +203,8 @@ function buildDrawer() {
     navItem('/want-to-read', 'bookmark_heart', 'Want to read'),
     navItem('/bookmarks', 'bookmarks', 'Bookmarks & notes'),
     navItem('/stats', 'insights', 'Reading stats'),
+    can(session.user, 'contentFinder') && navItem('/finder', 'travel_explore', 'Content Finder'),
+    can(session.user, 'upload') && navItem('/upload', 'upload', 'Upload'),
 
     d.libraries.length && h('div.section-label', 'Libraries'),
     d.libraries.map((l) => navItem(`/library/${l.id}`, KIND_ICON[l.kind], l.name, l.seriesCount)),

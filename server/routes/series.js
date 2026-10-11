@@ -3,7 +3,7 @@
 const express = require('express');
 const path = require('node:path');
 const { q, tx } = require('../db');
-const { requireAdmin } = require('../auth');
+const { requireAdmin, requirePermission } = require('../auth');
 const covers = require('../covers');
 const providers = require('../providers');
 const metaService = require('../metadata-service');
@@ -95,8 +95,46 @@ router.get('/series/:id', (req, res) => {
   const collections = q(`SELECT c.id, c.name FROM collections c JOIN collection_items ci ON ci.collection_id = c.id
                          WHERE ci.series_id = ? AND (c.user_id = ? OR c.promoted = 1)`).all(s.id, req.user.id);
   const next = books.find((b) => b.progress && !b.progress.finished) || books.find((b) => !b.progress?.finished) || books[0] || null;
-  res.json({ ...s, books, relations, collections, nextBookId: next?.id ?? null });
+  res.json({ ...s, books, relations, collections, nextBookId: next?.id ?? null, stats: seriesStats(s.id, req.user) });
 });
+
+/** Totals for the series page: files, formats, pages, and your reading time. */
+function seriesStats(id, user) {
+  const files = q(`SELECT COUNT(*) AS n, SUM(size) AS size, SUM(page_count) AS pages, MIN(added_at) AS first_added,
+                          MAX(added_at) AS last_added, MAX(mtime) AS modified
+                   FROM books WHERE series_id = ? AND missing = 0`).get(id);
+  const formats = q('SELECT format, COUNT(*) AS n FROM books WHERE series_id = ? AND missing = 0 GROUP BY format ORDER BY n DESC').all(id);
+  const reading = q(`SELECT COALESCE(SUM(r.seconds), 0) AS seconds, COUNT(DISTINCT r.day) AS days, MIN(r.day) AS first_day, MAX(r.day) AS last_day
+                     FROM reading_log r JOIN books b ON b.id = r.book_id WHERE r.user_id = ? AND b.series_id = ?`).get(user.id, id);
+  const notes = q(`SELECT a.kind, COUNT(*) AS n FROM annotations a JOIN books b ON b.id = a.book_id
+                   WHERE a.user_id = ? AND b.series_id = ? GROUP BY a.kind`).all(user.id, id);
+  const out = {
+    files: files.n,
+    size: files.size || 0,
+    pages: files.pages || null,
+    formats: formats.map((f) => ({ format: f.format, count: f.n })),
+    firstAdded: files.first_added,
+    lastAdded: files.last_added,
+    secondsRead: reading.seconds,
+    daysRead: reading.days,
+    firstReadDay: reading.first_day,
+    lastReadDay: reading.last_day,
+    highlights: notes.find((n) => n.kind === 'highlight')?.n || 0,
+    bookmarks: notes.find((n) => n.kind === 'bookmark')?.n || 0,
+  };
+  if (user.role === 'admin') {
+    // The folder the series lives in (common prefix of its files), relative to the library.
+    const paths = q('SELECT rel_path FROM books WHERE series_id = ? AND missing = 0').all(id).map((r) => r.rel_path.split(/[\\/]/).slice(0, -1));
+    let common = paths[0] || [];
+    for (const p of paths) {
+      let i = 0;
+      while (i < common.length && common[i] === p[i]) i++;
+      common = common.slice(0, i);
+    }
+    out.folder = common.join('/') || '.';
+  }
+  return out;
+}
 
 // Per-user state: want to read, reading status, personal tags, blurred artwork.
 router.put('/series/:id/user', (req, res) => {
@@ -345,12 +383,12 @@ router.post('/series/:id/metadata', requireAdmin, async (req, res) => {
 // ---------------------------------------------------------------------------
 // Download a whole series as a zip
 
-router.get('/series/:id/download', async (req, res) => {
+router.get('/series/:id/download', requirePermission('download', 'Downloading isn’t enabled for your account.'), async (req, res) => {
   const s = visibleSeries(req, res);
   if (!s) return;
   const books = q('SELECT path, format, rel_path FROM books WHERE series_id = ? AND missing = 0').all(s.id);
-  const archiver = require('archiver');
-  const zip = archiver('zip', { store: true });
+  const { ZipArchive } = require('archiver');
+  const zip = new ZipArchive({ store: true });
   const safe = s.name.replace(/[\\/:*?"<>|]+/g, '_');
   res.attachment(`${safe}.zip`);
   zip.on('error', () => res.destroy());

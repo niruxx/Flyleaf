@@ -4,9 +4,9 @@
 import { api, seriesDownloadUrl } from '../api.js';
 import { isAdmin, navigate, render } from '../router.js';
 import { prefs } from '../prefs.js';
-import { h, icon, iconButton, button, cover, menu, snackbar, stagger, emptyState, loading, STATUS_LABEL, USER_STATUS, timeAgo } from '../ui.js';
+import { h, icon, iconButton, button, cover, menu, snackbar, stagger, emptyState, skeleton, STATUS_LABEL, USER_STATUS, timeAgo, formatBytes, formatDuration, segmented } from '../ui.js';
 import { volumeCard, seriesCard } from '../components/cards.js';
-import { seriesActions, addToCollection, sendTo, download } from '../components/actions.js';
+import { seriesActions, bookActions, addToCollection, sendTo, download, canDownload } from '../components/actions.js';
 import { RELATION_LABEL } from '../components/editors.js';
 
 const LINK_ICON = { MyAnimeList: 'tv', AniList: 'stacks', MangaDex: 'auto_stories', MangaUpdates: 'update', ComicVine: 'local_library', Goodreads: 'reviews', 'Open Library': 'local_library', 'Google Books': 'book_2', Kitsu: 'pets', Amazon: 'shopping_bag', BookWalker: 'storefront', Wikipedia: 'public' };
@@ -14,7 +14,7 @@ const LINK_ICON = { MyAnimeList: 'tv', AniList: 'stacks', MangaDex: 'auto_storie
 export async function seriesView(view, params, stale) {
   const page = h('div.page');
   view.append(page);
-  page.append(loading());
+  page.append(skeleton('series'));
   const s = await api.series(params.id).catch((e) => (e.status === 404 ? null : Promise.reject(e)));
   if (stale()) return;
   page.replaceChildren();
@@ -66,12 +66,16 @@ export async function seriesView(view, params, stale) {
         '-',
       );
     }
+    if (canDownload()) {
+      items.push(
+        { header: 'Download' },
+        { label: 'Download whole series (.zip)', icon: 'folder_zip', onClick: () => download(seriesDownloadUrl(s.id), `${s.name} – all volumes`) },
+        ...s.books.slice(0, 40).map((b) => ({ label: b.label, icon: 'download', trailing: b.format.toUpperCase(), onClick: () => download(`/api/books/${b.id}/download`, b.label, b.size) })),
+        '-',
+        { label: 'Send to…', icon: 'send_to_mobile', onClick: () => sendTo({ series: s }) },
+      );
+    }
     items.push(
-      { header: 'Download' },
-      { label: 'Download whole series (.zip)', icon: 'folder_zip', onClick: () => download(seriesDownloadUrl(s.id), `${s.name} – all volumes`) },
-      ...s.books.slice(0, 40).map((b) => ({ label: b.label, icon: 'download', trailing: b.format.toUpperCase(), onClick: () => download(`/api/books/${b.id}/download`, b.label, b.size) })),
-      '-',
-      { label: 'Send to…', icon: 'send_to_mobile', onClick: () => sendTo({ series: s }) },
       { label: 'Add to category', icon: 'playlist_add', onClick: () => addToCollection([s.id], `“${s.name}”`).then(reload) },
       { label: s.userBlur ? 'Unblur artwork' : 'Blur artwork (NSFW)', icon: s.userBlur ? 'visibility' : 'visibility_off', onClick: async () => { await api.setSeriesUser(s.id, { blur: !s.userBlur }); reload(); } },
       { label: 'Reading profile…', icon: 'chrome_reader_mode', onClick: () => pickProfile(s) },
@@ -126,6 +130,8 @@ export async function seriesView(view, params, stale) {
   renderTags();
 
   // ----- Facts -----
+  const st = s.stats || {};
+  const FMT = (f) => f.toUpperCase();
   const facts = [
     ['Publication', s.status ? h('span.status-pill', { class: s.status }, STATUS_LABEL[s.status]) : 'Unknown'],
     s.year && ['Released', String(s.year)],
@@ -135,6 +141,14 @@ export async function seriesView(view, params, stale) {
     ['Your progress', s.readCount ? `${s.readCount} of ${s.count} read` : started ? 'Started' : 'Not started'],
     s.language && ['Language', s.language],
     s.lastRead && ['Last read', timeAgo(s.lastRead)],
+    st.secondsRead > 0 && ['Time spent reading', `${formatDuration(st.secondsRead)} over ${st.daysRead} ${st.daysRead === 1 ? 'day' : 'days'}`],
+    st.highlights + st.bookmarks > 0 && ['Your notes', `${st.highlights} highlights · ${st.bookmarks} bookmarks`],
+    st.formats?.length > 0 && ['Formats', st.formats.map((f) => (st.formats.length > 1 ? `${FMT(f.format)} ×${f.count}` : FMT(f.format))).join(', ')],
+    st.size > 0 && ['Size on disk', formatBytes(st.size)],
+    st.pages > 0 && ['Pages', st.pages.toLocaleString()],
+    st.firstAdded && ['Added', new Date(st.firstAdded).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })],
+    st.lastAdded && st.lastAdded - st.firstAdded > 86400_000 && ['Newest file', timeAgo(st.lastAdded)],
+    st.folder && ['Folder', h('span.mono', st.folder)],
   ].filter(Boolean);
 
   // ----- Summary -----
@@ -219,13 +233,80 @@ export async function seriesView(view, params, stale) {
     ['Specials', s.books.filter((b) => b.special)],
   ].filter(([, list]) => list.length);
   const single = groups.length === 1;
+  // Grid of covers, or a detailed list with format, pages, size and progress.
+  let layout = readVolLayout();
+  const volumes = h('div');
+  const drawVolumes = () => volumes.replaceChildren(...groups.map(([label, list]) =>
+    h('div.vol-group', !single && h('h3.title-medium', { style: { margin: '0 0 12px' } }, label),
+      layout === 'list'
+        ? stagger(h('div.vol-list', list.map((b) => volumeRow(b, s, reload))))
+        : stagger(h('div.grid', list.map((b) => volumeCard(b, { series: s, onChange: reload })))))));
+  drawVolumes();
+  const layoutToggle = segmented([
+    { value: 'grid', icon: 'grid_view', label: '', title: 'Covers' },
+    { value: 'list', icon: 'view_list', label: '', title: 'Details' },
+  ], layout, (v) => {
+    layout = v;
+    saveVolLayout(v);
+    drawVolumes();
+  });
+  layoutToggle.classList.add('compact');
   page.append(
     h('section.section',
-      h('div.section-head', h('h2', single && groups[0][0] !== 'Other' ? `${groups[0][0]} (${s.books.length})` : `In this series (${s.books.length})`)),
-      groups.map(([label, list]) =>
-        h('div.vol-group', !single && h('h3.title-medium', { style: { margin: '0 0 12px' } }, label),
-          stagger(h('div.grid', list.map((b) => volumeCard(b, { series: s, onChange: reload })))))),
+      h('div.section-head', h('h2', single && groups[0][0] !== 'Other' ? `${groups[0][0]} (${s.books.length})` : `In this series (${s.books.length})`), layoutToggle),
+      volumes,
     ),
+  );
+}
+
+const VOL_LAYOUT = 'flyleaf.volumeLayout';
+function readVolLayout() {
+  try {
+    return localStorage.getItem(VOL_LAYOUT) === 'list' ? 'list' : 'grid';
+  } catch {
+    return 'grid';
+  }
+}
+function saveVolLayout(v) {
+  try {
+    localStorage.setItem(VOL_LAYOUT, v);
+  } catch {}
+}
+
+/** One volume in the detailed list. */
+function volumeRow(b, s, onChange) {
+  const p = b.progress;
+  const pct = p?.finished ? 100 : Math.round((p?.percent || 0) * 100);
+  const meta = [
+    b.format.toUpperCase(),
+    b.pageCount ? `${b.pageCount} pages` : null,
+    b.size ? formatBytes(b.size) : null,
+    `added ${timeAgo(b.addedAt)}`,
+  ].filter(Boolean).join(' · ');
+  const info = iconButton('info', 'Details', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    import('../components/book-info.js').then((m) => m.showBookInfo(b.id));
+  });
+  const more = iconButton('more_vert', 'More actions', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    bookActions(more, b, { series: s, onChange });
+  });
+  return h('a.vol-row.state', { href: `#/read/${b.id}` },
+    cover({ ...b, title: b.label }, { showProgress: false }),
+    h('div.vol-text',
+      h('div.vol-title', b.label, b.label !== b.title && s.kind !== 'books' ? h('span.muted', ` · ${b.title}`) : null),
+      h('div.vol-meta', meta),
+      h('div.vol-progress',
+        p?.finished
+          ? h('span.mini-chip', icon('check'), 'Finished')
+          : pct > 0
+            ? [h('div.progress', h('span', { style: { width: `${pct}%` } })), h('span.label-small', `${pct}%${p?.updatedAt ? ` · ${timeAgo(p.updatedAt)}` : ''}`)]
+            : h('span.label-small.muted', 'Not started')),
+    ),
+    info,
+    more,
   );
 }
 

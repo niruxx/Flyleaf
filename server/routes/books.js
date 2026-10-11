@@ -4,7 +4,7 @@ const express = require('express');
 const path = require('node:path');
 const { pipeline } = require('node:stream/promises');
 const { q } = require('../db');
-const { requireAdmin } = require('../auth');
+const { requireAdmin, requirePermission } = require('../auth');
 const archive = require('../archive');
 const scanner = require('../scanner');
 const covers = require('../covers');
@@ -21,13 +21,17 @@ const FILE_MIME = {
   mobi: 'application/x-mobipocket-ebook',
   azw3: 'application/vnd.amazon.ebook',
   fb2: 'application/x-fictionbook+xml',
-  txt: 'application/epub+zip', // served converted
+  txt: 'application/epub+zip', // TXT/DOCX/RTF are served converted to EPUB
+  docx: 'application/epub+zip',
+  rtf: 'application/epub+zip',
   cbz: 'application/vnd.comicbook+zip',
   cbr: 'application/vnd.comicbook-rar',
   cb7: 'application/x-cb7',
   cbt: 'application/x-cbt',
 };
-const EXT = { epub: 'epub', pdf: 'pdf', mobi: 'mobi', azw3: 'azw3', fb2: 'fb2', txt: 'epub', cbz: 'cbz', cbr: 'cbr', cb7: 'cb7', cbt: 'cbt' };
+const EXT = { epub: 'epub', pdf: 'pdf', mobi: 'mobi', azw3: 'azw3', fb2: 'fb2', txt: 'txt', docx: 'docx', rtf: 'rtf', cbz: 'cbz', cbr: 'cbr', cb7: 'cb7', cbt: 'cbt' };
+/** What the original file is, for downloads (FILE_MIME describes what the reader gets). */
+const ORIGINAL_MIME = { ...FILE_MIME, txt: 'text/plain', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', rtf: 'application/rtf' };
 
 /** Load a book the user may read; sends 404/410 itself. */
 function readable(req, res) {
@@ -58,6 +62,63 @@ router.get('/books/:id', (req, res) => {
 });
 
 /** Everything the reader needs in one call: book, neighbours, resolved settings, annotations. */
+/** Everything known about one file: metadata, file details and your reading history. */
+router.get('/books/:id/info', (req, res) => {
+  const row = getBook(req.params.id, req.user);
+  if (!row) return res.status(404).json({ error: 'Book not found.' });
+  const book = toBook(row, true, req.user);
+  const emb = json(row.embedded, {});
+  const user = req.user;
+  const progress = q('SELECT started_at, updated_at, percent, page, finished FROM progress WHERE user_id = ? AND book_id = ?').get(user.id, row.id);
+  const log = q(`SELECT COALESCE(SUM(seconds), 0) AS seconds, COUNT(*) AS days, MIN(day) AS first_day, MAX(day) AS last_day
+                 FROM reading_log WHERE user_id = ? AND book_id = ?`).get(user.id, row.id);
+  const notes = q('SELECT kind, COUNT(*) AS n FROM annotations WHERE user_id = ? AND book_id = ? GROUP BY kind').all(user.id, row.id);
+  const lib = q('SELECT id, name, kind FROM libraries WHERE id = ?').get(row.library_id);
+  const percent = progress?.percent || 0;
+  // Time left, from your own pace on this book once there's enough to go on.
+  const remaining = log.seconds >= 120 && percent >= 0.03 && percent < 1 ? Math.round((log.seconds / percent) * (1 - percent)) : null;
+  res.json({
+    ...book,
+    library: lib ? { id: lib.id, name: lib.name, kind: lib.kind } : null,
+    file: {
+      name: path.basename(row.path),
+      relPath: row.rel_path,
+      path: user.role === 'admin' ? row.path : undefined,
+      format: row.format,
+      size: row.size,
+      modifiedAt: row.mtime,
+      addedAt: row.added_at,
+      updatedAt: row.updated_at,
+    },
+    meta: {
+      isbn: emb.isbn || null,
+      publisher: emb.publisher || null,
+      year: emb.year || null,
+      language: emb.language || null,
+      genres: emb.genres || [],
+      tags: emb.tags || [],
+      people: emb.people || [],
+      series: emb.series || null,
+      ageRating: emb.ageRating || null,
+      links: emb.links || [],
+    },
+    reading: {
+      startedAt: progress?.started_at || null,
+      lastReadAt: progress?.updated_at || null,
+      percent,
+      page: progress?.page ?? null,
+      finished: Boolean(progress?.finished),
+      seconds: log.seconds,
+      days: log.days,
+      firstDay: log.first_day,
+      lastDay: log.last_day,
+      remainingSeconds: remaining,
+      highlights: notes.find((n) => n.kind === 'highlight')?.n || 0,
+      bookmarks: notes.find((n) => n.kind === 'bookmark')?.n || 0,
+    },
+  });
+});
+
 router.get('/books/:id/reader', (req, res) => {
   const row = readable(req, res);
   if (!row) return;
@@ -185,25 +246,25 @@ router.get('/books/:id/cover', (req, res) => {
 // ---------------------------------------------------------------------------
 // Files & pages
 
-/** The file the in-browser reader opens (TXT is converted to EPUB). */
+/** The file the in-browser reader opens (TXT, DOCX and RTF are converted to EPUB). */
 router.get('/books/:id/file', async (req, res) => {
   const book = readable(req, res);
   if (!book) return;
   if (book.format === 'folder') return res.status(400).json({ error: 'Not a single file.' });
   let file = book.path;
-  if (book.format === 'txt') file = await formats.txtToEpub(book.path, book.title);
+  if (formats.CONVERTIBLE.has(book.format)) file = await formats.toEpub(book.path, book.format, book.title);
   res.set('Cache-Control', 'private, max-age=86400');
   res.type(FILE_MIME[book.format] || 'application/octet-stream');
   res.sendFile(file, { dotfiles: 'allow' }, (err) => err && !res.headersSent && res.status(404).end());
 });
 
 /** Original file as an attachment (image folders are zipped on the fly). */
-router.get('/books/:id/download', async (req, res) => {
+router.get('/books/:id/download', requirePermission('download', 'Downloading isn’t enabled for your account.'), async (req, res) => {
   const book = readable(req, res);
   if (!book) return;
   if (book.format === 'folder') {
-    const archiver = require('archiver');
-    const zip = archiver('zip', { store: true });
+    const { ZipArchive } = require('archiver');
+    const zip = new ZipArchive({ store: true });
     res.attachment(`${path.basename(book.path)}.cbz`);
     zip.on('error', () => res.destroy());
     zip.pipe(res);
@@ -236,4 +297,4 @@ router.get('/books/:id/pages/:n', async (req, res) => {
   await pipeline(page.stream, res).catch(() => {});
 });
 
-module.exports = { router, readable, FILE_MIME, EXT, annotationRow };
+module.exports = { router, readable, FILE_MIME, ORIGINAL_MIME, EXT, annotationRow };

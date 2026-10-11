@@ -3,7 +3,7 @@
 
 import { api } from '../api.js';
 import { onLeave, isAdmin, navigate, render } from '../router.js';
-import { h, icon, iconButton, button, loading, emptyState, menu, store, snackbar, stagger, pageHeader, confirmDialog, formDialog, field, STATUS_LABEL, USER_STATUS } from '../ui.js';
+import { h, icon, iconButton, button, emptyState, menu, store, snackbar, stagger, pageHeader, confirmDialog, formDialog, field, STATUS_LABEL, USER_STATUS, skeleton } from '../ui.js';
 import { seriesCard } from '../components/cards.js';
 import { refreshShell } from '../shell.js';
 import { scanIndicator } from './scan.js';
@@ -214,7 +214,7 @@ function browse(kind) {
     async function load(quiet = false) {
       const id = ++reqId;
       state.offset = 0;
-      if (!quiet) results.replaceChildren(loading());
+      if (!quiet) results.replaceChildren(skeleton('grid'));
       const data = await api.seriesList(query());
       if (id !== reqId || stale()) return;
       results.replaceChildren();

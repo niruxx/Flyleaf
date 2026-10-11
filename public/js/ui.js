@@ -1,5 +1,7 @@
 // DOM helpers and Material 3 component behaviours.
 
+import { leave } from './motion.js';
+
 /** Hyperscript: h('div.card#id', {onclick, ...attrs}, ...children) */
 export function h(tag, props, ...children) {
   const [, name = 'div', rest = ''] = tag.match(/^([\w-]*)(.*)$/);
@@ -137,7 +139,7 @@ export function snackbar(message, { action, onAction, duration = 4000 } = {}) {
       }),
   );
   host.append(bar);
-  setTimeout(() => bar.remove(), duration);
+  setTimeout(() => leave(bar, () => bar.remove()), duration);
 }
 
 // ---------------------------------------------------------------------------
@@ -153,7 +155,7 @@ export function dialog({ title, icon: ic, content, actions = [], className = '',
     let result;
     const close = (value) => {
       result = value;
-      dlg.close();
+      leave(dlg, () => dlg.open && dlg.close());
     };
     const body = typeof content === 'function' ? content(close) : content;
     dlg.append(
@@ -183,7 +185,9 @@ export function dialog({ title, icon: ic, content, actions = [], className = '',
         ),
     );
     dlg.addEventListener('cancel', (e) => {
-      if (!dismissible) e.preventDefault();
+      // Escape: play the closing animation instead of vanishing.
+      e.preventDefault();
+      if (dismissible) close(undefined);
     });
     dlg.addEventListener('click', (e) => {
       if (dismissible && e.target === dlg) {
@@ -348,9 +352,9 @@ export function menu(anchor, items, { at } = {}) {
   };
   const onKey = (e) => e.key === 'Escape' && close();
   function close() {
-    el.remove();
     document.removeEventListener('pointerdown', onDoc, true);
     document.removeEventListener('keydown', onKey);
+    leave(el, () => el.remove());
   }
   setTimeout(() => {
     document.addEventListener('pointerdown', onDoc, true);
@@ -387,7 +391,11 @@ export function actions(anchor, items, { title, at } = {}) {
 
 export function sheet(build) {
   const dlg = h('dialog.sheet', h('div.handle'));
-  const close = () => dlg.close();
+  const close = () => leave(dlg, () => dlg.open && dlg.close());
+  dlg.addEventListener('cancel', (e) => {
+    e.preventDefault();
+    close();
+  });
   append(dlg, [build(close)]);
   dlg.addEventListener('click', (e) => {
     if (e.target === dlg) {
@@ -485,6 +493,8 @@ export function cover(item, { showProgress = true, count, blur = item.blur, fini
       ph.remove();
     });
     img.addEventListener('error', () => img.remove());
+    // External artwork (Content Finder) shouldn't learn which page you're on.
+    if (/^https?:/i.test(item.coverUrl)) img.referrerPolicy = 'no-referrer';
     img.src = item.coverUrl;
     el.prepend(img);
   }
@@ -548,8 +558,30 @@ export function pageHeader(title, ...actions) {
   return h('div.page-head.enter', h('h1', title), ...actions.filter(Boolean));
 }
 
+/** M3 Expressive-style loading indicator: a morphing, rotating shape. */
 export function loading() {
-  return h('div.center-load', h('div.spinner', { role: 'progressbar', 'aria-label': 'Loading' }));
+  return h('div.center-load', h('div.loader', { role: 'progressbar', 'aria-label': 'Loading' }, h('span')));
+}
+
+/**
+ * Shimmering placeholders shaped like the content that's coming, so pages
+ * transition into something that already looks right.
+ *   'grid' – cover tiles · 'home' – greeting + shelves · 'series' – series page · 'list' – rows
+ */
+export function skeleton(kind = 'grid', count = 12) {
+  const tiles = (n) => h('div.grid.sk-grid', Array.from({ length: n }, () => h('div.sk-tile', h('div.sk.sk-cover'), h('div.sk.sk-line'), h('div.sk.sk-line.short'))));
+  const shelf = () => h('div.shelf', Array.from({ length: 8 }, () => h('div.sk-tile', h('div.sk.sk-cover'), h('div.sk.sk-line'))));
+  let body;
+  if (kind === 'home') {
+    body = [h('div.sk.sk-title'), h('div.sk.sk-line.wide'), h('div.sk.sk-card'), h('div.sk.sk-heading'), shelf(), h('div.sk.sk-heading'), shelf()];
+  } else if (kind === 'series') {
+    body = [h('div.sk-series', h('div.sk.sk-cover.big'), h('div.sk-col', h('div.sk.sk-line.short'), h('div.sk.sk-title'), h('div.sk.sk-line'), h('div.sk.sk-pill'), h('div.sk.sk-block'))), h('div.sk.sk-heading'), tiles(6)];
+  } else if (kind === 'list') {
+    body = Array.from({ length: count }, () => h('div.sk-row', h('div.sk.sk-dot'), h('div.sk-col', h('div.sk.sk-line'), h('div.sk.sk-line.short'))));
+  } else {
+    body = [tiles(count)];
+  }
+  return h('div.skeleton', { 'aria-busy': 'true', 'aria-label': 'Loading' }, body);
 }
 
 export function emptyState(ic, title, text, action) {

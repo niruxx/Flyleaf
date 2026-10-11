@@ -1,6 +1,7 @@
 // Hash router, shared session state and animated route transitions.
 
 import { motionEnabled } from './theme.js';
+import { markNavigation } from './motion.js';
 
 export const session = { user: null };
 
@@ -101,10 +102,12 @@ export async function render() {
   if (document.startViewTransition && motionEnabled() && currentPath !== null && !match.r.bare && !document.body.classList.contains('bare')) {
     let resolveReady;
     const ready = new Promise((r) => (resolveReady = r));
+    markNavigation();
     const vt = document.startViewTransition(async () => {
-      // Snapshot once the new page has content (or after a short cap so slow pages don't stall).
+      // Snapshot once the new page has content, or after a short cap: pages show
+      // skeletons while loading, so the screen never freezes waiting on the network.
       const p = run();
-      await Promise.race([p, new Promise((r) => setTimeout(r, 350))]);
+      await Promise.race([p, new Promise((r) => setTimeout(r, 140))]);
       resolveReady();
     });
     vt.finished.catch(() => {});

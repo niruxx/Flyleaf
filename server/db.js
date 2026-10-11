@@ -243,6 +243,60 @@ const migrations = [
   UPDATE libraries SET mode = 'kavita' WHERE kind = 'books';
   UPDATE books SET needs_meta = 1;
   `,
+
+  // v3: per-user library access & permissions, API key scopes, webhooks, plugins & downloads.
+  `
+  ALTER TABLE users ADD COLUMN library_ids TEXT;   -- JSON array; NULL = every library
+  ALTER TABLE users ADD COLUMN permissions TEXT;   -- JSON object, see auth.PERMISSION_DEFAULTS
+  ALTER TABLE api_keys ADD COLUMN scope TEXT NOT NULL DEFAULT 'read'; -- read | full
+
+  CREATE TABLE webhooks (
+    id          INTEGER PRIMARY KEY,
+    url         TEXT NOT NULL,
+    secret      TEXT NOT NULL,
+    events      TEXT NOT NULL,                     -- JSON array, ["*"] for everything
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    created_at  INTEGER NOT NULL,
+    last_status INTEGER,
+    last_error  TEXT,
+    last_at     INTEGER
+  );
+
+  CREATE TABLE plugin_repos (
+    id          INTEGER PRIMARY KEY,
+    url         TEXT NOT NULL UNIQUE,
+    name        TEXT,
+    created_at  INTEGER NOT NULL
+  );
+
+  CREATE TABLE plugins (
+    id           TEXT PRIMARY KEY,                 -- from the plugin's manifest
+    name         TEXT NOT NULL,
+    version      TEXT NOT NULL,
+    source       TEXT NOT NULL,                    -- Lua code
+    origin       TEXT,                             -- URL it was installed from (for updates)
+    enabled      INTEGER NOT NULL DEFAULT 1,
+    settings     TEXT NOT NULL DEFAULT '{}',
+    installed_at INTEGER NOT NULL,
+    updated_at   INTEGER NOT NULL
+  );
+
+  CREATE TABLE downloads (
+    id          INTEGER PRIMARY KEY,
+    user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    plugin_id   TEXT NOT NULL,
+    library_id  INTEGER REFERENCES libraries(id) ON DELETE CASCADE,
+    title       TEXT NOT NULL,
+    item        TEXT NOT NULL,                     -- JSON: what the plugin returned
+    status      TEXT NOT NULL DEFAULT 'queued',    -- queued | downloading | done | failed
+    received    INTEGER NOT NULL DEFAULT 0,
+    total       INTEGER,
+    file        TEXT,
+    error       TEXT,
+    created_at  INTEGER NOT NULL,
+    finished_at INTEGER
+  );
+  `,
 ];
 
 const version = db.prepare('PRAGMA user_version').get().user_version;

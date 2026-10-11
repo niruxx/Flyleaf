@@ -1,6 +1,6 @@
 // Settings: personal panels here; admin panels in settings-admin.js.
 
-import { api } from '../api.js';
+import { api, can } from '../api.js';
 import { isAdmin, session, navigate } from '../router.js';
 import { prefs, setPref, setTheme } from '../prefs.js';
 import { THEMES, themeState } from '../theme.js';
@@ -21,18 +21,20 @@ const PANELS = [
   { id: 'keybinds', label: 'Key binds', icon: 'keyboard' },
   { id: 'fonts', label: 'EPUB fonts', icon: 'font_download' },
   { group: 'Connections' },
-  { id: 'opds', label: 'OPDS & clients', icon: 'rss_feed' },
-  { id: 'devices', label: 'Send-to devices', icon: 'send_to_mobile' },
+  { id: 'opds', label: 'OPDS & clients', icon: 'rss_feed', perm: 'apiAccess' },
+  { id: 'api', label: 'API & webhooks', icon: 'api', perm: 'apiAccess' },
+  { id: 'devices', label: 'Send-to devices', icon: 'send_to_mobile', perm: 'download' },
   { id: 'import', label: 'Import (MAL)', icon: 'upload_file' },
   { group: 'Server', admin: true },
   { id: 'libraries', label: 'Libraries', icon: 'folder_managed', admin: true },
   { id: 'users', label: 'Users', icon: 'group', admin: true },
   { id: 'metadata', label: 'Metadata sources', icon: 'travel_explore', admin: true },
+  { id: 'plugins', label: 'Content Finder plugins', icon: 'extension', admin: true },
   { id: 'server', label: 'Server & email', icon: 'dns', admin: true },
 ];
 
 export async function settingsView(view, params, stale) {
-  const panels = PANELS.filter((p) => !p.admin || isAdmin());
+  const panels = PANELS.filter((p) => (!p.admin || isAdmin()) && (!p.perm || can(session.user, p.perm)));
   const current = params.tab && panels.some((p) => p.id === params.tab) ? params.tab : 'account';
   const nav = h('nav.settings-nav', panels.map((p) =>
     p.group
@@ -56,6 +58,8 @@ export async function settingsView(view, params, stale) {
     import: importPanel,
   }[current];
   if (render) return render(panel, stale);
+  if (current === 'api') return (await import('./settings-api.js')).apiPanel(panel, stale);
+  if (current === 'plugins') return (await import('./settings-plugins.js')).pluginsPanel(panel, stale);
   const admin = await import('./settings-admin.js');
   return admin[`${current}Panel`](panel, stale);
 }

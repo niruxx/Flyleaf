@@ -28,14 +28,26 @@ function parseAgeRating(raw) {
   return null;
 }
 
-/** SQL fragment restricting series by the user's age rating (alias = series table alias). */
-function ageFilter(user, alias = 's') {
-  if (user?.maxAgeRating == null) return { sql: '1 = 1', args: [] };
-  return {
-    sql: `((${alias}.age_rating IS NULL AND ? = 1) OR ${alias}.age_rating <= ?)`,
-    args: [user.ageIncludeUnknown ? 1 : 0, user.maxAgeRating],
-  };
+/**
+ * SQL fragment restricting series to what `user` may see: their age rating and,
+ * when set, the libraries they've been given (alias = series table alias).
+ */
+function accessFilter(user, alias = 's') {
+  const parts = [];
+  const args = [];
+  if (user?.maxAgeRating != null) {
+    parts.push(`((${alias}.age_rating IS NULL AND ? = 1) OR ${alias}.age_rating <= ?)`);
+    args.push(user.ageIncludeUnknown ? 1 : 0, user.maxAgeRating);
+  }
+  if (Array.isArray(user?.libraryIds)) {
+    parts.push(`${alias}.library_id IN (SELECT value FROM json_each(?))`);
+    args.push(JSON.stringify(user.libraryIds));
+  }
+  return { sql: parts.length ? parts.join(' AND ') : '1 = 1', args };
 }
+
+/** Whether `user` may see library `id`. */
+const canSeeLibrary = (user, id) => !Array.isArray(user?.libraryIds) || user.libraryIds.includes(Number(id));
 
 function likeArg(s) {
   return `%${String(s).replace(/[\\%_]/g, '\\$&')}%`;
@@ -82,7 +94,7 @@ function similarity(a, b) {
   return (2 * overlap) / (a.length - 1 + (b.length - 1)) || 0;
 }
 
-module.exports = { json, AGE_RATINGS, parseAgeRating, ageFilter, likeArg, stripHtml, similarity };
+module.exports = { json, AGE_RATINGS, parseAgeRating, accessFilter, canSeeLibrary, likeArg, stripHtml, similarity };
 
 const LINK_SOURCES = [
   [/myanimelist\.net/i, 'MyAnimeList'],

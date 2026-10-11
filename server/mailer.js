@@ -6,7 +6,7 @@ const path = require('node:path');
 const fsp = require('node:fs/promises');
 const settings = require('./settings');
 
-const KINDLE_OK = new Set(['epub', 'pdf', 'txt']);
+const KINDLE_OK = new Set(['epub', 'pdf', 'txt', 'docx', 'rtf']);
 const MAX_BYTES = 45 * 1024 * 1024;
 
 function configured() {
@@ -33,7 +33,7 @@ async function sendBooks(device, books) {
   for (const book of books) {
     if (book.format === 'folder') throw new Error(`"${book.title}" is a folder of images and can’t be emailed.`);
     if (device.platform === 'kindle' && !KINDLE_OK.has(book.format)) {
-      throw new Error(`Kindle only accepts EPUB, PDF and TXT – "${book.title}" is ${book.format.toUpperCase()}.`);
+      throw new Error(`Kindle only accepts EPUB, PDF, DOCX, RTF and TXT – "${book.title}" is ${book.format.toUpperCase()}.`);
     }
     const { size } = await fsp.stat(book.path);
     if (size > MAX_BYTES) throw new Error(`"${book.title}" is too large to email (${Math.round(size / 1048576)} MB).`);

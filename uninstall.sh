@@ -60,11 +60,22 @@ if systemctl list-unit-files "$APP.service" >/dev/null 2>&1; then
   info "Stopping and disabling the service"
   systemctl disable --now "$APP.service" >/dev/null 2>&1 || true
 fi
+unit_changed=0
 if [[ -n ${M[UNIT]:-} && -f ${M[UNIT]} ]]; then
   rm -f "${M[UNIT]}"
+  unit_changed=1
+  ok "Removed ${M[UNIT]}"
+fi
+# Drop-in overrides (e.g. ProtectHome added by hand, or `systemctl edit flyleaf`).
+dropins=/etc/systemd/system/$APP.service.d
+if [[ -d $dropins ]]; then
+  rm -rf "$dropins"
+  unit_changed=1
+  ok "Removed $dropins"
+fi
+if [[ $unit_changed == 1 ]]; then
   systemctl daemon-reload
   systemctl reset-failed "$APP.service" >/dev/null 2>&1 || true
-  ok "Removed ${M[UNIT]}"
 fi
 
 # 2. Firewall rules

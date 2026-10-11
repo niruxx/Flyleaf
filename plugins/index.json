@@ -1,0 +1,23 @@
+{
+  "name": "Flyleaf built-in sources",
+  "description": "Plugins that ship with Flyleaf.",
+  "plugins": [
+    {
+      "id": "gutenberg",
+      "file": "gutenberg.lua"
+    },
+    {
+      "id": "standard-ebooks",
+      "file": "standard-ebooks.lua"
+    },
+    {
+      "id": "opds-catalog",
+      "file": "opds-catalog.lua"
+    },
+    {
+      "id": "mihon",
+      "file": "mihon-suwayomi.lua",
+      "seed": false
+    }
+  ]
+}

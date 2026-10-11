@@ -4,6 +4,7 @@ const express = require('express');
 const { q, tx } = require('../db');
 const { toBook, getBook } = require('../serialize');
 
+const events = require('../events');
 const router = express.Router();
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -31,6 +32,7 @@ router.put('/books/:id/progress', (req, res) => {
   const day = typeof body.day === 'string' && DAY_RE.test(body.day) ? body.day : serverDay();
   const finished = body.finished === true || (percent != null && percent >= 0.999) ? 1 : null;
 
+  const wasFinished = Boolean(q('SELECT finished FROM progress WHERE user_id = ? AND book_id = ?').get(req.user.id, bookId)?.finished);
   tx(() => {
     q(`INSERT INTO progress (user_id, book_id, position, page, percent, finished, started_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -55,6 +57,9 @@ router.put('/books/:id/progress', (req, res) => {
          ON CONFLICT (user_id, book_id, day) DO UPDATE SET seconds = seconds + excluded.seconds`).run(req.user.id, bookId, day, seconds);
     }
   });
+  const p = q('SELECT page, percent, finished FROM progress WHERE user_id = ? AND book_id = ?').get(req.user.id, bookId);
+  events.emit('progress.updated', { userId: req.user.id, username: req.user.username, bookId, page: p.page, percent: p.percent, finished: Boolean(p.finished) });
+  if (p.finished && !wasFinished) events.emit('book.finished', { userId: req.user.id, username: req.user.username, bookId });
   res.json({ ok: true, finished: Boolean(finished) });
 });
 
@@ -66,6 +71,7 @@ router.post('/books/:id/finished', (req, res) => {
   if (req.body?.finished) {
     q(`INSERT INTO progress (user_id, book_id, percent, finished, started_at, updated_at) VALUES (?, ?, 1, 1, ?, ?)
        ON CONFLICT (user_id, book_id) DO UPDATE SET finished = 1, percent = 1, updated_at = excluded.updated_at`).run(req.user.id, bookId, now, now);
+    events.emit('book.finished', { userId: req.user.id, username: req.user.username, bookId });
   } else {
     q('DELETE FROM progress WHERE user_id = ? AND book_id = ?').run(req.user.id, bookId);
   }

@@ -39,12 +39,19 @@ api.use((req, res, next) => {
   next();
 });
 
+// Machine-readable API description (Settings → API & webhooks renders it).
+api.get('/openapi.json', (req, res) => res.json(require('./openapi').build(`${req.protocol}://${req.get('host')}/api`)));
+
 const authRoutes = require('./routes/auth');
 api.use(authRoutes.router);
 api.use(auth.requireUser);
 api.use('/me', authRoutes.me);
 api.use('/users', authRoutes.users);
+const finder = require('./routes/finder');
+api.use('/admin/plugins', finder.admin);
 api.use('/admin', require('./routes/admin').router);
+api.use('/finder', finder.router);
+api.use('/uploads', require('./routes/uploads').router);
 api.use(require('./routes/library').router);
 api.use(require('./routes/series').router);
 api.use(require('./routes/books').router);
@@ -119,6 +126,7 @@ server.on('error', (err) => {
 auth.pruneSessions();
 archive.pruneCache().catch(() => {});
 scanner.requestScan(null);
+require('./plugins/manager').seedBuiltins().then(() => require('./plugins/downloads').resume());
 if (config.scanInterval > 0) {
   setInterval(() => scanner.requestScan(null), config.scanInterval * 60_000).unref();
 }

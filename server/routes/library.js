@@ -10,7 +10,7 @@ const archive = require('../archive');
 const scanner = require('../scanner');
 const covers = require('../covers');
 const providers = require('../providers');
-const { ageFilter, likeArg, json } = require('../util');
+const { accessFilter, canSeeLibrary, likeArg, json } = require('../util');
 const { BOOK_SELECT, toBook, listSeries } = require('../serialize');
 
 const router = express.Router();
@@ -46,7 +46,7 @@ const LIB_SELECT = `
 
 router.get('/home', (req, res) => {
   const user = req.user;
-  const age = ageFilter(user, 's');
+  const age = accessFilter(user, 's');
   const onDeck = q(`${BOOK_SELECT} WHERE b.missing = 0 AND p.finished = 0 AND p.updated_at IS NOT NULL AND ${age.sql}
                     ORDER BY p.updated_at DESC LIMIT 20`).all(user.id, user.id, ...age.args);
   res.json({
@@ -54,15 +54,22 @@ router.get('/home', (req, res) => {
     wantToRead: listSeries(user, { where: ['us.want_to_read = 1'], sort: 'want', limit: 20 }).items,
     recentlyAdded: listSeries(user, { sort: 'added', limit: 24 }).items,
     recentlyUpdated: listSeries(user, { where: ['s.metadata_at IS NOT NULL', "s.metadata_source != 'none'"], sort: 'updated', limit: 12 }).items,
-    libraries: q(`${LIB_SELECT} ORDER BY l.name COLLATE NOCASE`).all().map(libraryRow),
+    libraries: visibleLibraries(user),
   });
 });
 
 // ---------------------------------------------------------------------------
 // Libraries
 
+/** Libraries `user` may see; guests don't get server paths. */
+function visibleLibraries(user) {
+  return q(`${LIB_SELECT} ORDER BY l.name COLLATE NOCASE`).all()
+    .filter((l) => canSeeLibrary(user, l.id))
+    .map((l) => (user.role === 'admin' ? libraryRow(l) : { ...libraryRow(l), path: undefined }));
+}
+
 router.get('/libraries', (req, res) => {
-  res.json(q(`${LIB_SELECT} ORDER BY l.name COLLATE NOCASE`).all().map(libraryRow));
+  res.json(visibleLibraries(req.user));
 });
 
 function validateLibrary(body, current = {}) {
@@ -195,7 +202,7 @@ router.get('/fs', requireAdmin, async (req, res) => {
 // Browsing facets
 
 router.get('/genres', (req, res) => {
-  const age = ageFilter(req.user, 's');
+  const age = accessFilter(req.user, 's');
   const rows = q(`SELECT j.value AS name, COUNT(DISTINCT s.id) AS count
                   FROM series s, json_each(s.genres) j
                   WHERE ${age.sql} AND EXISTS (SELECT 1 FROM books b WHERE b.series_id = s.id AND b.missing = 0)
@@ -216,7 +223,7 @@ router.get('/search', (req, res) => {
     args: [like, like, like, like],
     limit,
   }).items;
-  const age = ageFilter(user, 's');
+  const age = accessFilter(user, 's');
   const books = q(`${BOOK_SELECT} WHERE b.missing = 0 AND ${age.sql} AND (b.title LIKE ? ESCAPE '\\' OR b.author LIKE ? ESCAPE '\\')
                    ORDER BY b.title COLLATE NOCASE LIMIT ?`).all(user.id, user.id, ...age.args, like, like, limit).map((r) => toBook(r, false, user));
   const people = q(`SELECT DISTINCT json_extract(j.value, '$.name') AS name FROM series s, json_each(s.people) j

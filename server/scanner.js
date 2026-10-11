@@ -21,6 +21,8 @@ const FILE_FORMATS = {
   '.azw3': 'azw3',
   '.fb2': 'fb2',
   '.txt': 'txt',
+  '.docx': 'docx',
+  '.rtf': 'rtf',
   '.pdf': 'pdf',
   '.cbz': 'archive',
   '.zip': 'archive',
@@ -93,7 +95,8 @@ async function walk(lib) {
       if (!isFile) continue;
       const ext = path.extname(ent.name).toLowerCase();
       let format = FILE_FORMATS[ext];
-      if (format === 'txt' && (lib.kind !== 'books' || IGNORED_TXT.test(ent.name))) format = null;
+      // Loose documents only count as books in ebook libraries (comic folders often hold readme files).
+      if (['txt', 'docx', 'rtf'].includes(format) && (lib.kind !== 'books' || IGNORED_TXT.test(ent.name))) format = null;
       if (format) {
         const st = await fsp.stat(full).catch(() => null);
         if (!st || !st.size) continue;
@@ -159,11 +162,12 @@ async function scanLibrary(lib, stats) {
         }
         continue;
       }
-      q(`INSERT INTO books (library_id, path, rel_path, format, title, size, mtime, added_at, updated_at)
+      const { lastInsertRowid } = q(`INSERT INTO books (library_id, path, rel_path, format, title, size, mtime, added_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         lib.id, f.path, path.relative(lib.path, f.path), f.format, meta.titleFromFilename(f.path, f.isDir), f.size, f.mtime, now, now,
       );
       stats.added++;
+      (stats.newIds ||= []).push(Number(lastInsertRowid));
     }
     for (const gone of existing.values()) {
       if (!gone.missing) {
@@ -206,7 +210,7 @@ async function processBook(book) {
       Object.assign(update, { title: m.title, author: m.author, description: m.description });
       embedded = {
         series: m.series, volume: m.seriesIndex, people: m.people, genres: m.subjects, publisher: m.publisher,
-        year: m.year, language: m.language, links: m.links, description: m.description,
+        year: m.year, language: m.language, links: m.links, description: m.description, isbn: m.isbn,
       };
       cover = m.cover;
       break;
@@ -217,7 +221,7 @@ async function processBook(book) {
       Object.assign(update, { title: m.title, author: m.author, description: m.description });
       embedded = {
         people: m.authors.map((name) => ({ name, role: 'Writer' })), genres: m.subjects, publisher: m.publisher,
-        year: m.year, language: m.language, description: m.description,
+        year: m.year, language: m.language, description: m.description, isbn: m.isbn,
       };
       cover = m.cover;
       break;
@@ -230,6 +234,16 @@ async function processBook(book) {
         genres: m.subjects, language: m.language, description: m.description,
       };
       cover = m.cover;
+      break;
+    }
+    case 'docx':
+    case 'rtf': {
+      const m = book.format === 'docx' ? await formats.docxMetadata(book.path) : await formats.rtfMetadata(book.path);
+      // Word's "Title" property is often a leftover template name; prefer the file name unless it looks real.
+      if (m.title && m.title.length > 2 && !/^(untitled|document\d*|microsoft word)/i.test(m.title)) update.title = m.title;
+      Object.assign(update, { author: m.author, description: m.description });
+      if (m.author) embedded.people = [{ name: m.author, role: 'Writer' }];
+      if (m.description) embedded.description = m.description;
       break;
     }
     case 'txt': {
@@ -257,7 +271,7 @@ async function processBook(book) {
       embedded = {
         series: ci.series, localizedSeries: ci.localizedSeries, volume: ci.volume, number: ci.number, count: ci.count,
         people: ci.people, genres: ci.genres, tags: ci.tags, publisher: ci.publisher, year: ci.year, language: ci.language,
-        ageRating: ci.ageRating, links: ci.links, description: ci.description, manga: ci.manga,
+        ageRating: ci.ageRating, links: ci.links, description: ci.description, manga: ci.manga, isbn: ci.isbn,
       };
       cover = info.cover;
     }
@@ -401,6 +415,22 @@ function seedSeriesFromFiles(seriesId) {
 
 // ---------------------------------------------------------------------------
 
+/** Webhook events for a finished scan (after grouping, so titles and series are final). */
+function announce(lib, stats) {
+  if (!(stats.added + stats.changed + stats.missing)) return;
+  const events = require('./events');
+  events.emit('library.scanned', { libraryId: lib.id, name: lib.name, total: stats.total, added: stats.added, changed: stats.changed, missing: stats.missing });
+  for (const id of stats.newIds || []) {
+    const b = q('SELECT id, title, author, format, series_id, series, volume, chapter, rel_path FROM books WHERE id = ?').get(id);
+    if (b) {
+      events.emit('book.added', {
+        bookId: b.id, libraryId: lib.id, title: b.title, author: b.author, format: b.format,
+        seriesId: b.series_id, series: b.series, volume: b.volume, chapter: b.chapter, path: b.rel_path,
+      });
+    }
+  }
+}
+
 async function runQueue() {
   if (state.running) return;
   state.running = true;
@@ -424,6 +454,7 @@ async function runQueue() {
           const summary = `"${lib.name}": ${stats.total} items (${stats.added} new, ${stats.changed} changed, ${stats.missing} missing) in ${((Date.now() - started) / 1000).toFixed(1)}s${stats.errors ? `, ${stats.errors} unreadable (see data/logs/flyleaf.log)` : ''}`;
           if (changes || stats.errors) log.info(summary);
           else log.file(summary);
+          announce(lib, stats);
           if (lib.auto_metadata) require('./metadata-service').queueAuto(lib.id);
         } catch (err) {
           state.lastError = err.message;

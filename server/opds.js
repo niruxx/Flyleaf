@@ -14,8 +14,8 @@ const auth = require('./auth');
 const archive = require('./archive');
 const settings = require('./settings');
 const { listSeries, getSeries, seriesBooks, getBook, BOOK_SELECT, toBook } = require('./serialize');
-const { ageFilter, likeArg } = require('./util');
-const { FILE_MIME } = require('./routes/books');
+const { accessFilter, canSeeLibrary, likeArg } = require('./util');
+const { ORIGINAL_MIME } = require('./routes/books');
 
 const router = express.Router();
 
@@ -85,7 +85,7 @@ function bookEntry(req, book, raw, { titlePrefix = '' } = {}) {
   const p = book.progress;
   const prefix = req.user.prefs.opdsEmbedProgress ? progressMark(p?.finished ? 1 : p?.percent || 0) : '';
   const isPages = archive.IMAGE_FORMATS.has(book.format) || book.format === 'pdf';
-  const mime = book.format === 'folder' ? 'application/vnd.comicbook+zip' : FILE_MIME[book.format] || 'application/octet-stream';
+  const mime = book.format === 'folder' ? 'application/vnd.comicbook+zip' : ORIGINAL_MIME[book.format] || 'application/octet-stream';
   const ext = book.format === 'folder' ? 'cbz' : path.extname(raw.path).slice(1);
   const pse =
     isPages && archive.IMAGE_FORMATS.has(book.format) && book.pageCount
@@ -99,7 +99,7 @@ function bookEntry(req, book, raw, { titlePrefix = '' } = {}) {
     ${raw.description ? `<content type="text">${esc(raw.description)}</content>` : ''}
     <dcterms:extent>${esc(Math.round((book.size || 0) / 1024))} KB</dcterms:extent>
     ${book.coverUrl ? `<link rel="http://opds-spec.org/image" href="${req.base}/books/${book.id}/cover"/><link rel="http://opds-spec.org/image/thumbnail" href="${req.base}/books/${book.id}/cover"/>` : ''}
-    <link rel="http://opds-spec.org/acquisition" href="${req.base}/books/${book.id}/download/${encodeURIComponent(path.basename(raw.path, path.extname(raw.path)))}.${ext}" type="${mime}"/>
+    ${req.user.permissions.download ? `<link rel="http://opds-spec.org/acquisition" href="${req.base}/books/${book.id}/download/${encodeURIComponent(path.basename(raw.path, path.extname(raw.path)))}.${ext}" type="${mime}"/>` : ''}
     ${pse}
   </entry>`;
 }
@@ -132,13 +132,13 @@ router.get('/:key/recent', (req, res) => seriesFeed(req, res, { id: 'recent', ti
 router.get('/:key/want-to-read', (req, res) => seriesFeed(req, res, { id: 'want', title: 'Want to read', where: ['us.want_to_read = 1'], sort: 'want' }));
 
 router.get('/:key/libraries', (req, res) => {
-  const libs = q('SELECT id, name, kind FROM libraries ORDER BY name COLLATE NOCASE').all();
+  const libs = q('SELECT id, name, kind FROM libraries ORDER BY name COLLATE NOCASE').all().filter((l) => canSeeLibrary(req.user, l.id));
   send(res, feed(req, { id: 'libraries', title: 'Libraries', entries: libs.map((l) => navEntry(`library:${l.id}`, l.name, `${req.base}/libraries/${l.id}`, l.kind)) }));
 });
 
 router.get('/:key/libraries/:id', (req, res) => {
   const lib = q('SELECT name FROM libraries WHERE id = ?').get(Number(req.params.id));
-  if (!lib) return res.status(404).end();
+  if (!lib || !canSeeLibrary(req.user, req.params.id)) return res.status(404).end();
   seriesFeed(req, res, { id: `library:${req.params.id}`, title: lib.name, where: ['s.library_id = ?'], args: [Number(req.params.id)] });
 });
 
@@ -159,7 +159,7 @@ router.get('/:key/collections/:id', (req, res) => {
 });
 
 router.get('/:key/on-deck', (req, res) => {
-  const age = ageFilter(req.user, 's');
+  const age = accessFilter(req.user, 's');
   const rows = q(`${BOOK_SELECT} WHERE b.missing = 0 AND p.finished = 0 AND p.updated_at IS NOT NULL AND ${age.sql}
                   ORDER BY p.updated_at DESC LIMIT 30`).all(req.user.id, req.user.id, ...age.args);
   const entries = rows.map((r) => bookEntry(req, toBook(r, false, req.user), r, { titlePrefix: `${r.series_name || ''} – ` }));
@@ -225,9 +225,10 @@ router.get('/:key/books/:id/cover', (req, res) => {
 router.get(['/:key/books/:id/download', '/:key/books/:id/download/:name'], async (req, res) => {
   const b = getBook(req.params.id, req.user);
   if (!b || b.missing) return res.status(404).end();
+  if (!req.user.permissions.download) return res.status(403).end();
   if (b.format === 'folder') {
-    const archiver = require('archiver');
-    const zip = archiver('zip', { store: true });
+    const { ZipArchive } = require('archiver');
+    const zip = new ZipArchive({ store: true });
     res.attachment(`${path.basename(b.path)}.cbz`);
     zip.pipe(res);
     zip.directory(b.path, false);

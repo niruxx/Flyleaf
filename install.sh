@@ -256,6 +256,8 @@ RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
+# Library folders under /home stay readable, but the service can't change anything there.
+ProtectHome=read-only
 ReadWritePaths=$DATA_DIR
 
 [Install]
@@ -301,11 +303,19 @@ case "\${1:-help}" in
   restart) sudo systemctl restart $APP && echo "Flyleaf restarted" ;;
   update) sudo $INSTALL_DIR/update.sh ;;
   uninstall) sudo $INSTALL_DIR/uninstall.sh ;;
+  allow-write)
+    # Let the service write into a library folder (Content Finder downloads) despite ProtectHome=read-only.
+    [[ -n "\$2" && -d "\$2" ]] || { echo "Usage: flyleaf allow-write <library folder>"; exit 1; }
+    dir=\$(realpath "\$2")
+    sudo mkdir -p /etc/systemd/system/$APP.service.d
+    printf '[Service]\\nReadWritePaths=%s\\n' "\$dir" | sudo tee "/etc/systemd/system/$APP.service.d/write-\$(echo "\$dir" | sha1sum | cut -c1-10).conf" >/dev/null
+    sudo systemctl daemon-reload && sudo systemctl restart $APP
+    echo "Flyleaf can now write to \$dir (make sure '$SERVICE_USER' has write permission there too)." ;;
   reset-password)
     [[ -n "\$2" && -n "\$3" ]] || { echo "Usage: flyleaf reset-password <username> <new-password>"; exit 1; }
     sudo -u $SERVICE_USER env FLYLEAF_DATA_DIR=$DATA_DIR $NODE_BIN --disable-warning=ExperimentalWarning $INSTALL_DIR/scripts/reset-password.js "\$2" "\$3"
     sudo systemctl restart $APP ;;
-  *) echo "Usage: flyleaf {status|logs|restart|update|reset-password|uninstall}" ;;
+  *) echo "Usage: flyleaf {status|logs|restart|update|allow-write <folder>|reset-password|uninstall}" ;;
 esac
 CLIEOF
 chmod 755 "$CLI"

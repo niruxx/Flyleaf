@@ -1,14 +1,19 @@
 'use strict';
 
 // Page access for image-based books: CBZ/ZIP, CBR/RAR, CB7/7z, CBT/tar and
-// plain image folders. ZIPs are read in place; RAR/7z/tar are extracted once
-// into a disk cache and then served like folders.
+// plain image folders. Every archive is read in place – nothing is unpacked
+// to disk:
+//   ZIP  – entries are inflated on demand (yauzl)
+//   RAR  – the archive is held in memory and single entries are decoded with
+//          unrar (WASM); solid archives are decoded once into a page cache
+//   7z   – single entries are streamed out of 7-Zip (`7za e -so`)
+//   tar  – entries are byte ranges of the file, read directly
 
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
-const crypto = require('node:crypto');
-const { execFile } = require('node:child_process');
+const zlib = require('node:zlib');
+const { spawn, execFile } = require('node:child_process');
 const yauzl = require('yauzl');
 const config = require('./config');
 const log = require('./log').logger('archive');
@@ -25,6 +30,7 @@ const MIME = {
   '.jxl': 'image/jxl',
 };
 const IMAGE_FORMATS = new Set(['cbz', 'cbr', 'cb7', 'cbt', 'folder']);
+const MAX_ENTRY = 200 * 1024 * 1024;
 
 const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
 const naturalSort = (a, b) => collator.compare(a, b);
@@ -36,6 +42,7 @@ function isImageName(name) {
   return IMAGE_EXT.has(path.extname(base).toLowerCase());
 }
 const mimeFor = (name) => MIME[path.extname(name).toLowerCase()] || 'application/octet-stream';
+const isComicInfo = (name) => /(^|[\\/])comicinfo\.xml$/i.test(name);
 
 /** Identify an archive by its signature rather than its extension. */
 async function sniff(file) {
@@ -48,76 +55,144 @@ async function sniff(file) {
     if (buf[0] === 0x37 && buf[1] === 0x7a && buf[2] === 0xbc && buf[3] === 0xaf) return '7z';
     if (bytesRead >= 262 && buf.toString('latin1', 257, 262) === 'ustar') return 'tar';
     if (buf.toString('latin1', 0, 5) === '%PDF-') return 'pdf';
+    if (buf[0] === 0x1f && buf[1] === 0x8b) return 'tar'; // gzipped tar (.cbt / .tar.gz)
     return null;
   } finally {
     await fh.close();
   }
 }
 
-// ---------------------------------------------------------------------------
-// ZIP
-
-const zipCache = new Map();
-const ZIP_CACHE_MAX = 12;
-
-async function openZip(file) {
-  const stat = await fsp.stat(file);
-  const key = `${file}:${stat.mtimeMs}`;
-  const hit = zipCache.get(key);
-  if (hit) {
-    zipCache.delete(key);
-    zipCache.set(key, hit);
-    return hit;
-  }
-  const promise = (async () => {
-    const zip = await yauzl.openPromise(file, { lazyEntries: true, autoClose: false, strictFileNames: false });
-    const entries = [];
-    const others = new Map();
-    for await (const entry of zip.eachEntry()) {
-      if (entry.fileName.endsWith('/')) continue;
-      if (isImageName(entry.fileName)) entries.push(entry);
-      else others.set(entry.fileName.toLowerCase(), entry);
-    }
-    entries.sort((a, b) => naturalSort(a.fileName, b.fileName));
-    return { zip, entries, others };
-  })();
-  zipCache.set(key, promise);
-  promise.catch(() => zipCache.delete(key));
-  while (zipCache.size > ZIP_CACHE_MAX) {
-    const [oldKey, old] = zipCache.entries().next().value;
-    zipCache.delete(oldKey);
-    old.then((h) => h.zip.close()).catch(() => {});
-  }
-  return promise;
-}
-
-async function readZipEntry(zip, entry, maxBytes = 200 * 1024 * 1024) {
-  if (entry.uncompressedSize > maxBytes) throw new Error('Entry too large');
-  const stream = await zip.openReadStreamPromise(entry);
+async function streamToBuffer(stream, max = MAX_ENTRY) {
   const chunks = [];
-  for await (const chunk of stream) chunks.push(chunk);
+  let size = 0;
+  for await (const chunk of stream) {
+    size += chunk.length;
+    if (size > max) throw new Error('Entry too large');
+    chunks.push(chunk);
+  }
   return Buffer.concat(chunks);
 }
 
-async function readZipFile(file, name) {
-  const { zip, entries, others } = await openZip(file);
-  const lower = name.toLowerCase();
-  const entry = others.get(lower) || entries.find((e) => e.fileName.toLowerCase() === lower);
-  return entry ? readZipEntry(zip, entry) : null;
+/** A small LRU keyed by string; `cost` lets byte-sized caches evict by size. */
+class Lru {
+  constructor(max, cost = () => 1, maxCount = Infinity) {
+    this.max = max;
+    this.maxCount = maxCount;
+    this.cost = cost;
+    this.total = 0;
+    this.map = new Map();
+  }
+  get(key) {
+    const v = this.map.get(key);
+    if (v === undefined) return undefined;
+    this.map.delete(key);
+    this.map.set(key, v);
+    return v;
+  }
+  set(key, value) {
+    if (this.map.has(key)) this.delete(key);
+    this.map.set(key, value);
+    this.total += this.cost(value);
+    while ((this.total > this.max || this.map.size > this.maxCount) && this.map.size > 1) this.delete(this.map.keys().next().value);
+  }
+  delete(key) {
+    const v = this.map.get(key);
+    if (v === undefined) return;
+    this.map.delete(key);
+    this.total -= this.cost(v);
+    v?.close?.();
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Extracted formats (RAR / 7z / tar)
+// Handles: { pages: [names], others: Map(lowercase name → name), read(name) → Buffer | {stream,size} }
 
-const extractJobs = new Map();
-
-function extractDir(file, mtimeMs) {
-  const hash = crypto.createHash('sha1').update(`${file}:${mtimeMs}`).digest('hex').slice(0, 20);
-  return path.join(config.cacheDir, 'extract', hash);
+async function openZipHandle(file) {
+  const zip = await yauzl.openPromise(file, { lazyEntries: true, autoClose: false, strictFileNames: false });
+  const byName = new Map();
+  const pages = [];
+  const others = new Map();
+  for await (const entry of zip.eachEntry()) {
+    if (entry.fileName.endsWith('/')) continue;
+    byName.set(entry.fileName, entry);
+    if (isImageName(entry.fileName)) pages.push(entry.fileName);
+    else others.set(entry.fileName.toLowerCase(), entry.fileName);
+  }
+  pages.sort(naturalSort);
+  return {
+    pages,
+    others,
+    async read(name, { stream = false } = {}) {
+      const entry = byName.get(name);
+      if (!entry) return null;
+      if (entry.uncompressedSize > MAX_ENTRY) throw new Error('Entry too large');
+      const s = await zip.openReadStreamPromise(entry);
+      return stream ? { stream: s, size: entry.uncompressedSize } : streamToBuffer(s);
+    },
+    close: () => zip.close(),
+  };
 }
 
-const flatten = (name) =>
-  name.replace(/\\/g, '/').split('/').filter((p) => p && p !== '..' && p !== '.').join('__');
+// RAR ------------------------------------------------------------------------
+
+let unrarWasm = null;
+const RAR_MEMORY = 512 * 1024 * 1024; // archives + decoded pages kept in memory
+const rarPageCache = new Lru(256 * 1024 * 1024, (b) => b.length);
+
+async function rarExtractor(data) {
+  const { createExtractorFromData } = require('node-unrar-js');
+  unrarWasm ||= fs.readFileSync(path.join(path.dirname(require.resolve('node-unrar-js')), 'js', 'unrar.wasm')).buffer;
+  return createExtractorFromData({ data, wasmBinary: unrarWasm });
+}
+
+async function openRarHandle(file, key) {
+  const buf = await fsp.readFile(file);
+  const data = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  const list = (await rarExtractor(data)).getFileList();
+  const headers = [...list.fileHeaders].filter((h) => !h.flags.directory);
+  if (headers.some((h) => h.flags.encrypted)) throw new Error('Password-protected RAR archives aren’t supported.');
+  const solid = Boolean(list.arcHeader?.flags?.solid);
+  const pages = headers.filter((h) => isImageName(h.name)).map((h) => h.name).sort(naturalSort);
+  const others = new Map(headers.filter((h) => !isImageName(h.name)).map((h) => [h.name.toLowerCase(), h.name]));
+  const wanted = new Set([...pages, ...others.values()].filter((n) => isImageName(n) || isComicInfo(n)));
+  let solidJob = null;
+
+  async function extract(names) {
+    const set = new Set(names);
+    const { files } = (await rarExtractor(data)).extract({ files: (h) => set.has(h.name) });
+    const out = new Map();
+    for (const f of files) if (f.extraction) out.set(f.fileHeader.name, Buffer.from(f.extraction));
+    return out;
+  }
+
+  return {
+    pages,
+    others,
+    size: buf.length,
+    async read(name) {
+      const cacheKey = `${key}\0${name}`;
+      const hit = rarPageCache.get(cacheKey);
+      if (hit) return hit;
+      if (!solid) {
+        const got = (await extract([name])).get(name) || null;
+        if (got) rarPageCache.set(cacheKey, got);
+        return got;
+      }
+      // Solid archives compress files as one stream: decoding page N means decoding
+      // everything before it, so decode the whole set once and serve from memory.
+      solidJob ||= extract([...wanted]).then((all) => {
+        for (const [n, b] of all) rarPageCache.set(`${key}\0${n}`, b);
+        return all;
+      }).finally(() => {
+        solidJob = null;
+      });
+      const all = await solidJob;
+      return all.get(name) || rarPageCache.get(cacheKey) || null;
+    },
+  };
+}
+
+// 7z -------------------------------------------------------------------------
 
 let sevenZip = null;
 function sevenZipPath() {
@@ -129,95 +204,189 @@ function sevenZipPath() {
   return sevenZip;
 }
 
-async function extractRar(file, dir) {
-  const { createExtractorFromFile } = require('node-unrar-js');
-  const extractor = await createExtractorFromFile({ filepath: file, targetPath: dir, filenameTransform: flatten });
-  const { files } = extractor.extract({ files: (h) => !h.flags.directory && (isImageName(h.name) || /comicinfo\.xml$/i.test(h.name)) });
-  for (const _ of files); // eslint-disable-line no-unused-vars -- iterating performs the extraction
-}
-
-function extract7z(file, dir) {
+function list7z(file) {
   return new Promise((resolve, reject) => {
-    execFile(sevenZipPath(), ['x', '-y', '-bd', `-o${dir}`, file], { maxBuffer: 16 * 1024 * 1024 }, (err) =>
-      err ? reject(new Error(`7-Zip failed: ${err.message.split('\n')[0]}`)) : resolve(),
-    );
+    execFile(sevenZipPath(), ['l', '-slt', '-ba', '-sccUTF-8', file], { maxBuffer: 64 * 1024 * 1024 }, (err, stdout) => {
+      if (err) return reject(new Error(`7-Zip couldn't read the archive: ${err.message.split('\n')[0]}`));
+      const entries = [];
+      for (const block of stdout.split(/\r?\n\r?\n/)) {
+        const fields = Object.fromEntries(block.split(/\r?\n/).map((l) => l.split(' = ')).filter((p) => p.length === 2));
+        if (!fields.Path || fields.Folder === '+' || /D/.test(fields.Attributes || '')) continue;
+        entries.push({ name: fields.Path, size: Number(fields.Size) || 0 });
+      }
+      resolve(entries);
+    });
   });
 }
 
-async function extractTar(file, dir) {
-  const tar = require('tar');
-  await tar.x({
-    file,
-    cwd: dir,
-    strict: false,
-    preservePaths: false, // strips absolute paths and refuses '..' entries
-    filter: (p, entry) => entry.type === 'File' && (isImageName(p) || /comicinfo\.xml$/i.test(p)),
-  });
+async function open7zHandle(file) {
+  const entries = await list7z(file);
+  const pages = entries.filter((e) => isImageName(e.name)).map((e) => e.name).sort(naturalSort);
+  const others = new Map(entries.filter((e) => !isImageName(e.name)).map((e) => [e.name.toLowerCase(), e.name]));
+  return {
+    pages,
+    others,
+    read(name) {
+      // `e -so` writes just that entry to stdout. Wildcards are disabled (-spd) so names are literal.
+      const child = spawn(sevenZipPath(), ['e', '-so', '-spd', '-bd', '-y', file, '--', name], { stdio: ['ignore', 'pipe', 'ignore'] });
+      return streamToBuffer(child.stdout);
+    },
+  };
 }
 
-async function ensureExtracted(book) {
-  const stat = await fsp.stat(book.path);
-  const dir = extractDir(book.path, stat.mtimeMs);
-  const marker = path.join(dir, '.complete');
-  if (fs.existsSync(marker)) {
-    const now = new Date();
-    fs.utimes(marker, now, now, () => {});
-    return dir;
+// tar ------------------------------------------------------------------------
+
+/** Index a tar file: [{ name, offset, size }] for every regular file. */
+async function indexTar(fh, size) {
+  const entries = [];
+  let pos = 0;
+  let longName = null;
+  let paxPath = null;
+  const header = Buffer.alloc(512);
+  const octal = (b) => parseInt(b.toString('latin1').replace(/\0.*$/s, '').trim() || '0', 8);
+  const str = (b) => b.toString('utf8').replace(/\0.*$/s, '');
+  while (pos + 512 <= size) {
+    await fh.read(header, 0, 512, pos);
+    if (header.every((x) => x === 0)) break;
+    const type = String.fromCharCode(header[156] || 0x30);
+    const len = octal(header.subarray(124, 136));
+    const dataAt = pos + 512;
+    if (type === 'L' || type === 'x') {
+      const body = Buffer.alloc(len);
+      await fh.read(body, 0, len, dataAt);
+      if (type === 'L') longName = str(body);
+      else paxPath = /(?:^|\n)\d+ path=([^\n]*)\n/.exec(body.toString('utf8'))?.[1] ?? null;
+    } else {
+      const prefix = header.toString('latin1', 257, 262) === 'ustar' ? str(header.subarray(345, 500)) : '';
+      const name = paxPath || longName || (prefix ? `${prefix}/` : '') + str(header.subarray(0, 100));
+      if ((type === '0' || type === '\0' || type === '7') && !name.split('/').includes('..')) entries.push({ name, offset: dataAt, size: len });
+      longName = null;
+      paxPath = null;
+    }
+    pos = dataAt + Math.ceil(len / 512) * 512;
   }
-  if (extractJobs.has(dir)) return extractJobs.get(dir);
-  const job = (async () => {
-    await fsp.rm(dir, { recursive: true, force: true });
-    await fsp.mkdir(dir, { recursive: true });
-    if (book.format === 'cbr') await extractRar(book.path, dir);
-    else if (book.format === 'cb7') await extract7z(book.path, dir);
-    else if (book.format === 'cbt') await extractTar(book.path, dir);
-    await fsp.writeFile(marker, '');
-    return dir;
-  })();
-  extractJobs.set(dir, job);
+  return entries;
+}
+
+async function openTarHandle(file) {
+  const head = Buffer.alloc(2);
+  const fh = await fsp.open(file, 'r');
+  let entries;
+  let gz = null;
   try {
-    return await job;
+    await fh.read(head, 0, 2, 0);
+    if (head[0] === 0x1f && head[1] === 0x8b) {
+      // Compressed .tar.gz can't be seeked; inflate it in memory instead.
+      gz = zlib.gunzipSync(await fsp.readFile(file), { maxOutputLength: 1024 * 1024 * 1024 });
+      const mem = { read: async (buf, off, len, pos) => ({ bytesRead: gz.copy(buf, off, pos, pos + len) }) };
+      entries = await indexTar(mem, gz.length);
+    } else {
+      entries = await indexTar(fh, (await fh.stat()).size);
+    }
   } finally {
-    extractJobs.delete(dir);
+    await fh.close();
   }
+  const byName = new Map(entries.map((e) => [e.name, e]));
+  const pages = entries.filter((e) => isImageName(e.name)).map((e) => e.name).sort(naturalSort);
+  const others = new Map(entries.filter((e) => !isImageName(e.name)).map((e) => [e.name.toLowerCase(), e.name]));
+  return {
+    pages,
+    others,
+    size: gz?.length || 0,
+    async read(name, { stream = false } = {}) {
+      const e = byName.get(name);
+      if (!e) return null;
+      if (e.size > MAX_ENTRY) throw new Error('Entry too large');
+      if (gz) return gz.subarray(e.offset, e.offset + e.size);
+      if (stream) return { stream: fs.createReadStream(file, { start: e.offset, end: e.offset + e.size - 1 }), size: e.size };
+      if (!e.size) return Buffer.alloc(0);
+      const fd = await fsp.open(file, 'r');
+      try {
+        const b = Buffer.alloc(e.size);
+        await fd.read(b, 0, e.size, e.offset);
+        return b;
+      } finally {
+        await fd.close();
+      }
+    },
+  };
+}
+
+// Folders --------------------------------------------------------------------
+
+async function listImages(dir) {
+  const out = [];
+  for (const ent of await fsp.readdir(dir, { withFileTypes: true })) {
+    if (ent.isFile() && isImageName(ent.name)) out.push(ent.name);
+  }
+  return out.sort(naturalSort);
+}
+
+async function openFolderHandle(dir) {
+  const pages = await listImages(dir);
+  const names = await fsp.readdir(dir);
+  const others = new Map(names.filter((n) => isComicInfo(n)).map((n) => [n.toLowerCase(), n]));
+  return {
+    pages,
+    others,
+    async read(name, { stream = false } = {}) {
+      const file = path.join(dir, path.basename(name));
+      if (stream) return { stream: fs.createReadStream(file), size: (await fsp.stat(file)).size };
+      return fsp.readFile(file);
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
-// Folders
+// Handle cache
 
-async function listImages(dir, recursive = false) {
-  const out = [];
-  async function walk(d, prefix) {
-    for (const ent of await fsp.readdir(d, { withFileTypes: true })) {
-      const rel = prefix ? `${prefix}/${ent.name}` : ent.name;
-      if (ent.isDirectory() && recursive) await walk(path.join(d, ent.name), rel);
-      else if (ent.isFile() && isImageName(ent.name)) out.push(rel);
+// RAR handles hold the whole archive in memory, so the cache is bounded by bytes as well as count.
+const handles = new Lru(RAR_MEMORY, (h) => h.size || 0, 24);
+const opening = new Map();
+
+async function handleFor(book) {
+  const stat = await fsp.stat(book.path);
+  const key = `${book.path}:${stat.mtimeMs}`;
+  const hit = handles.get(key);
+  if (hit) return hit;
+  if (opening.has(key)) return opening.get(key);
+  const job = (async () => {
+    switch (book.format) {
+      case 'cbz':
+        return openZipHandle(book.path);
+      case 'cbr':
+        return openRarHandle(book.path, key);
+      case 'cb7':
+        return open7zHandle(book.path);
+      case 'cbt':
+        return openTarHandle(book.path);
+      case 'folder':
+        return openFolderHandle(book.path);
+      default:
+        throw new Error(`Not an image book: ${book.format}`);
     }
+  })();
+  opening.set(key, job);
+  try {
+    const h = await job;
+    handles.set(key, h);
+    return h;
+  } finally {
+    opening.delete(key);
   }
-  await walk(dir, '');
-  return out.sort(naturalSort);
 }
 
 // ---------------------------------------------------------------------------
 // Public API
 
-const listCache = new Map();
-
-async function pageSource(book) {
-  if (book.format === 'cbz') return { type: 'zip' };
-  const dir = book.format === 'folder' ? book.path : await ensureExtracted(book);
-  const key = `${dir}:${book.mtime}`;
-  if (!listCache.has(key)) {
-    if (listCache.size > 200) listCache.clear();
-    listCache.set(key, await listImages(dir, book.format !== 'folder'));
-  }
-  return { type: 'dir', dir, pages: listCache.get(key) };
+async function listPages(book) {
+  return (await handleFor(book)).pages;
 }
 
-async function listPages(book) {
-  const src = await pageSource(book);
-  if (src.type === 'zip') return (await openZip(book.path)).entries.map((e) => e.fileName);
-  return src.pages;
+async function readZipFile(file, name) {
+  const h = await handleFor({ path: file, format: 'cbz' });
+  const real = h.others.get(name.toLowerCase()) || h.pages.find((p) => p.toLowerCase() === name.toLowerCase());
+  return real ? h.read(real) : null;
 }
 
 let sharp;
@@ -232,22 +401,11 @@ try {
  * With `width`, the image is downscaled (data saver / OPDS clients).
  */
 async function openPage(book, index, { width } = {}) {
-  let entry = null;
-  let file = null;
-  const src = await pageSource(book);
-  if (src.type === 'zip') {
-    const { entries } = await openZip(book.path);
-    entry = entries[index];
-    if (!entry) return null;
-  } else {
-    const name = src.pages[index];
-    if (!name) return null;
-    file = path.join(src.dir, name);
-  }
-  const name = entry ? entry.fileName : file;
-
+  const h = await handleFor(book);
+  const name = h.pages[index];
+  if (!name) return null;
   if (width && sharp) {
-    const input = entry ? await readZipEntry((await openZip(book.path)).zip, entry) : await fsp.readFile(file);
+    const input = await h.read(name);
     try {
       const buffer = await sharp(input, { failOn: 'none' })
         .rotate()
@@ -259,60 +417,29 @@ async function openPage(book, index, { width } = {}) {
       return { buffer: input, mime: mimeFor(name), size: input.length };
     }
   }
-  if (entry) {
-    const { zip } = await openZip(book.path);
-    return { stream: await zip.openReadStreamPromise(entry), mime: mimeFor(name), size: entry.uncompressedSize };
-  }
-  const stat = await fsp.stat(file);
-  return { stream: fs.createReadStream(file), mime: mimeFor(name), size: stat.size };
+  const got = await h.read(name, { stream: true });
+  if (!got) return null;
+  if (Buffer.isBuffer(got)) return { buffer: got, mime: mimeFor(name), size: got.length };
+  return { stream: got.stream, mime: mimeFor(name), size: got.size };
 }
 
 /** Page count, first image and ComicInfo.xml for metadata/cover extraction. */
 async function inspect(book) {
-  if (book.format === 'cbz') {
-    const { zip, entries, others } = await openZip(book.path);
-    const infoEntry = [...others.entries()].find(([n]) => n.split('/').pop() === 'comicinfo.xml')?.[1];
-    return {
-      pageCount: entries.length,
-      cover: entries[0] ? await readZipEntry(zip, entries[0], 60 * 1024 * 1024) : null,
-      comicInfo: infoEntry ? (await readZipEntry(zip, infoEntry, 1024 * 1024)).toString('utf8') : null,
-    };
-  }
-  const src = await pageSource(book);
-  let comicInfo = null;
-  try {
-    const names = await fsp.readdir(src.dir);
-    const ci = names.find((n) => /comicinfo\.xml$/i.test(n));
-    if (ci) comicInfo = await fsp.readFile(path.join(src.dir, ci), 'utf8');
-  } catch {}
+  const h = await handleFor(book);
+  const info = [...h.others.entries()].find(([n]) => n.split(/[\\/]/).pop() === 'comicinfo.xml')?.[1];
   return {
-    pageCount: src.pages.length,
-    cover: src.pages[0] ? await fsp.readFile(path.join(src.dir, src.pages[0])) : null,
-    comicInfo,
+    pageCount: h.pages.length,
+    cover: h.pages[0] ? await h.read(h.pages[0]) : null,
+    comicInfo: info ? (await h.read(info)).toString('utf8') : null,
   };
 }
 
-/** Drop extraction caches unused for `days` days. */
-async function pruneCache(days = 14) {
+/** Remove the on-disk extraction caches older versions of Flyleaf created. */
+async function pruneCache() {
   for (const sub of ['extract', 'rar']) {
-    const root = path.join(config.cacheDir, sub);
-    let dirs;
-    try {
-      dirs = await fsp.readdir(root);
-    } catch {
-      continue;
-    }
-    const cutoff = Date.now() - days * 86400_000;
-    for (const d of dirs) {
-      const dir = path.join(root, d);
-      try {
-        const stat = await fsp.stat(path.join(dir, '.complete'));
-        if (sub === 'extract' && stat.mtimeMs > cutoff) continue;
-      } catch {}
-      await fsp.rm(dir, { recursive: true, force: true }).catch(() => {});
-    }
+    await fsp.rm(path.join(config.cacheDir, sub), { recursive: true, force: true }).catch(() => {});
   }
-  log.file('extraction cache pruned');
+  log.file('old extraction caches removed');
 }
 
 module.exports = {

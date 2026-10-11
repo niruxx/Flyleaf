@@ -3,9 +3,9 @@
 // Shared queries and JSON shapes for books and series.
 
 const { q } = require('./db');
-const { json, ageFilter, AGE_RATINGS } = require('./util');
+const { json, accessFilter, canSeeLibrary, AGE_RATINGS } = require('./util');
 
-const TEXT_FORMATS = new Set(['epub', 'mobi', 'azw3', 'fb2', 'txt']);
+const TEXT_FORMATS = new Set(['epub', 'mobi', 'azw3', 'fb2', 'txt', 'docx', 'rtf']);
 
 function volumeLabel(b) {
   if (b.special || b.kind === 'books') return b.title;
@@ -77,8 +77,9 @@ function shouldBlur(userBlur, ageRating, user) {
 
 /** A book the user may access (respecting age restrictions), or null. */
 function getBook(id, user) {
-  const age = ageFilter(user, 's');
-  return q(`${BOOK_SELECT} WHERE b.id = ? AND (b.series_id IS NULL OR ${age.sql})`).get(user.id, user.id, Number(id), ...age.args) || null;
+  const age = accessFilter(user, 's');
+  const row = q(`${BOOK_SELECT} WHERE b.id = ? AND (b.series_id IS NULL OR ${age.sql})`).get(user.id, user.id, Number(id), ...age.args);
+  return row && canSeeLibrary(user, row.library_id) ? row : null;
 }
 
 const bookSort = (a, b) =>
@@ -105,7 +106,7 @@ const SERIES_SORTS = {
  * opts: { where: [], args: [], having: [], sort, limit, offset }
  */
 function listSeries(user, opts = {}) {
-  const age = ageFilter(user, 's');
+  const age = accessFilter(user, 's');
   const where = ['b.missing = 0', age.sql, ...(opts.where || [])];
   const args = [user.id, user.id, ...age.args, ...(opts.args || [])];
   const having = opts.having?.length ? `HAVING ${opts.having.join(' AND ')}` : '';

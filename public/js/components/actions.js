@@ -1,7 +1,7 @@
 // Shared actions for series and books (card ⋮ menus, series page, reader).
 
-import { api, downloadUrl, seriesDownloadUrl } from '../api.js';
-import { isAdmin, navigate } from '../router.js';
+import { api, can, downloadUrl, seriesDownloadUrl } from '../api.js';
+import { isAdmin, navigate, session } from '../router.js';
 import { prefs } from '../prefs.js';
 import { h, icon, actions, dialog, formDialog, field, snackbar, confirmDialog, formatBytes, copyText } from '../ui.js';
 import { refreshShell } from '../shell.js';
@@ -70,6 +70,9 @@ export async function addToCollection(seriesIds, label = 'this series') {
 // ---------------------------------------------------------------------------
 // Downloads & Send to
 
+/** The admin can turn off downloading (and Send to) per user. */
+export const canDownload = () => can(session.user, 'download');
+
 export async function download(url, label, size) {
   if (prefs().promptOnDownload) {
     const ok = await confirmDialog({
@@ -137,7 +140,7 @@ export function seriesActions(anchor, s, { onChange, at } = {}) {
     { label: 'Mark as read', icon: 'done_all', onClick: async () => { await api.setSeriesFinished(s.id, true); snackbar('Marked as read'); changed(); } },
     { label: 'Mark as unread', icon: 'remove_done', onClick: async () => { await api.setSeriesFinished(s.id, false); snackbar('Marked as unread'); changed(); } },
     { label: 'Add to category', icon: 'playlist_add', onClick: () => addToCollection([s.id], `“${s.name}”`).then(changed) },
-    { label: 'Send to…', icon: 'send_to_mobile', onClick: () => sendTo({ series: s }) },
+    canDownload() && { label: 'Send to…', icon: 'send_to_mobile', onClick: () => sendTo({ series: s }) },
     '-',
     {
       label: s.wantToRead ? 'Remove from Want to read' : 'Want to read',
@@ -156,7 +159,7 @@ export function seriesActions(anchor, s, { onChange, at } = {}) {
         changed();
       },
     },
-    { label: 'Download series', icon: 'download', onClick: () => download(seriesDownloadUrl(s.id), `${s.name} (all volumes, .zip)`) },
+    canDownload() && { label: 'Download series', icon: 'download', onClick: () => download(seriesDownloadUrl(s.id), `${s.name} (all volumes, .zip)`) },
   ];
   if (isAdmin()) {
     items.push('-',
@@ -173,11 +176,12 @@ export function bookActions(anchor, b, { onChange, series, at } = {}) {
   const done = b.progress?.finished;
   const items = [
     { label: b.progress && !done ? 'Continue reading' : 'Read', icon: 'menu_book', onClick: () => navigate(`/read/${b.id}`) },
+    { label: 'Details', icon: 'info', onClick: () => import('./book-info.js').then((m) => m.showBookInfo(b.id)) },
     { label: 'Mark as read', icon: 'done_all', disabled: done, onClick: async () => { await api.setFinished(b.id, true); snackbar('Marked as read'); changed(); } },
     { label: 'Mark as unread', icon: 'remove_done', disabled: !b.progress, onClick: async () => { await api.setFinished(b.id, false); snackbar('Marked as unread'); changed(); } },
     b.seriesId && { label: 'Add to category', icon: 'playlist_add', onClick: () => addToCollection([b.seriesId], `“${series?.name || b.series}”`).then(changed) },
-    { label: 'Send to…', icon: 'send_to_mobile', onClick: () => sendTo({ book: b }) },
-    { label: 'Download', icon: 'download', onClick: () => download(downloadUrl(b), b.label || b.title, b.size) },
+    canDownload() && { label: 'Send to…', icon: 'send_to_mobile', onClick: () => sendTo({ book: b }) },
+    canDownload() && { label: 'Download', icon: 'download', onClick: () => download(downloadUrl(b), b.label || b.title, b.size) },
   ];
   if (isAdmin()) {
     items.push('-',

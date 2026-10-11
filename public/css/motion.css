@@ -1,0 +1,343 @@
+/* Motion & effects layer. Loaded after app.css. Everything here is switched off by
+   the "Disable animations" preference (:root.no-motion) and by the system's
+   reduced-motion setting. Only transform/opacity/filter are animated, so it stays
+   smooth on phones. */
+
+:root {
+  --ease-spring: cubic-bezier(0.34, 1.36, 0.64, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-xl: 600ms;
+}
+
+/* ---------------------------------------------------------------------------
+   Page transitions: content slides in the direction you're going while the
+   app bar, navigation drawer and bottom bar stay put. */
+
+.app-bar { view-transition-name: app-bar; }
+.drawer { view-transition-name: drawer; }
+.bottom-nav { view-transition-name: bottom-nav; }
+::view-transition-group(app-bar),
+::view-transition-group(drawer),
+::view-transition-group(bottom-nav) { animation: none; }
+::view-transition-old(app-bar),
+::view-transition-old(drawer),
+::view-transition-old(bottom-nav) { display: none; }
+::view-transition-new(app-bar),
+::view-transition-new(drawer),
+::view-transition-new(bottom-nav) { animation: none; }
+
+html[data-nav='forward']::view-transition-old(root) { animation: 140ms var(--ease-emphasized-accel) both vt-out-left; }
+html[data-nav='forward']::view-transition-new(root) { animation: 380ms var(--ease-out-expo) 40ms both vt-in-right; }
+html[data-nav='back']::view-transition-old(root) { animation: 140ms var(--ease-emphasized-accel) both vt-out-right; }
+html[data-nav='back']::view-transition-new(root) { animation: 380ms var(--ease-out-expo) 40ms both vt-in-left; }
+@keyframes vt-out-left { to { opacity: 0; transform: translateX(-28px); } }
+@keyframes vt-in-right { from { opacity: 0; transform: translateX(36px); } }
+@keyframes vt-out-right { to { opacity: 0; transform: translateX(28px); } }
+@keyframes vt-in-left { from { opacity: 0; transform: translateX(-36px); } }
+
+/* Theme switch: the new theme grows out of the button (clip-path set in JS). */
+html[data-nav='theme']::view-transition-old(root),
+html[data-nav='theme']::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+html[data-nav='theme']::view-transition-new(root) { z-index: 1; }
+html[data-nav='theme']::view-transition-group(app-bar),
+html[data-nav='theme']::view-transition-group(drawer),
+html[data-nav='theme']::view-transition-group(bottom-nav) { display: none; }
+
+/* ---------------------------------------------------------------------------
+   Scroll reveal (motion.js adds .reveal to content that starts off-screen). */
+
+.reveal {
+  opacity: 0;
+  transform: translateY(28px) scale(0.98);
+}
+.reveal.revealed {
+  opacity: 1;
+  transform: none;
+  transition: opacity 500ms var(--ease-standard), transform var(--dur-xl) var(--ease-out-expo);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+/* Smoother entrance for lists and grids already on screen. */
+.stagger > * {
+  animation: rise 560ms var(--ease-out-expo) backwards;
+  animation-delay: calc(min(var(--i, 0), 16) * 32ms);
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(18px) scale(0.96); }
+}
+.enter { animation: fade-up 520ms var(--ease-out-expo) backwards; }
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+}
+
+/* ---------------------------------------------------------------------------
+   Covers: blur-up loading, hover lift with 3D tilt, sheen and a slow zoom. */
+
+.cover img {
+  filter: blur(10px);
+  transform: scale(1.06);
+  transition: opacity 420ms var(--ease-standard), filter 520ms var(--ease-standard), transform 700ms var(--ease-out-expo);
+}
+.cover:not(.blurred) img.loaded {
+  filter: none;
+  transform: none;
+}
+.cover.blurred img.loaded {
+  filter: blur(18px) saturate(1.1);
+  transform: scale(1.15);
+}
+.cover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(circle at var(--mx, 50%) var(--my, 0%), rgb(255 255 255 / 0.38), rgb(255 255 255 / 0) 55%);
+  mix-blend-mode: soft-light;
+  opacity: 0;
+  transition: opacity 400ms var(--ease-standard);
+}
+.tile .cover {
+  transform: perspective(800px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transition: transform 520ms var(--ease-out-expo), box-shadow 400ms var(--ease-standard);
+  will-change: transform;
+}
+@media (hover: hover) and (pointer: fine) {
+  .tile:hover .cover {
+    transform: perspective(800px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-6px) scale(1.025);
+    box-shadow: 0 18px 32px -12px rgb(0 0 0 / 0.45), var(--elev-2);
+  }
+  .tile:hover .cover:not(.blurred) img.loaded {
+    transform: scale(1.06);
+  }
+  .cover.tilting {
+    transition: transform 140ms linear, box-shadow 400ms var(--ease-standard);
+  }
+  .cover.tilting::after { opacity: 1; }
+}
+.tile:active .cover {
+  transform: scale(0.96);
+  transition-duration: 120ms;
+}
+.tile .t-title {
+  transition: color var(--dur-short);
+}
+@media (hover: hover) {
+  .tile:hover .t-title { color: var(--md-primary); }
+}
+
+/* Series hero artwork floats gently. */
+.series-hero .cover-col .cover {
+  transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+  transition: transform 600ms var(--ease-out-expo), box-shadow 400ms;
+}
+@media (hover: hover) and (pointer: fine) {
+  .series-hero .cover-col .cover:hover { box-shadow: 0 28px 48px -16px rgb(0 0 0 / 0.5); }
+  .series-hero .cover-col .cover.tilting { transition: transform 140ms linear; }
+}
+
+/* Progress fills glide in. */
+.progress > span,
+.cover .bar span {
+  transition: width 900ms var(--ease-out-expo);
+  animation: fill-in 900ms var(--ease-out-expo) backwards;
+  transform-origin: left;
+}
+@keyframes fill-in {
+  from { transform: scaleX(0); }
+}
+.progress.indeterminate > span { animation: indeterminate 1.4s var(--ease-standard) infinite; }
+
+/* ---------------------------------------------------------------------------
+   Press feedback: buttons, chips and icon buttons squish slightly. */
+
+.btn { transition: box-shadow var(--dur-short) var(--ease-standard), scale 380ms var(--ease-spring), background-color var(--dur-short); }
+.icon-btn { transition: scale 380ms var(--ease-spring), background-color var(--dur-short), color var(--dur-short); }
+.chip { transition: scale 380ms var(--ease-spring), background-color var(--dur-short), border-color var(--dur-short), color var(--dur-short); }
+.btn:active:not([disabled]) { scale: 0.95; transition-duration: 90ms; }
+.icon-btn:active:not([disabled]) { scale: 0.88; transition-duration: 90ms; }
+.chip:active { scale: 0.94; transition-duration: 90ms; }
+.btn.filled:hover:not([disabled]) { box-shadow: var(--elev-1); }
+
+/* Ripples expand a little softer. */
+.ripple { animation: ripple 560ms var(--ease-out-expo) forwards; }
+
+/* Icons fill in when selected (Material Symbols variable font). */
+.icon { transition: font-variation-settings 320ms var(--ease-standard); }
+@media (hover: hover) {
+  .nav-item:hover .icon,
+  .bottom-nav a:hover .icon { font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+}
+
+/* Focus rings ease in. */
+:focus-visible {
+  outline-offset: 3px;
+  transition: outline-offset 160ms var(--ease-standard);
+}
+
+/* ---------------------------------------------------------------------------
+   Navigation */
+
+.nav-item::after { transition: transform 420ms var(--ease-spring), opacity var(--dur-short); }
+.nav-item .icon { transition: font-variation-settings 320ms, translate 320ms var(--ease-spring); }
+@media (hover: hover) {
+  .nav-item:hover .icon { translate: 2px 0; }
+}
+.bottom-nav .pill { transition: background var(--dur-medium) var(--ease-emphasized-decel), width 420ms var(--ease-spring), scale 380ms var(--ease-spring); }
+.bottom-nav a:active .pill { scale: 0.9; }
+.drawer { transition: transform 420ms var(--ease-out-expo), opacity var(--dur-short); }
+.scrim { transition: opacity 320ms var(--ease-standard), backdrop-filter 320ms; }
+body.drawer-open .scrim { backdrop-filter: blur(3px); }
+
+/* Glassy app bar once you scroll. */
+.app-bar { transition: background 320ms var(--ease-standard), box-shadow 320ms var(--ease-standard), backdrop-filter 320ms; }
+body.scrolled .app-bar {
+  background: color-mix(in srgb, var(--md-surface-container) 78%, transparent);
+  backdrop-filter: blur(18px) saturate(1.6);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--md-outline-variant) 60%, transparent);
+}
+.bottom-nav {
+  background: color-mix(in srgb, var(--md-surface-container) 86%, transparent);
+  backdrop-filter: blur(18px) saturate(1.6);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+}
+
+/* ---------------------------------------------------------------------------
+   Dialogs, sheets, menus and snackbars: springy in, quick out. */
+
+dialog.dialog[open] { animation: dialog-in 420ms var(--ease-out-expo); }
+@keyframes dialog-in { from { opacity: 0; transform: translateY(28px) scale(0.94); } }
+dialog.dialog::backdrop {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+dialog.dialog.leaving { animation: dialog-out 190ms var(--ease-emphasized-accel) forwards; }
+dialog.dialog.leaving::backdrop,
+dialog.sheet.leaving::backdrop { animation: fade-out 200ms linear forwards; }
+@keyframes dialog-out { to { opacity: 0; transform: translateY(12px) scale(0.97); } }
+@keyframes fade-out { to { opacity: 0; } }
+
+dialog.sheet[open] { animation: sheet-in 460ms var(--ease-out-expo); }
+dialog.sheet.leaving { animation: sheet-out 220ms var(--ease-emphasized-accel) forwards; }
+@keyframes sheet-out { to { transform: translateY(100%); } }
+
+.menu { animation: menu-in 260ms var(--ease-out-expo); transform-origin: top right; }
+@keyframes menu-in { from { opacity: 0; transform: scale(0.9) translateY(-6px); } }
+.menu.leaving { animation: menu-out 140ms var(--ease-emphasized-accel) forwards; }
+@keyframes menu-out { to { opacity: 0; transform: scale(0.96); } }
+.menu button { transition: background-color var(--dur-short); }
+
+.snackbar { animation: snack-in 420ms var(--ease-spring); }
+@keyframes snack-in { from { opacity: 0; transform: translateY(32px) scale(0.96); } }
+.snackbar.leaving { animation: snack-out 200ms var(--ease-emphasized-accel) forwards; }
+@keyframes snack-out { to { opacity: 0; transform: translateY(16px); } }
+
+.search-panel { animation: panel-in 320ms var(--ease-out-expo); }
+
+/* ---------------------------------------------------------------------------
+   Cards & surfaces lift on hover. */
+
+@media (hover: hover) and (pointer: fine) {
+  .resume-card,
+  .source-card,
+  .ob-choice,
+  .ob-theme {
+    transition: transform 420ms var(--ease-out-expo), box-shadow 320ms var(--ease-standard), background-color var(--dur-short);
+  }
+  .resume-card:hover,
+  .source-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 14px 28px -14px rgb(0 0 0 / 0.4);
+  }
+  .settings-group .setting-row { transition: background-color var(--dur-short); }
+}
+
+/* Series page: colorscape breathes in. */
+.scape.on { animation: scape-in 1.2s var(--ease-standard); }
+@keyframes scape-in { from { opacity: 0; } }
+
+/* ---------------------------------------------------------------------------
+   Loading: a morphing M3 Expressive-style indicator and shimmering skeletons. */
+
+.loader {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+}
+.loader span {
+  width: 38px;
+  height: 38px;
+  background: var(--md-primary);
+  animation: loader-morph 1.6s var(--ease-standard) infinite, loader-spin 1.6s linear infinite;
+}
+@keyframes loader-morph {
+  0%, 100% { border-radius: 50%; scale: 0.82; }
+  25% { border-radius: 30% 70% 70% 30% / 30% 30% 70% 70%; scale: 1; }
+  50% { border-radius: 18%; scale: 0.9; }
+  75% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; scale: 1; }
+}
+@keyframes loader-spin { to { rotate: 360deg; } }
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 8px;
+  animation: fade-up 400ms var(--ease-out-expo) backwards;
+}
+.sk {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--shape-md);
+  background: var(--md-surface-container-high);
+}
+.sk::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--md-on-surface) 7%, transparent), transparent);
+  animation: shimmer 1.5s var(--ease-standard) infinite;
+}
+@keyframes shimmer { to { transform: translateX(100%); } }
+.sk-tile { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.sk-cover { aspect-ratio: 2 / 3; }
+.sk-cover.big { width: min(220px, 40vw); flex: none; border-radius: var(--shape-lg); }
+.sk-line { height: 12px; width: 85%; border-radius: 6px; }
+.sk-line.short { width: 55%; }
+.sk-line.wide { width: min(420px, 80%); height: 14px; }
+.sk-title { height: 34px; width: min(360px, 70%); border-radius: 10px; }
+.sk-heading { height: 22px; width: 180px; border-radius: 8px; margin-top: 12px; }
+.sk-card { height: 132px; width: min(560px, 100%); border-radius: var(--shape-xl); }
+.sk-pill { height: 40px; width: 200px; border-radius: var(--shape-full); }
+.sk-block { height: 96px; width: 100%; border-radius: var(--shape-lg); }
+.sk-dot { width: 40px; height: 40px; border-radius: 50%; flex: none; }
+.sk-col { display: flex; flex-direction: column; gap: 12px; flex: 1; min-width: 0; }
+.sk-row { display: flex; align-items: center; gap: 14px; padding: 8px 0; }
+.sk-series { display: flex; gap: 28px; align-items: flex-start; }
+@media (max-width: 599px) {
+  .sk-series { flex-direction: column; align-items: center; }
+  .sk-series .sk-col { width: 100%; align-items: center; }
+}
+
+/* ---------------------------------------------------------------------------
+   Respect "Disable animations" and the system setting. */
+
+:root.no-motion .reveal { opacity: 1 !important; transform: none !important; }
+:root.no-motion .tile .cover,
+:root.no-motion .series-hero .cover-col .cover { transform: none !important; }
+:root.no-motion .cover img { filter: none; transform: none; }
+:root.no-motion .cover.blurred img { filter: blur(18px) saturate(1.1); transform: scale(1.15); }
+:root.no-motion .sk::after { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1 !important; transform: none !important; }
+  .sk::after,
+  .loader span { animation-duration: 3s; }
+  .cover img { filter: none; transform: none; transition: opacity 200ms linear; }
+  .cover.blurred img { filter: blur(18px) saturate(1.1); transform: scale(1.15); }
+  ::view-transition-old(root),
+  ::view-transition-new(root) { animation-duration: 1ms !important; }
+}

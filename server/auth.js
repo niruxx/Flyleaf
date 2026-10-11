@@ -59,12 +59,29 @@ const PREF_DEFAULTS = {
   onboarded: true,
 };
 
+/** What a user may do beyond reading. Admins always have everything. */
+const PERMISSION_DEFAULTS = {
+  download: true, // download original files / zips, Send to device
+  contentFinder: false, // search plugins and download new books into libraries
+  apiAccess: true, // create API keys for OPDS apps and the REST API
+  upload: false, // upload files into the libraries they can see
+};
+
+function parseJson(text, fallback) {
+  try {
+    return text ? JSON.parse(text) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 /** Normalise a users row into req.user. */
 function toUser(row) {
-  let prefs = {};
-  try {
-    prefs = JSON.parse(row.prefs || '{}');
-  } catch {}
+  const prefs = parseJson(row.prefs, {});
+  const admin = row.role === 'admin';
+  const perms = { ...PERMISSION_DEFAULTS, ...parseJson(row.permissions, {}) };
+  if (admin) for (const k of Object.keys(perms)) perms[k] = true;
+  const libraryIds = admin ? null : parseJson(row.library_ids, null);
   return {
     id: row.id,
     username: row.username,
@@ -73,6 +90,8 @@ function toUser(row) {
     role: row.role,
     maxAgeRating: row.max_age_rating,
     ageIncludeUnknown: Boolean(row.age_include_unknown),
+    libraryIds: Array.isArray(libraryIds) ? libraryIds.map(Number) : null,
+    permissions: perms,
     prefs: { ...PREF_DEFAULTS, ...prefs },
   };
 }
@@ -80,10 +99,13 @@ function toUser(row) {
 /** Resolve an OPDS / third-party API key to a user. */
 function userFromApiKey(key) {
   if (!key || key.length < 16) return null;
-  const row = q('SELECT u.*, k.id AS key_id FROM api_keys k JOIN users u ON u.id = k.user_id WHERE k.key = ?').get(String(key));
+  const row = q('SELECT u.*, k.id AS key_id, k.scope AS key_scope FROM api_keys k JOIN users u ON u.id = k.user_id WHERE k.key = ?').get(String(key));
   if (!row) return null;
+  const user = toUser(row);
+  if (!user.permissions.apiAccess) return null;
   q('UPDATE api_keys SET last_used_at = ? WHERE id = ?').run(Date.now(), row.key_id);
-  return toUser(row);
+  user.apiKey = { id: row.key_id, scope: row.key_scope };
+  return user;
 }
 
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
@@ -130,8 +152,25 @@ function destroySession(req, res) {
   setCookie(res, '', 0);
 }
 
-/** Attaches req.user when a valid session cookie is present. */
+/** Key from `Authorization: Bearer <key>` or `X-Api-Key: <key>`. */
+function headerApiKey(req) {
+  const m = /^Bearer\s+(\S+)$/i.exec(req.get('authorization') || '');
+  return m ? m[1] : req.get('x-api-key') || null;
+}
+
+/** Attaches req.user from an API key header or a valid session cookie. */
 function sessionMiddleware(req, res, next) {
+  const key = headerApiKey(req);
+  if (key) {
+    const user = userFromApiKey(key);
+    if (!user) return res.status(401).json({ error: 'Invalid API key.' });
+    // Read-only keys may only read.
+    if (user.apiKey.scope !== 'full' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+      return res.status(403).json({ error: 'This API key is read-only.' });
+    }
+    req.user = user;
+    return next();
+  }
   const token = parseCookies(req.headers.cookie)[COOKIE];
   if (!token) return next();
   const row = q(`
@@ -159,6 +198,13 @@ function requireUser(req, res, next) {
   next();
 }
 
+/** Route guard for a permission (see PERMISSION_DEFAULTS). */
+const requirePermission = (perm, message) => (req, res, next) => {
+  if (!req.user) return res.status(401).json({ error: 'Not signed in.' });
+  if (!req.user.permissions?.[perm]) return res.status(403).json({ error: message || 'You don’t have permission to do that.' });
+  next();
+};
+
 function requireAdmin(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Not signed in.' });
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Guests have read-only access.' });
@@ -170,7 +216,8 @@ function requireAdmin(req, res, next) {
  * carries this header, which a plain HTML form can't set.
  */
 function csrfGuard(req, res, next) {
-  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  // API-key requests carry a header no cross-site form can set.
+  if (req.user?.apiKey || ['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
   if (req.get('X-Flyleaf') !== '1') return res.status(403).json({ error: 'Missing request header.' });
   next();
 }
@@ -205,6 +252,8 @@ module.exports = {
   toUser,
   userFromApiKey,
   PREF_DEFAULTS,
+  PERMISSION_DEFAULTS,
+  requirePermission,
   hashPassword,
   verifyPassword,
   validatePassword,

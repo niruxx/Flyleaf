@@ -17,6 +17,8 @@ const publicUser = (u) =>
     role: u.role,
     maxAgeRating: u.maxAgeRating,
     ageIncludeUnknown: u.ageIncludeUnknown,
+    libraryIds: u.libraryIds,
+    permissions: u.permissions,
     prefs: u.prefs,
   };
 
@@ -102,6 +104,7 @@ me.put('/prefs', (req, res) => {
 });
 
 me.post('/password', (req, res) => {
+  if (req.user.apiKey) return res.status(403).json({ error: 'Passwords can’t be changed with an API key.' });
   const { current, next } = req.body || {};
   const row = q('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
   if (!auth.verifyPassword(String(current ?? ''), row.password_hash)) {
@@ -145,7 +148,34 @@ function ageFields(body) {
     out.max_age_rating = v;
   }
   if (body.ageIncludeUnknown !== undefined) out.age_include_unknown = body.ageIncludeUnknown ? 1 : 0;
+  // Libraries this user can see: null = all, or a list of library ids.
+  if (body.libraryIds !== undefined) {
+    if (body.libraryIds === null) out.library_ids = null;
+    else {
+      if (!Array.isArray(body.libraryIds)) throw new Error('libraryIds must be a list or null.');
+      const ids = [...new Set(body.libraryIds.map(Number))];
+      const known = new Set(q('SELECT id FROM libraries').all().map((l) => l.id));
+      if (ids.some((x) => !known.has(x))) throw new Error('Unknown library.');
+      out.library_ids = JSON.stringify(ids);
+    }
+  }
+  if (body.permissions !== undefined) {
+    if (!body.permissions || typeof body.permissions !== 'object') throw new Error('Invalid permissions.');
+    const perms = {};
+    for (const k of Object.keys(auth.PERMISSION_DEFAULTS)) if (body.permissions[k] !== undefined) perms[k] = Boolean(body.permissions[k]);
+    out.permissions = perms;
+  }
   return out;
+}
+
+/** Write access fields; permissions merge with what the user already has. */
+function applyAccess(id, fields) {
+  for (const [col, v] of Object.entries(fields)) {
+    if (col === 'permissions') {
+      const cur = JSON.parse(q('SELECT permissions FROM users WHERE id = ?').get(id)?.permissions || '{}');
+      q('UPDATE users SET permissions = ? WHERE id = ?').run(JSON.stringify({ ...cur, ...v }), id);
+    } else q(`UPDATE users SET ${col} = ? WHERE id = ?`).run(v, id);
+  }
 }
 
 users.post('/', (req, res) => {
@@ -174,6 +204,8 @@ users.post('/', (req, res) => {
     age.max_age_rating ?? null,
     age.age_include_unknown ?? 1,
   );
+  applyAccess(Number(lastInsertRowid), { library_ids: age.library_ids ?? null, permissions: age.permissions ?? {} });
+  require('../events').emit('user.created', { userId: Number(lastInsertRowid), username });
   res.status(201).json({ id: Number(lastInsertRowid) });
 });
 
@@ -204,8 +236,8 @@ users.patch('/:id', (req, res) => {
   }
   try {
     const age = ageFields(req.body || {});
-    if (user.role === 'admin' && age.max_age_rating != null) return res.status(400).json({ error: 'The admin account can’t be age-restricted.' });
-    for (const [col, v] of Object.entries(age)) q(`UPDATE users SET ${col} = ? WHERE id = ?`).run(v, id);
+    if (user.role === 'admin' && (age.max_age_rating != null || age.library_ids)) return res.status(400).json({ error: 'The admin account can’t be restricted.' });
+    applyAccess(id, age);
   } catch (e) {
     return res.status(400).json({ error: e.message });
   }

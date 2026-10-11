@@ -25,9 +25,11 @@
 <td width="50%" valign="top">
 
 ### 📚 Every format you own
-- **Ebooks:** EPUB · KEPUB · MOBI · AZW · AZW3 · FB2 · TXT · PDF
+- **Ebooks:** EPUB · KEPUB · MOBI · AZW · AZW3 · FB2 · PDF · **DOCX · RTF** · TXT
 - **Comics & manga:** CBZ · ZIP · CBR · RAR · CB7 · 7Z · CBT · TAR · plain image folders
+- Comic archives are **read in place**: pages come straight out of the CBZ/CBR/CB7/CBT, so nothing is unpacked to disk (solid RAR included)
 - Archives are identified by their *contents*, so a `.cbr` that's really a zip still works
+- DOCX, RTF and TXT open in the ebook reader with chapters, highlights and notes
 - Reads **ComicInfo.xml**, EPUB/Calibre metadata, MOBI EXTH and FB2 headers
 
 ### 📖 Readers built for reading
@@ -57,9 +59,19 @@
 
 ### 🌐 Share & sync
 - **Admin + read-only guest accounts** – share over the internet with port forwarding
-- Per-user **progress, resume, reading time & stats**, **age restrictions**
+- Per-user **progress, resume, reading time & stats** and **reading lists**
+- Per-user **age limits**, **library access** and **permissions** (downloads, Content Finder, API keys)
 - **OPDS 1.2 + OPDS-PSE** for Panels, Chunky, KOReader, Moon+ … with progress sync
 - **Send to Kindle / Kobo** by email, download single books or whole series
+
+### 🧭 Content Finder & plugins
+- A **Content Finder** tab that searches **Project Gutenberg**, **Standard Ebooks** and any **OPDS catalog**, and downloads straight into a library
+- **Lua plugins**, Mihon/Tachiyomi-style: install from repositories, URLs or files, or [write your own](docs/plugins.md)
+- **Mihon/Tachiyomi extensions** through [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server): every extension becomes a source, and chapters download as CBZ
+
+### 🔌 REST API & webhooks
+- A full **REST API** with read-only or full-access **API keys**, plus an **OpenAPI 3.1** spec and a built-in endpoint reference
+- **Signed webhooks** for new books, finished books, progress, downloads and scans
 
 ### 🎨 Feels like an app
 - Material 3 throughout: **9 themes** + any custom colour, light/dark/auto
@@ -90,6 +102,10 @@
 <tr>
 <td><img src="docs/screenshots/desktop-themes.png" alt="Themes" /><p align="center"><b>Themes</b> – presets or any colour you like</p></td>
 <td><img src="docs/screenshots/desktop-add-library.png" alt="Add library" /><p align="center"><b>Add library</b> – Regular books, Kavita or Komga folder structure</p></td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/desktop-finder.png" alt="Content Finder" /><p align="center"><b>Content Finder</b> – search every plugin source at once</p></td>
+<td><img src="docs/screenshots/desktop-finder-details.png" alt="Content Finder details" /><p align="center"><b>Download</b> – pick a format and a library</p></td>
 </tr>
 </table>
 
@@ -144,7 +160,7 @@ Then open **http://localhost:7878** (or `http://<server-ip>:7878` from your phon
 | ⚙️ Config | `/etc/flyleaf/flyleaf.env` |
 | 🔁 Service | `flyleaf.service`, enabled at boot, runs as **the user who ran sudo** so it can read your home folders |
 | 🔥 Firewall | Optionally opens the port in `firewalld` or `ufw` |
-| 🧰 CLI | A `flyleaf` command: `status`, `logs`, `restart`, `update`, `reset-password`, `uninstall` |
+| 🧰 CLI | A `flyleaf` command: `status`, `logs`, `restart`, `update`, `allow-write`, `reset-password`, `uninstall` |
 | 🧾 Manifest | Everything is recorded in `/etc/flyleaf/install.manifest` for a clean uninstall |
 
 Options: `--port 8080`, `--user someone`, `--dir /srv/flyleaf`, `--data /srv/flyleaf-data`, `--yes` (no prompts).
@@ -276,6 +292,68 @@ Comics and manga default to Komga style. You can switch at any time and Flyleaf 
 
 Comics stream page-by-page (OPDS-PSE) and your position syncs back to Flyleaf. Toggle **Embed progress indicator** and **Include "Continue from" entry** to taste. Set a **Public URL** in *Settings → Server* if you use a domain.
 
+### 🧭 Content Finder
+
+**Content Finder** (left menu) searches the sources installed as plugins and downloads what you pick into one of your libraries. Flyleaf then rescans that library so the book appears straight away.
+
+- **Built in:** Project Gutenberg, Standard Ebooks, and an **OPDS catalog** plugin for your own Calibre-Web/Kavita/Komga/another Flyleaf (set its URL under *Settings → Content Finder plugins → ⋮ → Settings*).
+- **More sources:** in *Settings → Content Finder plugins*, add a plugin **repository**, install from a **URL**, or **upload** a `.lua` file. Plugins are sandboxed Lua scripts with no access to your files. See **[docs/plugins.md](docs/plugins.md)** to write one.
+- **Who can use it:** the admin always can. Turn it on for a guest in *Settings → Users → Edit → Content Finder*. Guests can only save into libraries they can see.
+- **Running as a service:** the service can't write under `/home` (`ProtectHome=read-only`). To let downloads into a library folder there, run:
+
+  ```bash
+  flyleaf allow-write /home/you/Books
+  ```
+
+### 🧩 Mihon / Tachiyomi extensions
+
+Mihon extensions are Android apps, so Flyleaf can't run them itself. **[Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server)** can: it runs Mihon extensions on a normal computer. Flyleaf connects to it, and every extension you install appears as a source in Content Finder. Chapters download page by page into CBZ files with ComicInfo.xml, so they group and number correctly.
+
+**1. Run Suwayomi-Server** next to Flyleaf, for example with Docker:
+
+```bash
+docker run -d --name suwayomi -p 127.0.0.1:4567:4567 \
+  -e KCEF_ENABLED=false -e AUTH_MODE=basic_auth -e AUTH_USERNAME=flyleaf -e AUTH_PASSWORD='choose-one' \
+  -v suwayomi:/home/suwayomi/.local/share/Tachidesk \
+  ghcr.io/suwayomi/suwayomi-server:stable
+```
+
+<details>
+<summary>Without Docker (Java 21)</summary>
+
+```bash
+java -Dsuwayomi.tachidesk.config.server.kcefEnabled=false \
+     -Dsuwayomi.tachidesk.config.server.webUIEnabled=false \
+     -Dsuwayomi.tachidesk.config.server.authMode=basic_auth \
+     -Dsuwayomi.tachidesk.config.server.authUsername=flyleaf \
+     -Dsuwayomi.tachidesk.config.server.authPassword='choose-one' \
+     -jar Suwayomi-Server-v2.x.jar
+```
+`kcefEnabled=false` matters on a server without a screen; otherwise Suwayomi downloads an embedded Chromium that can't start.
+</details>
+
+**2. In Flyleaf:** *Settings → Content Finder plugins → Available from repositories → Mihon extensions → Install*. Then open **Set up** and enter:
+- the Suwayomi URL (`http://localhost:4567`) and the username and password you chose;
+- the languages to show (`en`, `en,ja`…);
+- whether to show NSFW sources.
+
+**3. Add extensions:** press **Extensions**, add the URL of a Mihon extension repository (it ends in `index.min.json`), then install the extensions you want. Each one appears in Content Finder straight away. Flyleaf ships no extension repositories, so only add ones you trust, for sources you're allowed to download from.
+
+> 💡 Keep Suwayomi private (`127.0.0.1` above, or a password). Flyleaf passes cover images through itself, so phones and remote guests never need to reach Suwayomi directly.
+
+### 🔌 REST API & webhooks
+
+Everything the web app does goes through the same REST API, so scripts can do it too.
+
+1. **Settings → API & webhooks → Create API key**. A **read-only** key can only make GET requests. A **full-access** key can do anything its owner can.
+2. Send it as a header:
+
+```bash
+curl -H "Authorization: Bearer <key>" http://localhost:7878/api/series?sort=added
+```
+
+The same page lists every endpoint (also served as an OpenAPI 3.1 spec at `/api/openapi.json`). The admin can add **webhooks** there too. Flyleaf POSTs JSON for `book.added`, `book.finished`, `progress.updated`, `library.scanned`, `download.completed`, `download.failed` and `user.created`, and signs every request with `X-Flyleaf-Signature: sha256=<HMAC>`.
+
 ### 📧 Send to Kindle / Kobo
 
 1. Admin: **Settings → Server & email** – add SMTP details (Gmail app password, Fastmail, your provider…) and send a test.
@@ -287,7 +365,7 @@ Then use **⋮ → Send to…** on any book or series.
 ### 👥 Users & sharing outside your network
 
 - The first visit creates the **admin**. Add **guests** in *Settings → Users*. Guests can read, bookmark, highlight and keep their own progress, collections and stats, but can't change libraries, metadata or other users.
-- Set an **age restriction** per guest (Everyone / 13+ / 17+ / 18+).
+- Per guest, set an **age restriction** (Everyone / 13+ / 17+ / 18+), **which libraries** they see, and whether they may **download**, use **Content Finder** or create **API keys**. Everything they can't see is hidden everywhere: the app, search, OPDS and the API.
 - To share over the internet, **port-forward** the Flyleaf port on your router, or better, put it behind **HTTPS**:
 
 ```bash
@@ -333,6 +411,8 @@ Open Flyleaf in **Safari**, then tap **Share → Add to Home Screen**. It launch
 | Service status / logs | `flyleaf status` · `flyleaf logs` · `/opt/flyleaf_data/logs/flyleaf.log` |
 | A file won't open | Check the log. Damaged archives are skipped during scans and listed there. |
 | Metadata source errors | Some sources rate-limit. Wait a minute or add an API key in *Settings → Metadata sources*. |
+| Content Finder download says it **can't write** | Run `flyleaf allow-write /path/to/library`, and make sure the service user can write there |
+| **Mihon extensions** source says it can't reach Suwayomi | Check the URL in the plugin settings from the Flyleaf server (`curl http://localhost:4567/api/v1/settings/about`). If Suwayomi's log ends with a Chromium/`libcef` crash, start it with `kcefEnabled=false` (`KCEF_ENABLED=false` in Docker) |
 
 ---
 
@@ -341,7 +421,9 @@ Open Flyleaf in **Safari**, then tap **Share → Add to Home Screen**. It launch
 - **Server:** Node.js + Express 5, built-in `node:sqlite` (no native database to compile), `sharp` for thumbnails
 - **Front end:** plain ES modules, no build step, hand-built Material 3 design tokens (OKLCH)
 - **Readers:** [foliate-js](https://github.com/johnfactotum/foliate-js) for EPUB/MOBI/FB2, [pdf.js](https://mozilla.github.io/pdf.js/) for PDF, and a custom engine for comics and webtoons
-- **Archives:** yauzl (zip), node-unrar-js (rar), 7-Zip (7z), node-tar (tar)
+- **Archives (read in place):** yauzl (zip), node-unrar-js WASM (rar, in memory), 7-Zip streaming (7z), a tar indexer (tar)
+- **Documents:** mammoth (DOCX), a built-in RTF reader, both converted to EPUB on the fly and cached
+- **Plugins:** Lua 5.4 via [wasmoon](https://github.com/ceifa/wasmoon) (WebAssembly sandbox), node-html-parser for scraping; Mihon extensions through [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server)
 
 ```text
 server/          API, scanner, metadata providers, OPDS
