@@ -213,7 +213,7 @@ chown -R "$SERVICE_USER:$SERVICE_GROUP" "$INSTALL_DIR" "$DATA_DIR"
 
 info "Installing npm packages (this can take a minute)…"
 sudo -u "$SERVICE_USER" env HOME="$DATA_DIR" PATH="$(dirname "$NODE_BIN"):$PATH" \
-  "$NPM_BIN" --prefix "$INSTALL_DIR" install --omit=dev --no-audit --no-fund --loglevel=error
+  "$NPM_BIN" --prefix "$INSTALL_DIR" install --allow-git=all --omit=dev --no-audit --no-fund --loglevel=error
 ok "Dependencies installed"
 
 # ---------------------------------------------------------------------------
