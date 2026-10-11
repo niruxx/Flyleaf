@@ -59,7 +59,7 @@ export async function librariesPanel(panel, stale) {
       h('div.text',
         h('div', l.name),
         h('div.s.mono', l.path),
-        h('div.s', `${l.seriesCount} series · ${l.bookCount} files · ${l.mode === 'kavita' ? 'Kavita (file names)' : 'Komga (folders)'}${l.autoMetadata ? ' · auto metadata' : ''} · ${l.lastScanAt ? `scanned ${timeAgo(l.lastScanAt)}` : 'not scanned yet'}`),
+        h('div.s', `${l.seriesCount} series · ${l.bookCount} files · ${MODE_LABEL[l.mode] || l.mode}${l.autoMetadata ? ' · auto metadata' : ''} · ${l.lastScanAt ? `scanned ${timeAgo(l.lastScanAt)}` : 'not scanned yet'}`),
       ),
       more,
     );
@@ -80,7 +80,9 @@ export async function librariesPanel(panel, stale) {
   );
 }
 
-function modeCards(value, onChange) {
+export const MODE_LABEL = { books: 'Regular books', kavita: 'Kavita (file names)', komga: 'Komga (folders)' };
+
+export function modeCards(value, onChange) {
   const wrap = h('div.mode-cards');
   const card = (id, ic, title, text) =>
     h('button.mode-card', { type: 'button', 'aria-pressed': String(value === id), onclick: (e) => {
@@ -88,13 +90,15 @@ function modeCards(value, onChange) {
       onChange(id);
     } }, icon(ic), h('strong', title), h('span', text));
   wrap.append(
+    card('books', 'auto_stories', 'Regular books', 'Each book stands on its own, using its title, author and cover from the file. Books only group when their metadata names a series. Works with Calibre folders.'),
     card('kavita', 'text_fields', 'Kavita style', 'Groups files into series by parsing file names (“Series v01 c003”) and embedded metadata – folders don’t matter.'),
     card('komga', 'folder_open', 'Komga style', 'Every sub-folder is one series, named after the folder. No metadata editing needed for well-organised folders.'),
   );
   return wrap;
 }
 
-async function libraryDialog(lib, providers) {
+/** Add/edit a library. `onSaved` replaces the default (reload the Libraries panel). */
+export async function libraryDialog(lib, providers, { onSaved } = {}) {
   const state = {
     kind: lib?.kind || 'manga',
     mode: lib?.mode || null,
@@ -102,12 +106,12 @@ async function libraryDialog(lib, providers) {
   };
   const name = field('Name', { value: lib?.name || '', required: true });
   const kind = field('Type', { options: KIND_OPTIONS, value: state.kind });
-  let mode = state.mode || (state.kind === 'books' ? 'kavita' : 'komga');
+  let mode = state.mode || (state.kind === 'books' ? 'books' : 'komga');
   const modes = modeCards(mode, (v) => (mode = v));
   kind.input.addEventListener('change', () => {
     state.kind = kind.input.value;
     if (!lib) {
-      mode = state.kind === 'books' ? 'kavita' : 'komga';
+      mode = state.kind === 'books' ? 'books' : 'komga';
       modes.replaceWith(modeCards(mode, (v) => (mode = v)));
     }
     renderSources();
@@ -170,7 +174,8 @@ async function libraryDialog(lib, providers) {
       else await api.createLibrary({ ...body, path: pathField.input.value });
       snackbar(lib ? 'Library updated' : 'Library added – scanning now');
       refreshShell();
-      reload('libraries');
+      if (onSaved) onSaved();
+      else reload('libraries');
     },
   });
 }
@@ -251,7 +256,7 @@ export async function usersPanel(panel, stale) {
   );
 }
 
-async function userDialog(user) {
+export async function userDialog(user, { onSaved } = {}) {
   const username = field('Username', { value: user?.username || '', required: true, autocapitalize: 'none', support: '3–32 letters, numbers, . - _' });
   const display = field('Display name', { value: user?.displayName || '' });
   const email = field('Email', { value: user?.email || '', type: 'email' });
@@ -274,7 +279,8 @@ async function userDialog(user) {
       if (user) await api.updateUser(user.id, body);
       else await api.createUser({ ...body, password: password.input.value });
       snackbar(user ? 'Saved' : 'Guest created');
-      reload('users');
+      if (onSaved) onSaved();
+      else reload('users');
     },
   });
 }

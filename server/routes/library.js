@@ -16,7 +16,7 @@ const { BOOK_SELECT, toBook, listSeries } = require('../serialize');
 const router = express.Router();
 
 const KINDS = ['books', 'manga', 'comics'];
-const MODES = ['komga', 'kavita'];
+const MODES = ['komga', 'kavita', 'books'];
 const COVER_POLICIES = ['missing', 'always', 'never'];
 
 function libraryRow(l) {

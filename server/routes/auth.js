@@ -34,7 +34,7 @@ router.post('/setup', (req, res) => {
   if (err) return res.status(400).json({ error: err });
   if (!validEmail(email)) return res.status(400).json({ error: 'That email address doesn’t look right.' });
   const { lastInsertRowid } = q(
-    `INSERT INTO users (username, display_name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, 'admin', ?)`,
+    `INSERT INTO users (username, display_name, email, password_hash, role, created_at, prefs) VALUES (?, ?, ?, ?, 'admin', ?, '{"onboarded":false}')`,
   ).run(username, String(displayName || '').trim().slice(0, 64) || null, email || null, auth.hashPassword(password), Date.now());
   auth.createSession(res, Number(lastInsertRowid), req.get('user-agent'));
   res.status(201).json({ user: publicUser(auth.toUser(q('SELECT * FROM users WHERE id = ?').get(Number(lastInsertRowid)))) });
@@ -163,8 +163,8 @@ users.post('/', (req, res) => {
     return res.status(400).json({ error: e.message });
   }
   const { lastInsertRowid } = q(
-    `INSERT INTO users (username, display_name, email, password_hash, role, created_at, max_age_rating, age_include_unknown)
-     VALUES (?, ?, ?, ?, 'guest', ?, ?, ?)`,
+    `INSERT INTO users (username, display_name, email, password_hash, role, created_at, max_age_rating, age_include_unknown, prefs)
+     VALUES (?, ?, ?, ?, 'guest', ?, ?, ?, '{"onboarded":false}')`,
   ).run(
     username,
     String(displayName || '').trim().slice(0, 64) || null,

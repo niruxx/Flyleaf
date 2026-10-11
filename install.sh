@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Flyleaf installer – Fedora / RHEL, Debian / Ubuntu, Arch (and derivatives).
 #
-#   sudo ./install.sh [--port 7878] [--user NAME] [--dir /opt/flyleaf] [--data /var/lib/flyleaf] [--yes]
+#   sudo ./install.sh [--port 7878] [--user NAME] [--dir /opt/flyleaf] [--data /opt/flyleaf_data] [--yes]
 #
 # Installs dependencies, puts Flyleaf in a git checkout (so update.sh can pull),
 # installs npm packages, and sets up a systemd service that starts on boot.
@@ -11,7 +11,7 @@ set -euo pipefail
 
 APP=flyleaf
 INSTALL_DIR=/opt/flyleaf
-DATA_DIR=/var/lib/flyleaf
+DATA_DIR=/opt/flyleaf_data
 CONF_DIR=/etc/flyleaf
 RUNTIME_DIR=/opt/flyleaf-runtime
 PORT=7878

@@ -3,6 +3,7 @@ import { route, render, session, navigate } from './router.js';
 import { syncThemeColor } from './ui.js';
 import { initShell, afterSignIn } from './shell.js';
 import { setupView, loginView } from './views/auth.js';
+import { welcomeView } from './views/welcome.js';
 import { homeView } from './views/home.js';
 import { libraryView, wantView, genreView, personView, tagView, searchView, collectionView } from './views/browse.js';
 import { seriesView } from './views/series.js';
@@ -14,6 +15,7 @@ import { readerView } from './reader/reader.js';
 
 route('/setup', setupView, { bare: true, auth: false });
 route('/login', loginView, { bare: true, auth: false });
+route('/welcome', welcomeView, { bare: true });
 route('/', homeView);
 route('/library/:id?', libraryView);
 route('/want-to-read', wantView);

@@ -55,6 +55,8 @@ const PREF_DEFAULTS = {
   theme: null,
   keybinds: null,
   enabledFonts: null,
+  // false until a new account has been through the first-run setup wizard.
+  onboarded: true,
 };
 
 /** Normalise a users row into req.user. */

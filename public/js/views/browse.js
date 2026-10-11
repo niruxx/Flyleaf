@@ -41,7 +41,7 @@ function browse(kind) {
           if (!lib) return navigate('/library', { replace: true });
           fixed.library = lib.id;
           title = lib.name;
-          sub = `${lib.seriesCount} series · ${lib.kind === 'books' ? 'Books' : lib.kind === 'manga' ? 'Manga' : 'Comics'} · ${lib.mode === 'kavita' ? 'Kavita-style (file names)' : 'Komga-style (folders)'}`;
+          sub = `${lib.seriesCount} series · ${lib.kind === 'books' ? 'Books' : lib.kind === 'manga' ? 'Manga' : 'Comics'} · ${{ books: 'Regular books', kavita: 'Kavita-style (file names)', komga: 'Komga-style (folders)' }[lib.mode] || lib.mode}`;
           if (isAdmin()) {
             headActions.push(scanIndicator(() => load(true)));
             headActions.push(iconButton('sync', 'Scan for new files', async () => {

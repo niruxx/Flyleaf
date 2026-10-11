@@ -297,6 +297,13 @@ function seriesFor(lib, book) {
   const comic = lib.kind !== 'books';
 
   let name;
+  if (lib.mode === 'books') {
+    // Regular books (Calibre-style Author/Title/ folders work too): a book only joins a series when
+    // its own metadata says so; otherwise it stands alone. Folders and file names are ignored.
+    if (emb.series) return { name: String(emb.series).trim(), volume: emb.volume ?? null, chapter: null, special: 0 };
+    const title = String(book.title || parsed.series || path.basename(book.path)).trim();
+    return { name: title, key: normalizeKey(`${title} ${book.author || ''}`), volume: null, chapter: null, special: 0 };
+  }
   if (lib.mode === 'kavita') {
     // Kavita: embedded metadata, then the file name, then the folder.
     name = emb.series || (comic ? parsed.series : null) || (comic ? folderName : null) || book.title;
@@ -319,14 +326,14 @@ function seriesFor(lib, book) {
 }
 
 function assignSeries(lib) {
-  const books = q('SELECT id, path, format, title, embedded, series_id FROM books WHERE library_id = ?').all(lib.id);
+  const books = q('SELECT id, path, format, title, author, embedded, series_id FROM books WHERE library_id = ?').all(lib.id);
   const existing = new Map(q('SELECT id, key FROM series WHERE library_id = ?').all(lib.id).map((s) => [s.key, s.id]));
   const now = Date.now();
   const touched = new Set();
   tx(() => {
     for (const book of books) {
       const s = seriesFor(lib, book);
-      const key = normalizeKey(s.name) || normalizeKey(book.title) || `book${book.id}`;
+      const key = s.key || normalizeKey(s.name) || normalizeKey(book.title) || `book${book.id}`;
       let sid = existing.get(key);
       if (!sid) {
         sid = Number(q('INSERT INTO series (library_id, key, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(lib.id, key, s.name, now, now).lastInsertRowid);

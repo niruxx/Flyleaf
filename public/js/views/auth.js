@@ -2,6 +2,7 @@ import { api } from '../api.js';
 import { session, navigate } from '../router.js';
 import { h, icon, field, button, formError } from '../ui.js';
 import { afterSignIn } from '../shell.js';
+import { onboardFrame, STEPS } from './welcome.js';
 
 function shell(title, subtitle, form) {
   return h(
@@ -12,15 +13,15 @@ function shell(title, subtitle, form) {
 
 export function setupView(view) {
   const name = field('Your name', { autocomplete: 'name', support: 'Shown in the app. Optional.' });
-  const user = field('Admin username', { autocomplete: 'username', required: true, support: '3–32 letters, numbers, . - _' });
+  const user = field('Admin username', { autocomplete: 'username', required: true, autocapitalize: 'none', support: '3–32 letters, numbers, . - _' });
   const email = field('Email', { type: 'email', autocomplete: 'email', support: 'Optional – lets you sign in with your email too.' });
   const pass = field('Password', { type: 'password', autocomplete: 'new-password', required: true, support: 'At least 8 characters.' });
   const pass2 = field('Confirm password', { type: 'password', autocomplete: 'new-password', required: true });
   const err = h('div');
-  const submit = button('Create admin account', { type: 'submit', icon: 'arrow_forward' });
+  const submit = button('Create account', { type: 'submit', icon: 'arrow_forward' });
 
   const form = h(
-    'form',
+    'form.ob-form',
     {
       onsubmit: async (e) => {
         e.preventDefault();
@@ -34,8 +35,7 @@ export function setupView(view) {
           const { user: u } = await api.setup({ username: user.input.value.trim(), password: pass.input.value, displayName: name.input.value, email: email.input.value.trim() });
           session.user = u;
           afterSignIn();
-          sessionStorage.setItem('flyleaf.welcome', '1');
-          navigate('/settings/libraries', { replace: true });
+          navigate('/welcome', { replace: true });
         } catch (e2) {
           err.append(formError(e2.message));
           submit.disabled = false;
@@ -43,20 +43,22 @@ export function setupView(view) {
       },
     },
     err,
-    name,
+    h('div.ob-grid2', name, email),
     user,
-    email,
-    pass,
-    pass2,
-    submit,
+    h('div.ob-grid2', pass, pass2),
+    h('div.ob-perks',
+      h('div', icon('admin_panel_settings'), 'You’ll manage libraries, metadata and guests.'),
+      h('div', icon('lock'), 'Passwords are hashed with scrypt and never leave this server.'),
+    ),
+    h('div.ob-form-foot', submit),
   );
 
   view.append(
-    shell(
-      'Welcome to Flyleaf',
-      'Create the admin account. You’ll use it to add library folders and invite read-only guests.',
-      form,
-    ),
+    onboardFrame(STEPS, 0, {
+      title: 'Welcome to Flyleaf',
+      subtitle: 'Your own library for books, manga and comics. Let’s start with the admin account.',
+      content: form,
+    }),
   );
   user.input.focus();
 }

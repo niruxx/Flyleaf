@@ -61,6 +61,8 @@ export async function render() {
   const match = resolve();
   if (!match) return navigate('/', { replace: true });
   if (match.r.auth && !session.user) return navigate('/login', { replace: true });
+  // New accounts go through the setup wizard first.
+  if (session.user?.prefs?.onboarded === false && match.path !== '/welcome' && match.r.auth) return navigate('/welcome', { replace: true });
 
   const run = async () => {
     for (const fn of leaveHandlers.splice(0)) {

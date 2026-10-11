@@ -45,7 +45,7 @@
 <td width="50%" valign="top">
 
 ### 🗂️ Organised your way
-- Choose **Kavita-style** (series from file names & metadata) or **Komga-style** (every folder is a series) per library
+- Choose **Regular books** (each book stands alone; series only from embedded metadata), **Kavita-style** (series from file names & metadata) or **Komga-style** (every folder is a series) per library
 - **Want to read**, **custom collections**, personal **reading status** & **tags**, **genres**, people pages
 - **Related series** (sequels, spin-offs…), age ratings, publication status
 
@@ -89,7 +89,7 @@
 </tr>
 <tr>
 <td><img src="docs/screenshots/desktop-themes.png" alt="Themes" /><p align="center"><b>Themes</b> – presets or any colour you like</p></td>
-<td><img src="docs/screenshots/desktop-add-library.png" alt="Add library" /><p align="center"><b>Add library</b> – Kavita or Komga folder structure</p></td>
+<td><img src="docs/screenshots/desktop-add-library.png" alt="Add library" /><p align="center"><b>Add library</b> – Regular books, Kavita or Komga folder structure</p></td>
 </tr>
 </table>
 
@@ -140,7 +140,7 @@ Then open **http://localhost:7878** (or `http://<server-ip>:7878` from your phon
 | 📦 Packages | `git`, `curl`, `tar`/`xz` via **dnf**, **apt** or **pacman** |
 | 🟢 Node.js | Uses the system Node if it's ≥ 22.13, otherwise downloads the official build (checksum-verified) to `/opt/flyleaf-runtime` |
 | 📁 App | A git checkout in `/opt/flyleaf` (so `update.sh` can pull updates) |
-| 💾 Data | Database, covers and logs in `/var/lib/flyleaf` – kept separate from the code |
+| 💾 Data | Database, covers and logs in `/opt/flyleaf_data` – kept separate from the code |
 | ⚙️ Config | `/etc/flyleaf/flyleaf.env` |
 | 🔁 Service | `flyleaf.service`, enabled at boot, runs as **the user who ran sudo** so it can read your home folders |
 | 🔥 Firewall | Optionally opens the port in `firewalld` or `ufw` |
@@ -239,7 +239,18 @@ Manga/
 </td></tr>
 </table>
 
-Ebook libraries default to Kavita style (series from EPUB/Calibre metadata). Comics and manga default to Komga style. You can switch at any time and Flyleaf regroups on the next scan.
+📚 **Regular books** is the third option and the default for ebook libraries. Every book is its own entry with its own title, author and cover, whatever folders it sits in (Calibre's `Author/Title/` layout works as-is). Books only group together when their EPUB/Calibre metadata names a series, ordered by series index:
+
+```text
+Books/
+├── Brandon Sanderson/
+│   ├── The Final Empire (1)/The Final Empire.epub   ← series "Mistborn" #1 in metadata
+│   └── Elantris (12)/Elantris.epub                  ← no series → standalone
+└── Dune.epub
+```
+→ *Mistborn* (1 book), *Elantris*, *Dune*
+
+Comics and manga default to Komga style. You can switch at any time and Flyleaf regroups on the next scan.
 
 ### 🔎 Metadata sources
 
@@ -319,7 +330,7 @@ Open Flyleaf in **Safari**, then tap **Share → Add to Home Screen**. It launch
 | A library shows **0 items** | The service user must be able to read the folder: `sudo -u <user> ls /path/to/library` |
 | **Port already in use** | Change `PORT` in the config and restart |
 | **Forgot the admin password** | `flyleaf reset-password admin 'new-password'` (manual install: `npm run reset-password -- admin 'new-password'`) |
-| Service status / logs | `flyleaf status` · `flyleaf logs` · `/var/lib/flyleaf/logs/flyleaf.log` |
+| Service status / logs | `flyleaf status` · `flyleaf logs` · `/opt/flyleaf_data/logs/flyleaf.log` |
 | A file won't open | Check the log. Damaged archives are skipped during scans and listed there. |
 | Metadata source errors | Some sources rate-limit. Wait a minute or add an API key in *Settings → Metadata sources*. |
 

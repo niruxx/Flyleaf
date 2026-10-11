@@ -33,7 +33,7 @@ const PANELS = [
 
 export async function settingsView(view, params, stale) {
   const panels = PANELS.filter((p) => !p.admin || isAdmin());
-  const current = panels.find((p) => p.id === params.tab) ? params.tab : 'account';
+  const current = params.tab && panels.some((p) => p.id === params.tab) ? params.tab : 'account';
   const nav = h('nav.settings-nav', panels.map((p) =>
     p.group
       ? h('div.group', p.group)
@@ -43,15 +43,6 @@ export async function settingsView(view, params, stale) {
   const page = h('div.page', h('div.page-head', h('h1', 'Settings')), h('div.settings-layout', nav, panel));
   view.append(page);
   requestAnimationFrame(() => nav.querySelector('[aria-current]')?.scrollIntoView({ inline: 'center', block: 'nearest' }));
-
-  if (sessionStorage.getItem('flyleaf.welcome')) {
-    sessionStorage.removeItem('flyleaf.welcome');
-    panel.append(
-      h('div.card.filled', { style: { padding: '20px', marginBottom: '16px', display: 'flex', gap: '16px', borderRadius: 'var(--shape-xl)' } },
-        icon('celebration'),
-        h('div', h('p.title-medium', 'You’re all set!'), h('p.body-medium.muted', 'Add a library next: pick a folder that holds your books, manga or comics. Flyleaf indexes it and keeps it up to date.'))),
-    );
-  }
 
   const render = {
     account: accountPanel,
