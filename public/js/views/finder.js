@@ -167,12 +167,12 @@ export async function finderView(view, params, stale) {
     const src = sourceById(current);
     if (src.error) {
       results.replaceChildren(emptyState('cloud_off', `${src.name} isn’t available`, src.error,
-        isAdmin() && button('Open plugin settings', { icon: 'tune', onclick: () => navigate('/settings/plugins') })));
+        isAdmin() && button('Open plugin settings', { onclick: () => navigate('/settings/plugins') })));
       return;
     }
     if (src.needsSetup) {
       results.replaceChildren(emptyState('settings', `${src.name} needs setting up`, `Missing: ${src.needsSetup.join(', ')}.`,
-        isAdmin() && button('Open plugin settings', { icon: 'tune', onclick: () => navigate('/settings/plugins') })));
+        isAdmin() && button('Open plugin settings', { onclick: () => navigate('/settings/plugins') })));
       return;
     }
     try {
