@@ -16,14 +16,6 @@
 
 </div>
 
----
-## TODO
-Screensaver functionality (timeout section)
-
-## TODO: Sources
-Anime+ Sources
-
-
 ## ✨ Features
 
 <table>
