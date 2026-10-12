@@ -41,8 +41,9 @@ export async function finderView(view, params, stale) {
   view.replaceChildren();
 
   const downloadsBtn = button('Downloads', { variant: 'tonal', icon: 'download', onclick: () => navigate('/finder/downloads') });
-  const head = h('div.page-head.enter', h('h1', 'Content Finder'), downloadsBtn,
-    isAdmin() && iconButton('extension', 'Manage plugins', () => navigate('/settings/plugins')));
+  const head = h('div.page-head.enter', h('h1', 'Content Finder'),
+    h('div.finder-actions', downloadsBtn,
+      isAdmin() && button('Plugins', { variant: 'text', icon: 'tune', onclick: () => navigate('/settings/plugins') })));
 
   if (!sources.length) {
     view.append(h('div.page', head, emptyState('extension_off', 'No sources yet', isAdmin() ? 'Install a plugin to start finding books.' : 'The admin hasn’t installed any sources yet.',

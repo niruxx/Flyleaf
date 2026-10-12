@@ -3770,3 +3770,18 @@ span.plugin-icon {
   font-size: 13px;
   cursor: default;
 }
+/* Content Finder header: on phones the buttons move under the title instead of squeezing it. */
+.page.finder .page-head {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.page.finder .page-head h1 {
+  flex: 1 0 auto;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.finder-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
