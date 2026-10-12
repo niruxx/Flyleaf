@@ -17,6 +17,21 @@
 </div>
 
 ---
+## TODO
+Alphabetical Library Sort + BookMarks Sort
+Genere's Don't auto appear unless reloaded
+Profile Picture Support
+Sharing a book link share's the public IP not the local IP
+Full background theme support (images, gifs, local upload - per user)
+Screensaver functionality (timeout section)
+Recommendations (Possibly through AI)
+Recommend others like this book (Functionality)
+Searching produces completely irrelevant searches
+
+## TODO: Sources
+Webtoons
+Anime+ Sources
+
 
 ## ✨ Features
 
