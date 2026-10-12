@@ -207,11 +207,46 @@ async function renderMihon(body) {
       iconButton('delete', 'Remove repository', async () => {
         repos = await api.setMihonRepos(repos.filter((x) => x !== r));
         drawRepos();
+        drawSuggested();
         loadExtensions();
       })))
     : [h('div.setting-row', icon('info'), h('div.text', h('div', 'No extension repositories yet'), h('div.s', 'Add the index.min.json URL of a Mihon extension repository to see its extensions.')))]));
   drawRepos();
-  const repoField = field('Repository URL', { type: 'url', support: 'Ends in index.min.json. Only add repositories you trust.' });
+  const repoField = field('Repository URL', { type: 'text', support: 'An index.pb or index.min.json URL, or a mihon:// “add repo” link. Only add repositories you trust.' });
+
+  // One-click repositories from the community list at wotaku.wiki.
+  const suggested = h('div.settings-group', h('div.setting-row', loading()));
+  const suggestedNote = h('p.body-small.muted', { style: { margin: '8px 0 0' } });
+  let suggestions = [];
+  const drawSuggested = () => {
+    const has = (u) => repos.includes(u);
+    suggested.replaceChildren(...suggestions.map((r) => {
+      const add = button(has(r.url) ? 'Added' : 'Add', { variant: has(r.url) ? 'text' : 'tonal', icon: has(r.url) ? 'check' : 'add', disabled: has(r.url) || !r.supported, onclick: async () => {
+        add.disabled = true;
+        try {
+          repos = await api.setMihonRepos([...repos, r.url]);
+          snackbar(`Added ${r.name}`);
+          drawRepos();
+          drawSuggested();
+          loadExtensions();
+        } catch (e) {
+          snackbar(e.message, { duration: 6000 });
+          add.disabled = false;
+        }
+      } });
+      return h('div.setting-row', icon(r.nsfw ? 'explicit' : 'inventory_2'),
+        h('div.text', h('div', r.name, r.nsfw ? h('span.mini-chip', '18+') : null),
+          h('div.s', r.supported ? r.description || r.url : 'Couldn’t be reached just now.')),
+        add);
+    }));
+  };
+  api.mihonSuggestedRepos().then((r) => {
+    suggestions = r.list;
+    suggestedNote.replaceChildren(r.source
+      ? h('span', 'From ', h('a', { href: r.source, target: '_blank', rel: 'noopener noreferrer' }, 'wotaku.wiki'), '. Anime (Aniyomi) repositories there aren’t supported by Suwayomi, so they’re left out.')
+      : 'wotaku.wiki couldn’t be reached, so this is Flyleaf’s built-in list.');
+    drawSuggested();
+  }).catch((e) => suggested.replaceChildren(h('div.setting-row', icon('error'), h('div.text', h('div.s', e.message)))));
   const addRepo = button('Add', { variant: 'tonal', icon: 'add', onclick: async () => {
     const url = repoField.input.value.trim();
     if (!url) return;
@@ -219,6 +254,7 @@ async function renderMihon(body) {
       repos = await api.setMihonRepos([...repos, url]);
       repoField.input.value = '';
       drawRepos();
+      drawSuggested();
       loadExtensions();
     } catch (e) {
       snackbar(e.message, { duration: 6000 });
@@ -287,9 +323,15 @@ async function renderMihon(body) {
 
   body.replaceChildren(
     h('p.body-medium', `Connected to Suwayomi ${status.version || ''} at ${status.url}. Extensions you install appear as sources in Content Finder.`),
+    h('p.body-small.muted', { style: { marginTop: '6px' } }, status.nativeStores
+      ? 'This Suwayomi reads Mihon’s newer index.pb repositories itself.'
+      : `This Suwayomi only reads index.min.json, so Flyleaf converts index.pb repositories (Keiyoushi, Yūzōnō…) for it. Suwayomi fetches them from ${status.flyleafUrl}; if it can’t reach that, set “Flyleaf address for Suwayomi” in this plugin’s settings.`),
     h('p.label-large', { style: { margin: '16px 0 8px' } }, 'Repositories'),
     repoList,
     h('div.repo-add', repoField, addRepo),
+    h('p.label-large', { style: { margin: '16px 0 8px' } }, 'Popular repositories'),
+    suggested,
+    suggestedNote,
     h('p.label-large', { style: { margin: '16px 0 8px' } }, 'Extensions'),
     h('div.ext-filters', filter, lang),
     list,

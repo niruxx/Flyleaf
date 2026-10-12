@@ -1,6 +1,7 @@
-import { api } from '../api.js';
+import { api, can } from '../api.js';
+import { prefs } from '../prefs.js';
 import { isAdmin, session, render } from '../router.js';
-import { h, icon, skeleton, emptyState, stagger, pageHeader } from '../ui.js';
+import { h, icon, skeleton, emptyState, stagger, pageHeader, cover } from '../ui.js';
 import { seriesCard, resumeCard } from '../components/cards.js';
 import { scanIndicator } from './scan.js';
 import { refreshShell } from '../shell.js';
@@ -69,10 +70,24 @@ export async function homeView(view, params, stale) {
     recs.hidden = false;
   }).catch(() => {});
 
+  // Suggestions from Content Finder sources (slow, cached on the server; loaded last).
+  const discover = h('section.section.recs', { hidden: true });
+  if (finderRecsOn()) {
+    api.finderRecommendations().then((r) => {
+      if (!r.items.length || !discover.isConnected) return;
+      discover.append(
+        h('div.section-head', h('h2', 'Discover in Content Finder'), h('a.btn.text.state', { href: '#/recommended' }, 'See all', icon('chevron_right'))),
+        stagger(h('div.shelf', r.items.slice(0, 18).map(finderRecCard))),
+      );
+      discover.hidden = false;
+    }).catch(() => {});
+  }
+
   page.append(...[
     data.continueReading.length > 0 &&
       h('section.section.enter', h('div.section-head', h('h2', 'Continue reading')), stagger(h('div.continue', data.continueReading.map(resumeCard)))),
     recs,
+    discover,
     shelf('Want to read', data.wantToRead, '#/want-to-read'),
     shelf('Recently added', data.recentlyAdded, '#/library?sort=added'),
     shelf('Recently updated', data.recentlyUpdated, '#/library?sort=updated'),
@@ -104,6 +119,18 @@ export function recCard(s, onChange) {
   return card;
 }
 
+const finderRecsOn = () => can(session.user, 'contentFinder') && prefs().finderRecs?.enabled !== false;
+
+/** A suggestion from a Content Finder source: opens it there, ready to download. */
+export function finderRecCard(r) {
+  const href = `#/finder?source=${encodeURIComponent(r.source.id)}&open=${encodeURIComponent(r.item.id)}&title=${encodeURIComponent(r.item.title)}`;
+  return h('a.tile.rec-card.finder-rec', { href, title: `${r.item.title}${r.item.author ? ` – ${r.item.author}` : ''}` },
+    cover({ title: r.item.title, coverUrl: r.item.cover, format: r.source.kinds?.[0] === 'books' ? 'epub' : 'cbz' }, { showProgress: false }),
+    h('span.finder-rec-src', r.source.icon ? h('img', { src: r.source.icon, alt: '', loading: 'lazy' }) : icon('travel_explore'), r.source.name),
+    h('div.t-title', r.item.title),
+    h('div.t-sub', r.reason));
+}
+
 /** All recommendations, as a grid. */
 export async function recommendedView(view, params, stale) {
   const page = h('div.page');
@@ -117,6 +144,35 @@ export async function recommendedView(view, params, stale) {
   body.replaceChildren(list.length
     ? stagger(h('div.grid', list.map((s) => recCard(s, () => render()))))
     : emptyState('recommend', 'Nothing to recommend yet', 'Read a few books, or mark series as completed or Want to read, and suggestions will show up here.'));
+
+  if (!finderRecsOn()) return;
+  // From Content Finder: can take a while the first time, since it searches the sources.
+  const status = h('p.muted');
+  const grid = h('div', skeleton('grid'));
+  const refresh = h('a.btn.text.state', { href: '#/settings/preferences' }, icon('tune'), 'Choose sources');
+  page.append(h('section.section', h('div.section-head', h('h2', 'Discover in Content Finder'), refresh), status, grid));
+  const show = async (force) => {
+    grid.replaceChildren(skeleton('grid'));
+    status.textContent = force ? 'Searching your sources again…' : '';
+    try {
+      const r = await api.finderRecommendations(force);
+      if (stale()) return;
+      status.textContent = r.items.length
+        ? `From ${r.sources.join(', ')} · updated ${new Date(r.generatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+        : '';
+      const again = h('button.btn.text.state', { type: 'button', onclick: () => show(true) }, icon('refresh'), 'Search again');
+      status.append(' ', again);
+      grid.replaceChildren(r.items.length
+        ? stagger(h('div.grid', r.items.map(finderRecCard)))
+        : emptyState('travel_explore', 'No suggestions from Content Finder', {
+            'no-history': 'Read a few books first, so there’s something to go on.',
+            'no-sources': 'None of your chosen sources are ready. Pick sources in Settings → Preferences.',
+          }[r.reason] || 'Your sources didn’t return anything new. Try other sources in Settings → Preferences.'));
+    } catch (e) {
+      grid.replaceChildren(emptyState('cloud_off', 'Couldn’t reach your sources', e.message));
+    }
+  };
+  show(false);
 }
 
 /** Your own libraries and the shared ones, as separate sections. */

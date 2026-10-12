@@ -59,6 +59,8 @@ const PREF_DEFAULTS = {
   onboarded: true,
   // App background: { source: 'upload' | 'url', url, dim (0–95), blur (0–30), fit: 'cover' | 'contain' | 'tile' } or null.
   background: null,
+  // Content Finder suggestions on Home: { enabled, sources: [source ids] (empty = pick automatically), nsfw }.
+  finderRecs: { enabled: true, sources: [], nsfw: false },
 };
 
 /** What a user may do beyond reading. Admins always have everything. */

@@ -179,6 +179,7 @@ export const api = {
   testWebhook: (id) => POST(`/api/admin/webhooks/${id}/test`),
 
   finderSources: () => GET('/api/finder/sources'),
+  finderRecommendations: (refresh) => GET(`/api/finder/recommendations${qs({ refresh: refresh ? 1 : undefined })}`),
   finderSearch: (plugin, q, page) => GET(`/api/finder/${encodeURIComponent(plugin)}/search${qs({ q, page })}`),
   finderLatest: (plugin, page) => GET(`/api/finder/${encodeURIComponent(plugin)}/latest${qs({ page })}`),
   finderBrowse: (plugin, id, page) => GET(`/api/finder/${encodeURIComponent(plugin)}/browse${qs({ id, page })}`),
@@ -210,6 +211,7 @@ export const api = {
   mihonStatus: () => GET('/api/admin/plugins/mihon/status'),
   mihonExtensions: () => GET('/api/admin/plugins/mihon/extensions'),
   mihonRepos: () => GET('/api/admin/plugins/mihon/repos'),
+  mihonSuggestedRepos: () => GET('/api/admin/plugins/mihon/suggested-repos'),
   setMihonRepos: (repos) => PUT('/api/admin/plugins/mihon/repos', { repos }),
   mihonAction: (pkg, action) => POST(`/api/admin/plugins/mihon/extensions/${encodeURIComponent(pkg)}/${action}`),
 };

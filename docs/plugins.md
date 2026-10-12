@@ -2,9 +2,10 @@
 
 Content Finder searches websites for books, manga and comics, and downloads what you pick straight into a Flyleaf library. Every website is handled by a **plugin**: one small [Lua 5.4](https://www.lua.org/manual/5.4/) file. It's the same idea as Mihon/Tachiyomi extensions.
 
-Flyleaf ships with six plugins in [`plugins/`](../plugins):
+Flyleaf ships with seven plugins in [`plugins/`](../plugins):
 - **Project Gutenberg**, **Standard Ebooks** and the **Internet Archive** (a JSON API)
 - **Archive of Our Own**, which scrapes HTML and reports age ratings
+- **WEBTOON**, which scrapes HTML plus a JSON episode list, downloads `pages` with a `Referer` header, proxies images and sets `layout = "webtoon"
 - a generic **OPDS catalog** client
 - the **Mihon extensions** bridge for Suwayomi-Server, which shows `sources()`, page downloads and image proxying
 
@@ -70,6 +71,7 @@ end
 | `function sources()` | The plugin provides **several sources** (like the Mihon bridge: one per extension). Return `{ { id, name, icon, language, nsfw, browse }, … }`. Each one is listed separately in Content Finder, and in every other call the global `source` holds the one being used (`source.id`). The list is cached for 10 minutes. |
 | `download()` returning `pages` | Return `{ pages = { url1, url2, … }, headers = {…}, filename = "Chapter 12", comicInfo = { Number = 12 } }` instead of `url`. Flyleaf fetches the pages (four at a time, with retries) and builds a CBZ with a `ComicInfo.xml` (series, chapter title, number, writer, page count). |
 | `ageRating` in `details()` | `0` Everyone, `1` Teen (13+), `2` Mature (17+), `3` Adults (18+). After the download is scanned, Flyleaf applies it to the series (never lowering an existing rating, and not if the admin locked it), so guests' age restrictions cover downloaded books. |
+| `layout` in `details()` | `"webtoon"`, `"single"` or `"double"`: how the series is meant to be read. After the download is scanned, it becomes the downloading user's reader layout for that series, unless they already chose reader settings for it. |
 | `proxy_images = true` / `function image(url)` | Covers and icons are served **through Flyleaf**. Use this when the browser can't reach the images directly, or they need a login. `image(url)` may return `{ url, headers }` to add headers; only send credentials to your own server. Proxied URLs are signed, so they only work for URLs your plugin returned. |
 
 `id` values are yours to choose: a number, a URL path, or a JSON string (see `opds-catalog.lua`). Flyleaf passes them back to you unchanged.

@@ -153,7 +153,7 @@ async function runDownload(d) {
     q("UPDATE downloads SET status = 'done', received = ?, total = ?, file = ?, finished_at = ? WHERE id = ?").run(received, received, dest, Date.now(), d.id);
     require('../scanner').requestScan(lib.id);
     log.info(`Downloaded "${d.title}" to ${dest}`);
-    rememberRating(lib.id, dest, item.ageRating);
+    rememberRating(lib.id, dest, item.ageRating, item.layout, d.user_id);
     events.emit('download.completed', { downloadId: d.id, plugin: d.plugin_id, libraryId: lib.id, title: d.title, file: path.relative(lib.path, dest) });
   } catch (e) {
     const message = controller.signal.aborted && controller.signal.reason?.message === 'cancelled' ? 'Cancelled' : e.message;
@@ -263,7 +263,7 @@ async function downloadPages(d, item, lib, spec, controller) {
   q("UPDATE downloads SET status = 'done', received = ?, total = ?, file = ?, finished_at = ? WHERE id = ?").run(received, received, dest, Date.now(), d.id);
   require('../scanner').requestScan(lib.id);
   log.info(`Downloaded "${d.title}" (${pages.length} pages) to ${dest}`);
-  rememberRating(lib.id, dest, item.ageRating);
+  rememberRating(lib.id, dest, item.ageRating, item.layout, d.user_id);
   events.emit('download.completed', { downloadId: d.id, plugin: d.plugin_id, libraryId: lib.id, title: d.title, file: path.relative(lib.path, dest) });
 }
 
@@ -274,11 +274,11 @@ async function downloadPages(d, item, lib, spec, controller) {
 
 const pendingRatings = []; // { libraryId, rel, rating, until }
 
-function rememberRating(libraryId, file, rating) {
-  if (rating == null) return;
+function rememberRating(libraryId, file, rating, layout = null, userId = null) {
+  if (rating == null && !layout) return;
   const lib = q('SELECT path FROM libraries WHERE id = ?').get(libraryId);
   if (!lib) return;
-  pendingRatings.push({ libraryId, rel: path.relative(lib.path, file), rating, until: Date.now() + 60 * 60_000 });
+  pendingRatings.push({ libraryId, rel: path.relative(lib.path, file), rating, layout, userId, until: Date.now() + 60 * 60_000 });
 }
 
 events.on('book.added', (b) => {
@@ -291,6 +291,14 @@ events.on('book.added', (b) => {
     }
     if (p.libraryId !== b.libraryId || p.rel !== b.path || !b.seriesId) continue;
     pendingRatings.splice(i, 1);
+    // Plugins can say how a series is read (webtoons scroll vertically): set it for whoever
+    // downloaded it, unless they already chose reader settings for that series.
+    if (p.layout && p.userId) {
+      q(`INSERT INTO user_series (user_id, series_id, reader_settings, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT (user_id, series_id) DO UPDATE SET reader_settings = excluded.reader_settings, updated_at = excluded.updated_at
+         WHERE user_series.reader_settings IS NULL`).run(p.userId, b.seriesId, JSON.stringify({ layout: p.layout }), Date.now());
+    }
+    if (p.rating == null) continue;
     const s = q('SELECT age_rating, locked FROM series WHERE id = ?').get(b.seriesId);
     if (!s || json(s.locked, []).includes('age_rating')) continue;
     // Never lower a rating that's already there.
@@ -316,7 +324,7 @@ function enqueue({ userId, pluginId, libraryId, book, files }) {
     files.length > 1 && f.title ? `${book.title} – ${f.title}` : book.title,
     JSON.stringify({
       fileId: f.id, fileTitle: f.title || null, format: f.format || null, volume: f.volume ?? null, chapter: f.chapter ?? null,
-      title: book.title, bookTitle: book.title, author: book.author || null, series: book.series || null, ageRating: book.ageRating ?? null,
+      title: book.title, bookTitle: book.title, author: book.author || null, series: book.series || null, ageRating: book.ageRating ?? null, layout: book.layout || null,
     }),
     now,
   ).lastInsertRowid));

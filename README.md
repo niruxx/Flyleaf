@@ -21,7 +21,6 @@
 Screensaver functionality (timeout section)
 
 ## TODO: Sources
-Webtoons
 Anime+ Sources
 
 
@@ -61,6 +60,7 @@ Anime+ Sources
 - **Search that ranks**: exact titles first, words matched from their start (so “it” doesn't find *Kitchen*), accents ignored
 - **More like this** on every series page and in each book's Details, from shared genres, tags and creators
 - **Recommended for you** on Home: picks from what you read, finish and save, each with a reason (“Because you finished *Berserk*”)
+- **Discover in Content Finder**: the same taste searched on your Content Finder sources, so suggestions include books you don't have yet, one tap from downloading
 
 ### 🔎 Metadata & artwork
 - Scrape from **AniList · MangaDex · MyAnimeList · MangaUpdates · ComicVine · Open Library · Google Books**
@@ -81,7 +81,7 @@ Anime+ Sources
 - Live per-file progress, uploads keep going if you switch pages, and the library rescans when they finish
 
 ### 🧭 Content Finder & plugins
-- A **Content Finder** tab that searches **Project Gutenberg**, **Standard Ebooks**, the **Internet Archive**, **Archive of Our Own** (fan fiction) and any **OPDS catalog**, and downloads straight into a library
+- A **Content Finder** tab that searches **Project Gutenberg**, **Standard Ebooks**, the **Internet Archive**, **Archive of Our Own** (fan fiction), **WEBTOON** and any **OPDS catalog**, and downloads straight into a library
 - **Lua plugins**, Mihon/Tachiyomi-style: install from repositories, URLs or files, or [write your own](docs/plugins.md)
 - **Mihon/Tachiyomi extensions** through [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server): every extension becomes a source, and chapters download as CBZ
 
@@ -105,6 +105,9 @@ Anime+ Sources
 
 ## 🆕 What's new
 
+- 📜 **WEBTOON downloads** – a WEBTOON source for Content Finder: search Originals and Canvas, download episodes as CBZ, and they open in webtoon (vertical scroll) mode.
+- 🧭 **Discover in Content Finder** – recommendations from outside your library: Flyleaf searches your Content Finder sources for the authors and genres you like and suggests what you don't have yet. Pick which sources it uses in *Settings → Preferences*.
+- 🧩 **One-click Mihon repositories** from [wotaku.wiki](https://wotaku.wiki/ext/mihon) and [Yūzōnō](https://yuzono.github.io/extensions), support for Mihon's newer `index.pb` repositories (Keiyoushi's full 1,400+ extensions) even on older Suwayomi, and pasted `mihon://` links just work.
 - 💡 **Recommendations** – a *Recommended for you* shelf on Home (and a full page) built from your own reading, plus *You might also like* in every book's Details. It all runs on your server, with no AI service or account needed.
 - 🖼️ **Make it yours** – profile pictures, and a per-user background picture or GIF behind the whole app (*Settings → Themes → Background*).
 - 🔎 **Better search & sorting** – ranked search results, title A–Z / Z–A and author sorts with an A–Z jump bar, bookmark sorting, and **More like this** recommendations on series pages.
@@ -373,12 +376,17 @@ curl -X POST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json"
 
 - **Built in:**
   - Project Gutenberg, Standard Ebooks and the **Internet Archive**, installed automatically.
-  - **Archive of Our Own**: install it from *Available from repositories*.
+  - **Archive of Our Own** and **WEBTOON**: install them from *Available from repositories*.
   - An **OPDS catalog** plugin for your own Calibre-Web/Kavita/Komga or another Flyleaf: set its URL under *Settings → Content Finder plugins → ⋮ → Settings*.
 - **Internet Archive (archive.org):** searches the big library-digitised, public-domain collections by default (Library of Congress, university libraries, Smithsonian, Wellcome, Gutenberg…). Its settings can switch to *Everything downloadable*, which adds user uploads (only download what you're allowed to), show comics, or filter by language. Borrow-only lending-library books are never offered.
 - **Archive of Our Own (AO3):** fan fiction, downloaded with AO3's own EPUB/AZW3/MOBI/PDF export.
   - **Ratings:** Mature and Explicit works are hidden until you turn on *Show Mature and Explicit works* in the plugin settings. Each work's rating carries over to Flyleaf (General → Everyone, Teen → 13+, Mature → 17+, Explicit → 18+), so guests' age restrictions apply to downloaded fics.
   - **Other settings:** filter by language and show only complete works.
+- **WEBTOON (webtoons.com):** Originals and Canvas (fan-made) series. Pick episodes and each one downloads as a CBZ of the full vertical strip, into `<library>/<Series>/`. No Suwayomi needed.
+  - **Opens as a webtoon:** downloaded series open in the reader's *Webtoon* (continuous scroll) layout for whoever downloaded them. Change it any time in the reader settings.
+  - **Ratings:** titles WEBTOON marks as unsuitable for children are rated Mature (17+) in Flyleaf, so guests' age restrictions apply. *Hide titles marked unsuitable for children* hides them from results.
+  - **Other settings:** language (en, es, fr, de, id, th, zh-hant) and whether to include Canvas.
+  - Only episodes that are free on the site are listed; Daily Pass / Fast Pass episodes aren't. Without a search, Content Finder shows what's trending.
   - **Not available:** works limited to logged-in AO3 users.
   - **Speed:** AO3 is volunteer-run and can be slow when busy; Flyleaf waits up to 45 s per page.
 - **More sources:** in *Settings → Content Finder plugins*, add a plugin **repository**, install from a **URL**, or **upload** a `.lua` file. Plugins are sandboxed Lua scripts with no access to your files. See **[docs/plugins.md](docs/plugins.md)** to write one.
@@ -421,7 +429,20 @@ java -Dsuwayomi.tachidesk.config.server.kcefEnabled=false \
 - the languages to show (`en`, `en,ja`…);
 - whether to show NSFW sources.
 
-**3. Add extensions:** press **Extensions**, add the URL of a Mihon extension repository (it ends in `index.min.json`), then install the extensions you want. Each one appears in Content Finder straight away. Flyleaf ships no extension repositories, so only add ones you trust, for sources you're allowed to download from.
+**3. Add extensions:** press **Extensions**. Under **Popular repositories**, Flyleaf lists the Mihon repositories from the community list at [wotaku.wiki/ext/mihon](https://wotaku.wiki/ext/mihon), plus [Yūzōnō](https://yuzono.github.io/extensions); press **Add** next to one (Keiyoushi is the big one, with 1,400+ extensions). You can also paste any repository yourself: an `index.pb` or `index.min.json` URL, or a `mihon://` / `tachiyomi://` “add repo” link from a repository's website. Then install the extensions you want; each one appears in Content Finder straight away. Only add repositories you trust, for sources you're allowed to download from.
+
+**Newer `index.pb` repositories.** Mihon's newer repository format is a compressed `index.pb` file. Keiyoushi, Yūzōnō and FelipeGFA use it, and Keiyoushi's old `index.min.json` is now an empty “Outdated App” stub. Flyleaf handles both kinds of Suwayomi:
+
+| Your Suwayomi | What happens |
+|---|---|
+| Recent versions with *extension stores* | Flyleaf passes the `index.pb` URL straight to Suwayomi. |
+| Older versions (only `index.min.json`) | Flyleaf reads the `index.pb` and serves Suwayomi a converted copy at `/mihon-bridge/…` on the Flyleaf server, with the real repository name and signing key. APK and icon downloads are redirected to the original files, so nothing is re-hosted. |
+
+The Extensions dialog says which mode is in use. For the converted copies, Suwayomi has to reach Flyleaf: by default at `http://127.0.0.1:<port>`, which works when both run on the same machine. If Suwayomi runs in Docker, set **Flyleaf address for Suwayomi** in the plugin's settings (for example `http://host.docker.internal:7878`, with `--add-host=host.docker.internal:host-gateway` on the Suwayomi container). If you added Keiyoushi's `index.min.json` with an earlier Flyleaf version, it's switched to `index.pb` automatically.
+
+Aniyomi (anime) repositories, such as Yūzōnō's anime store, are left out: they're for video, which Suwayomi and Flyleaf don't play.
+
+The list is fetched live (and cached for a day), so new repositories on wotaku.wiki show up on their own. If the site can't be reached, Flyleaf falls back to a built-in copy.
 
 > 💡 Keep Suwayomi private (`127.0.0.1` above, or a password). Flyleaf passes cover images through itself, so phones and remote guests never need to reach Suwayomi directly.
 
@@ -458,6 +479,9 @@ Pictures are stored in `data/avatars` and `data/backgrounds`. Large still images
 - **Search** matches titles, alternative titles, book titles and creators. Every word you type has to start a word in the result, and results are ranked: exact title, then titles starting with your words, then everything else. Accents don't matter (*pokemon* finds *Pokémon*). Search results default to **Best match**; you can still sort them like any list.
 - **Sorting:** *Title A–Z*, *Title Z–A* and *Author* ignore a leading “The”, “A” or “An”. While sorting by title, an **A–Z bar** jumps to a letter (“#” is numbers and symbols).
 - **Recommended for you** (Home, and *See all*) learns from your reading: finished books count most, then books you're reading, time spent, series you marked *Completed*, *Reading*, *Plan to read* or *On hold*, and *Want to read*. *Dropped* series count against their genres. You never get suggestions for something you've already started, finished, dropped or saved, and each suggestion says which of your books it's based on. Until you've read anything, it shows what other people on the server read most. API: `GET /api/recommendations`.
+- **Discover in Content Finder** (Home, and the bottom of *See all*) needs the Content Finder permission. Flyleaf takes your three favourite creators and two most distinctive genres or tags, searches your sources for them, drops anything already in your libraries (subtitles ignored, so *Frankenstein, or, The Modern Prometheus* counts as *Frankenstein*), puts books actually *by* those authors ahead of books *about* them, and mixes the sources so no single site fills the shelf. Tap a suggestion to open it in Content Finder, ready to download.
+  - Configure it in *Settings → Preferences → Recommendations*: turn it off, or pick which sources to search. With none picked, Flyleaf chooses up to four that fit what you read and skips 18+ sources unless you allow them.
+  - Searches run on the server and are cached for six hours per person (the first load takes a few seconds; *Search again* on the *See all* page refreshes it). API: `GET /api/finder/recommendations?refresh=1`.
 - **More like this** at the bottom of a series page (and *You might also like* in a book's Details) suggests series you can see that share genres (rarer genres count more), tags, writers or artists, plus small boosts for the same publisher, type and era. It's also in the API: `GET /api/series/{id}/similar`.
 
 ### 👥 Users & sharing outside your network

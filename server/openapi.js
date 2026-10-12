@@ -48,6 +48,7 @@ const R = [
     returns: '{ items: Series[], hasMore }',
   }],
   ['get', '/series/{id}', 'Browse', 'One series with its volumes, your progress, links and relations'],
+  ['get', '/finder/recommendations', 'Content Finder', 'Suggestions from your Content Finder sources for the creators and genres you like (cached 6 h)', { perm: 'contentFinder', query: { refresh: '1 – search again now' }, returns: '{ items: [{ source, item, reason }], sources, generatedAt, reason? }' }],
   ['get', '/recommendations', 'Browse', 'Recommended for you: series picked from your reading, each with a reason', { query: { limit: 'integer ≤ 60, default 24' }, returns: '(Series & { reason, becauseId })[]' }],
   ['get', '/series/{id}/similar', 'Browse', 'More like this: series sharing genres, tags and creators, best first', { query: { limit: 'integer ≤ 40, default 12' }, returns: 'Series[]' }],
   ['get', '/series/{id}/cover', 'Browse', 'Series artwork (image)', { returns: 'image/*' }],

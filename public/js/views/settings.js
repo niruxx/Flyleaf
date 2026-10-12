@@ -158,6 +158,49 @@ function preferencesPanel(panel) {
       t('blurMature', 'visibility_off', 'Blur adult artwork', 'Automatically blur covers of series rated Adults only (18+).'),
     ),
   );
+  if (can(session.user, 'contentFinder')) finderRecsSection(panel);
+}
+
+/** Which Content Finder sources “Discover in Content Finder” searches. */
+async function finderRecsSection(panel) {
+  let opts = { enabled: true, sources: [], nsfw: false, ...(prefs().finderRecs || {}) };
+  const save = (patch) => {
+    opts = { ...opts, ...patch };
+    setPref('finderRecs', opts);
+    sourcesRow.hidden = !opts.enabled;
+    nsfwRow.hidden = !opts.enabled || opts.sources.length > 0;
+  };
+  const chips = h('div.chip-set', loading());
+  const sourcesRow = h('div.setting-row.stack',
+    h('div.text', h('div', 'Sources to search'), h('div.s', 'None picked: Flyleaf chooses up to four that fit what you read. Fewer sources means faster suggestions.')),
+    chips);
+  const nsfwRow = row('explicit', 'Include 18+ sources', 'When choosing sources automatically.', toggleSwitch(opts.nsfw, (v) => save({ nsfw: v }), 'Include 18+ sources'));
+  panel.append(
+    h('div.sub-head', 'Recommendations'),
+    group(
+      row('travel_explore', 'Suggest from Content Finder', 'Search your Content Finder sources for creators and genres you like, and show what you don’t have yet on Home.',
+        toggleSwitch(opts.enabled, (v) => save({ enabled: v }), 'Suggest from Content Finder')),
+      sourcesRow,
+      nsfwRow,
+    ),
+    h('p.note', 'Suggestions are refreshed every few hours. Searching other websites is done by this server, not your device.'),
+  );
+  save({});
+  try {
+    const sources = (await api.finderSources()).filter((s) => !s.needsSetup && !s.error);
+    if (!sources.length) return chips.replaceChildren(h('span.muted', 'No Content Finder sources are ready yet.'));
+    chips.replaceChildren(...sources.map((s) => h('button.chip.state', {
+      type: 'button',
+      'aria-pressed': String(opts.sources.includes(s.id)),
+      onclick: (e) => {
+        const on = !opts.sources.includes(s.id);
+        e.currentTarget.setAttribute('aria-pressed', String(on));
+        save({ sources: on ? [...opts.sources, s.id] : opts.sources.filter((x) => x !== s.id) });
+      },
+    }, s.name, s.nsfw ? ' · 18+' : '')));
+  } catch (e) {
+    chips.replaceChildren(h('span.muted', e.message));
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -27,6 +27,9 @@ app.use((req, res, next) => {
 
 app.use('/api/opds', require('./opds').router);
 
+// Converted Mihon extension stores for older Suwayomi versions, which fetch them without signing in.
+app.use('/mihon-bridge', require('./plugins/extension-store').router);
+
 // ---------------------------------------------------------------------------
 // API
 

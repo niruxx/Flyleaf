@@ -58,6 +58,8 @@ function cleanDetails(d, id, img = (u) => u) {
     status: str(d?.status, 120),
     // 0 Everyone · 1 Teen (13+) · 2 Mature (17+) · 3 Adults (18+); applied to the series after download.
     ageRating: [0, 1, 2, 3].includes(d?.ageRating) ? d.ageRating : null,
+    // How to read it ("webtoon" for vertical strips); becomes the downloader's reader setting for the series.
+    layout: ['single', 'double', 'webtoon'].includes(d?.layout) ? d.layout : null,
     url: httpUrl(d?.url),
     files,
   };
@@ -73,6 +75,11 @@ async function imager(id) {
 
 router.get('/sources', async (req, res) => {
   res.json(await manager.list());
+});
+
+// Suggestions from your sources, based on what you read (see discover.js).
+router.get('/recommendations', async (req, res) => {
+  res.json(await require('../discover').forUser(req.user, { refresh: req.query.refresh === '1', imager }));
 });
 
 router.get('/:plugin/search', async (req, res) => {
@@ -132,6 +139,7 @@ router.post('/:plugin/download', async (req, res) => {
     book: {
       title: str(book?.title, 300) || 'Untitled', author: str(book?.author, 200), series: str(book?.series, 300),
       ageRating: [0, 1, 2, 3].includes(book?.ageRating) ? book.ageRating : null,
+      layout: ['single', 'double', 'webtoon'].includes(book?.layout) ? book.layout : null,
     },
     files: clean,
   });
@@ -202,6 +210,7 @@ admin.get('/mihon/status', async (req, res) => res.json(await suwayomi.status())
 admin.get('/mihon/extensions', async (req, res) => res.json(await suwayomi.extensions()));
 admin.get('/mihon/repos', async (req, res) => res.json(await suwayomi.repos()));
 admin.put('/mihon/repos', async (req, res) => res.json(await suwayomi.setRepos(req.body?.repos)));
+admin.get('/mihon/suggested-repos', async (req, res) => res.json(await suwayomi.suggestedRepos()));
 admin.post('/mihon/extensions/:pkg/:action', async (req, res) => res.json(await suwayomi.extensionAction(req.params.action, req.params.pkg)));
 
 admin.post('/:id/update', async (req, res) => {

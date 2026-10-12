@@ -20,7 +20,7 @@ function catalog(user) {
   const rows = q(`SELECT s.id, s.name, s.genres, s.tags, s.people, s.publisher, s.year, l.kind
                   FROM series s JOIN libraries l ON l.id = s.library_id
                   WHERE ${age.sql} AND EXISTS (SELECT 1 FROM books b WHERE b.series_id = s.id AND b.missing = 0)`).all(...age.args);
-  const items = rows.map((r) => ({ id: r.id, name: r.name, year: r.year, kind: r.kind, publisher: (r.publisher || '').toLowerCase().trim(), genres: lower(r.genres), tags: lower(r.tags), people: names(r.people) }));
+  const items = rows.map((r) => ({ id: r.id, name: r.name, rawGenres: json(r.genres, []), rawTags: json(r.tags, []), rawPeople: json(r.people, []).map((p) => p.name).filter(Boolean), year: r.year, kind: r.kind, publisher: (r.publisher || '').toLowerCase().trim(), genres: lower(r.genres), tags: lower(r.tags), people: names(r.people) }));
   // How common each genre/tag is, so "Fantasy" matters less than "Time travel".
   const freq = new Map();
   for (const it of items) for (const g of new Set([...it.genres, ...it.tags])) freq.set(g, (freq.get(g) || 0) + 1);
@@ -179,4 +179,34 @@ function popular(user, byId, taken, limit) {
   return out;
 }
 
-module.exports = { similar, forYou };
+/**
+ * What the user likes, for searching elsewhere (Content Finder): their favourite creators
+ * and genres/tags, strongest first, each with the series that taught us ({ name, weight, seed, kinds }).
+ */
+function taste(user) {
+  const { byId } = catalog(user);
+  const creators = new Map();
+  const genres = new Map();
+  const bump = (map, name, w, it) => {
+    const key = name.toLowerCase().trim();
+    if (!key) return;
+    const cur = map.get(key) || { name: name.trim(), weight: 0, seed: null, seedWeight: 0, kinds: new Set() };
+    cur.weight += w;
+    cur.kinds.add(it.kind);
+    if (w > cur.seedWeight) Object.assign(cur, { seed: it.name, seedWeight: w });
+    map.set(key, cur);
+  };
+  for (const [id, s] of signals(user.id)) {
+    const it = byId.get(id);
+    if (!it || s.score <= 0) continue;
+    const w = Math.min(s.score, 6);
+    for (const p of it.rawPeople) bump(creators, String(p), w, it);
+    for (const g of [...it.rawGenres, ...it.rawTags]) bump(genres, String(g), w, it);
+  }
+  const out = (map) => [...map.values()].sort((a, b) => b.weight - a.weight).map(({ name, weight, seed, kinds }) => ({ name, weight, seed, kinds: [...kinds] }));
+  // Ubiquitous genres ("Action", "Manga") make poor searches; prefer the more specific ones.
+  const common = new Set(['action', 'comedy', 'drama', 'fantasy', 'romance', 'manga', 'comic', 'comics', 'fiction', 'adventure', 'shounen', 'shonen', 'seinen', 'shoujo', 'josei']);
+  return { creators: out(creators), genres: out(genres).sort((a, b) => Number(common.has(a.name.toLowerCase())) - Number(common.has(b.name.toLowerCase())) || b.weight - a.weight) };
+}
+
+module.exports = { similar, forYou, taste };

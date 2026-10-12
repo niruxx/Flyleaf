@@ -3958,3 +3958,30 @@ html.has-bg body.scrolled .app-bar {
   line-clamp: 2;
   overflow: hidden;
 }
+
+/* Suggestions from Content Finder: a small badge naming the source */
+.finder-rec-src {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  max-width: 100%;
+  margin-bottom: -4px;
+  padding: 1px 8px 1px 4px;
+  border-radius: var(--shape-full);
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.finder-rec-src img,
+.finder-rec-src .icon {
+  width: 14px;
+  height: 14px;
+  font-size: 14px;
+  border-radius: 3px;
+  flex: none;
+}

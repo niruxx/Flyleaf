@@ -24,6 +24,11 @@
       "file": "opds-catalog.lua"
     },
     {
+      "id": "webtoons",
+      "file": "webtoons.lua",
+      "seed": false
+    },
+    {
       "id": "mihon",
       "file": "mihon-suwayomi.lua",
       "seed": false

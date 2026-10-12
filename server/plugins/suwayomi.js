@@ -8,6 +8,8 @@ const { q } = require('../db');
 const { json } = require('../util');
 const runtime = require('./runtime');
 const manager = require('./manager');
+const config = require('../config');
+const stores = require('./extension-store');
 
 const PLUGIN_ID = 'mihon';
 const err = (message, status = 400) => Object.assign(new Error(message), { status, expose: true });
@@ -55,17 +57,83 @@ async function graphql(query, variables) {
 
 async function status() {
   const about = await call('/api/v1/settings/about');
-  return { version: about?.version || null, url: connection().base };
+  const native = await nativeStores();
+  await migrateRepos().catch(() => {});
+  return { version: about?.version || null, url: connection().base, nativeStores: native, flyleafUrl: native ? null : flyleafUrl() };
 }
 
+// Newer Suwayomi reads Mihon's index.pb "extension stores" itself; older versions only read
+// index.min.json, so for those Flyleaf serves a converted copy (extension-store.js).
+let storesSupport = null; // { base, native, at }
+async function nativeStores() {
+  const { base } = connection();
+  if (storesSupport && storesSupport.base === base && Date.now() - storesSupport.at < 600_000) return storesSupport.native;
+  let native = false;
+  try {
+    await graphql('{ extensionStores { nodes { indexUrl } } }');
+    native = true;
+  } catch {}
+  storesSupport = { base, native, at: Date.now() };
+  return native;
+}
+
+/** Where Suwayomi can reach Flyleaf, for converted stores (plugin setting, else this machine). */
+function flyleafUrl() {
+  const s = json(q('SELECT settings FROM plugins WHERE id = ?').get(PLUGIN_ID)?.settings, {});
+  return String(s.flyleafUrl || `http://127.0.0.1:${config.port}`).replace(/\/+$/, '');
+}
+
+const isPb = (u) => /\.pb(\?.*)?$/i.test(u);
+
 async function repos() {
-  return (await graphql('{ settings { extensionRepos } }')).settings.extensionRepos || [];
+  if (await nativeStores()) {
+    const data = await graphql('{ extensionStores { nodes { indexUrl } } }');
+    return (data.extensionStores?.nodes || []).map((n) => n.indexUrl);
+  }
+  const list = (await graphql('{ settings { extensionRepos } }')).settings.extensionRepos || [];
+  // Show converted stores by their real address.
+  return list.map((u) => stores.originalOf(u) || u);
+}
+
+// Repositories whose index.min.json is now only a stub ("Outdated App"): use their index.pb.
+const MOVED_TO_PB = {
+  'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json': 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.pb',
+};
+
+/** Accept what people paste: "mihon://extension-store?url=…" / "tachiyomi://add-repo?url=…" links from repo sites. */
+function normalizeRepo(u) {
+  let url = String(u || '').trim();
+  const deep = url.match(/^[a-z]+:\/\/[a-z-]+\?(?:.*&)?url=([^&]+)/i);
+  if (deep && !/^https?:/i.test(url)) url = decodeURIComponent(deep[1]);
+  return MOVED_TO_PB[url] || url;
 }
 
 async function setRepos(list) {
+  if (Array.isArray(list)) list = [...new Set(list.map(normalizeRepo))];
   if (!Array.isArray(list) || list.some((u) => typeof u !== 'string' || !/^https?:\/\/\S+$/.test(u))) throw err('Repository URLs must start with http:// or https://');
-  const data = await graphql('mutation ($repos: [String!]!) { setSettings(input: { settings: { extensionRepos: $repos } }) { settings { extensionRepos } } }', { repos: [...new Set(list)] });
-  return data.setSettings.settings.extensionRepos;
+  if (await nativeStores()) {
+    const current = await repos();
+    for (const url of current.filter((u) => !list.includes(u))) {
+      await graphql('mutation ($url: String!) { removeExtensionStore(input: { indexUrl: $url }) { clientMutationId } }', { url });
+    }
+    for (const url of list.filter((u) => !current.includes(u))) {
+      await graphql('mutation ($url: String!) { addExtensionStore(input: { indexUrl: $url }) { clientMutationId } }', { url })
+        .catch((e) => {
+          throw err(`Suwayomi couldn’t read ${url}: ${e.message.replace(/^Suwayomi: /, '')}`, 502);
+        });
+    }
+    return repos();
+  }
+  // Older Suwayomi: index.pb stores go through Flyleaf's converter.
+  const mapped = list.map((u) => (isPb(u) ? `${flyleafUrl()}/mihon-bridge/${stores.register(u)}/index.min.json` : u));
+  await graphql('mutation ($repos: [String!]!) { setSettings(input: { settings: { extensionRepos: $repos } }) { settings { extensionRepos } } }', { repos: mapped });
+  return repos();
+}
+
+/** Earlier Flyleaf versions saved Keiyoushi's stub index.min.json; switch those to index.pb. */
+async function migrateRepos() {
+  const list = await repos();
+  if (list.some((u) => MOVED_TO_PB[u])) await setRepos(list);
 }
 
 /** All extensions from the configured repositories (refreshed from the repos each time). */
@@ -102,4 +170,72 @@ async function extensionAction(action, pkgName) {
   return { ok: true };
 }
 
-module.exports = { PLUGIN_ID, status, repos, setRepos, extensions, extensionAction };
+// ---------------------------------------------------------------------------
+// Suggested repositories, from the community list at wotaku.wiki/ext/mihon.
+
+const WOTAKU = 'https://wotaku.wiki/ext/mihon';
+// Used when wotaku.wiki can't be reached, and for names/descriptions.
+const KNOWN = {
+  'keiyoushi/extensions': { name: 'Keiyoushi', description: 'The main community repository: 1,000+ sources in every language' },
+  'suwayomi/tachiyomi-extension': { name: 'Suwayomi', description: 'Suwayomi’s own extensions' },
+  'kareadita/tach-extension': { name: 'Kavita', description: 'Read from a Kavita server' },
+  'littlesurvival/copymanga-copy20': { name: 'CopyManga', description: 'CopyManga (Chinese)' },
+  'felipegfa/extensoes': { name: 'FelipeGFA', description: 'Portuguese (Brazil) sources' },
+  'yuzono/cursed-manga-repo': { name: 'Yūzōnō (Cursed)', description: 'Adult sources: E-Hentai, nHentai, Hitomi and more', nsfw: true },
+  'mojuru/cursed-manga-repo': { name: 'Cursed manga', description: 'Adult sources', nsfw: true },
+};
+const FALLBACK = [
+  'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.pb',
+  'https://raw.githubusercontent.com/Suwayomi/tachiyomi-extension/repo/index.min.json',
+  'https://raw.githubusercontent.com/Kareadita/tach-extension/repo/index.min.json',
+  'https://raw.githubusercontent.com/LittleSurvival/copymanga-copy20/repo/index.min.json',
+  'https://raw.githubusercontent.com/FelipeGFA/extensoes/refs/heads/repo/index.pb',
+  'https://raw.githubusercontent.com/mojuru/cursed-manga-repo/repo/index.pb',
+  'https://github.com/yuzono/cursed-manga-repo/raw/repo/index.pb',
+];
+// Repository sites listed on wotaku.wiki aren't always the only place to find stores.
+const EXTRA = ['https://github.com/yuzono/cursed-manga-repo/raw/repo/index.pb'];
+let suggestedCache = null;
+
+const repoKey = (url) => (url.match(/(?:githubusercontent|github)\.com\/([^/]+\/[^/]+)/i)?.[1] || url).toLowerCase();
+
+/** Wotaku's Mihon repositories, each checked for an index.min.json Suwayomi can use. Cached for a day. */
+async function suggestedRepos() {
+  if (suggestedCache && Date.now() - suggestedCache.at < 86_400_000) return suggestedCache.list;
+  let links = [];
+  let live = false;
+  try {
+    const html = await (await fetch(WOTAKU, { headers: { 'User-Agent': runtime.USER_AGENT }, signal: AbortSignal.timeout(15_000) })).text();
+    // Only Mihon/Tachiyomi manga repos; aniyomi:// (anime) repos aren't supported by Suwayomi.
+    links = [...html.matchAll(/(?:mihon|tachiyomi):\/\/[a-z-]+\?url=(https:\/\/[^"'&<\s]+)/gi)].map((m) => m[1].replace(/&amp;$/, ''));
+    live = links.length > 0;
+  } catch {}
+  if (!links.length) links = FALLBACK;
+  links = [...links, ...EXTRA];
+  const list = await Promise.all([...new Set(links.map(normalizeRepo))].map(async (link) => {
+    const url = normalizeRepo(link);
+    const known = KNOWN[repoKey(url)] || {};
+    let ok = false;
+    try {
+      const r = await fetch(url, { method: 'HEAD', headers: { 'User-Agent': runtime.USER_AGENT }, signal: AbortSignal.timeout(10_000) });
+      ok = r.ok;
+    } catch {}
+    return {
+      url,
+      name: known.name || repoKey(url).split('/')[0],
+      description: known.description || null,
+      nsfw: Boolean(known.nsfw),
+      // index.pb stores work too: newer Suwayomi reads them, and Flyleaf converts them for older ones.
+      supported: ok,
+      format: isPb(url) ? 'pb' : 'json',
+    };
+  }));
+  const order = Object.keys(KNOWN);
+  const rank = (x) => (order.indexOf(repoKey(x.url)) + 1) || order.length + 1;
+  list.sort((a, b) => Number(b.supported) - Number(a.supported) || Number(a.nsfw) - Number(b.nsfw) || rank(a) - rank(b));
+  const result = { source: live ? WOTAKU : null, list };
+  suggestedCache = { at: Date.now(), list: result };
+  return result;
+}
+
+module.exports = { PLUGIN_ID, status, repos, setRepos, extensions, extensionAction, suggestedRepos, normalizeRepo, nativeStores };
