@@ -57,6 +57,8 @@ const PREF_DEFAULTS = {
   enabledFonts: null,
   // false until a new account has been through the first-run setup wizard.
   onboarded: true,
+  // App background: { source: 'upload' | 'url', url, dim (0–95), blur (0–30), fit: 'cover' | 'contain' | 'tile' } or null.
+  background: null,
 };
 
 /** What a user may do beyond reading. Admins always have everything. */
@@ -108,6 +110,8 @@ function toUser(row) {
     ageIncludeUnknown: Boolean(row.age_include_unknown),
     libraryIds: Array.isArray(libraryIds) ? libraryIds.map(Number) : null,
     homeDir: row.home_dir || null,
+    avatarUrl: row.avatar ? `/api/users/${row.id}/avatar?v=${row.avatar}` : null,
+    backgroundUrl: row.background ? `/api/me/background?v=${row.background}` : null,
     visibleLibraryIds,
     ownLibraryIds,
     permissions: perms,

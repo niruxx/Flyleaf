@@ -18,15 +18,8 @@
 
 ---
 ## TODO
-Alphabetical Library Sort + BookMarks Sort
-Genere's Don't auto appear unless reloaded
-Profile Picture Support
-Sharing a book link share's the public IP not the local IP
-Full background theme support (images, gifs, local upload - per user)
 Screensaver functionality (timeout section)
 Recommendations (Possibly through AI)
-Recommend others like this book (Functionality)
-Searching produces completely irrelevant searches
 
 ## TODO: Sources
 Webtoons
@@ -56,7 +49,7 @@ Anime+ Sources
 ### ✍️ Built-in annotations
 - **Highlights** in five colours plus underline, with **notes**
 - **Bookmarks** for any page in any format
-- A **Bookmarks & notes** page that gathers everything across your library
+- A **Bookmarks & notes** page that gathers everything across your library, sorted by newest, oldest, book title or position in the book
 
 </td>
 <td width="50%" valign="top">
@@ -65,6 +58,9 @@ Anime+ Sources
 - Choose **Regular books** (each book stands alone; series only from embedded metadata), **Kavita-style** (series from file names & metadata) or **Komga-style** (every folder is a series) per library
 - **Want to read**, **custom collections**, personal **reading status** & **tags**, **genres**, people pages
 - **Related series** (sequels, spin-offs…), age ratings, publication status
+- Sort by **title A–Z / Z–A**, **author**, date added, last read, year or last updated, with an **A–Z jump bar**
+- **Search that ranks**: exact titles first, words matched from their start (so “it” doesn't find *Kitchen*), accents ignored
+- **More like this** on every series page, from shared genres, tags and creators
 
 ### 🔎 Metadata & artwork
 - Scrape from **AniList · MangaDex · MyAnimeList · MangaUpdates · ComicVine · Open Library · Google Books**
@@ -96,6 +92,7 @@ Anime+ Sources
 ### 🎨 Feels like an app
 - Material 3 throughout: **9 themes** + any custom colour, light/dark/auto
 - **Colorscape** – series pages tint themselves from their artwork
+- **Profile pictures** and a personal **background** – your own picture, animated GIF or image link, with dim, blur and fit controls
 - Smooth, direction-aware **page transitions**, skeleton loading, scroll-in reveals, 3D cover tilt, a circular dark-mode reveal and springy controls (or turn them all off)
 - **Book details** for every file: format, pages, size, location, ISBN, publisher, your reading time and an estimate of time left, plus a detailed list view for volumes
 - **iPhone/Android web app** – full-screen, home-screen icon, safe-area aware
@@ -108,6 +105,10 @@ Anime+ Sources
 
 ## 🆕 What's new
 
+- 🖼️ **Make it yours** – profile pictures, and a per-user background picture or GIF behind the whole app (*Settings → Themes → Background*).
+- 🔎 **Better search & sorting** – ranked search results, title A–Z / Z–A and author sorts with an A–Z jump bar, bookmark sorting, and **More like this** recommendations on series pages.
+- 🔗 **Share links that work at home** – *Send to… → Copy home-network link* gives the server's LAN address (like `http://192.168.1.20:7878`) instead of whatever address your browser used; *Copy internet link* uses your Public URL.
+- 🏷️ New genres, libraries and collections appear in the side menu without reloading.
 - 📁 **Personal folders** – the admin can give each user a folder on the server. They create private libraries in it, and their Content Finder downloads and uploads go only there.
 - ⬆️ **Upload tab** – drag and drop books, comics or whole folders into any library folder from your phone or computer, with live progress, and add the new series straight to a collection.
 - ℹ️ **Book details** – a Details panel for every file (format, pages, size, location, ISBN, publisher, your reading time and time left), a detailed list view for volumes, and more facts on series pages.
@@ -444,10 +445,24 @@ The same page lists every endpoint (also served as an OpenAPI 3.1 spec at `/api/
 
 Then use **⋮ → Send to…** on any book or series.
 
+### 🖼️ Profile pictures & backgrounds
+
+- **Profile picture:** *Settings → Account → Upload*. It's cropped to a circle around the most interesting part of the picture, and shows in the top bar and the admin's user list.
+- **Background:** *Settings → Themes → Background*. Upload a picture or animated GIF (up to 30 MB), or paste a link to one. **Dim** fades it into your theme so text stays readable, **Blur** softens it, and **Size** chooses fill, fit or tile. The bars and side menu turn frosted glass over it. Backgrounds are per user: no one else sees yours.
+
+Pictures are stored in `data/avatars` and `data/backgrounds`. Large still images are resized to 2560 px for phones; GIFs are kept as they are.
+
+### 🔎 Search, sorting & recommendations
+
+- **Search** matches titles, alternative titles, book titles and creators. Every word you type has to start a word in the result, and results are ranked: exact title, then titles starting with your words, then everything else. Accents don't matter (*pokemon* finds *Pokémon*). Search results default to **Best match**; you can still sort them like any list.
+- **Sorting:** *Title A–Z*, *Title Z–A* and *Author* ignore a leading “The”, “A” or “An”. While sorting by title, an **A–Z bar** jumps to a letter (“#” is numbers and symbols).
+- **More like this** at the bottom of a series page suggests series you can see that share genres (rarer genres count more), tags, writers or artists, plus small boosts for the same publisher, type and era. It's also in the API: `GET /api/series/{id}/similar`.
+
 ### 👥 Users & sharing outside your network
 
 - The first visit creates the **admin**. Add **guests** in *Settings → Users*. Guests can read, bookmark, highlight and keep their own progress, collections and stats, but can't change libraries, metadata or other users.
 - Per guest, set an **age restriction** (Everyone / 13+ / 17+ / 18+), **which libraries** they see, and whether they may **download**, **upload**, use **Content Finder** or create **API keys**. Everything they can't see is hidden everywhere: the app, search, OPDS and the API.
+- **Share links:** *Send to… → Copy home-network link* copies the server's address on your LAN, which works for anyone on your Wi-Fi even if you opened Flyleaf as `localhost` or through a public address. If you set a **Public URL** in *Settings → Server*, *Copy internet link* is offered too. (No home-network link is shown when Flyleaf only listens on `127.0.0.1`.)
 - To share over the internet, **port-forward** the Flyleaf port on your router, or better, put it behind **HTTPS**:
 
 ```bash

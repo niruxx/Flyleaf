@@ -39,10 +39,20 @@ router.get('/series', (req, res) => {
     where.push('l.kind = ?');
     args.push(String(p.kind));
   }
+  let rankIds;
   if (p.q) {
-    const like = likeArg(p.q);
-    where.push(`(s.name LIKE ? ESCAPE '\\' OR s.localized_name LIKE ? ESCAPE '\\' OR b.title LIKE ? ESCAPE '\\')`);
-    args.push(like, like, like);
+    // Ranked word-start matching across titles, alternative titles, book titles and creators.
+    rankIds = require('../search').rankSeries(req.user, String(p.q));
+  }
+  // A–Z jump: first letter of the sort title ("#" = digits and symbols).
+  if (p.letter) {
+    const { TITLE_KEY } = require('../serialize');
+    const letter = String(p.letter).toUpperCase();
+    if (letter === '#') where.push(`upper(substr(${TITLE_KEY}, 1, 1)) NOT BETWEEN 'A' AND 'Z'`);
+    else if (/^[A-Z]$/.test(letter)) {
+      where.push(`upper(substr(${TITLE_KEY}, 1, 1)) = ?`);
+      args.push(letter);
+    }
   }
   for (const g of [].concat(p.genre || [])) {
     where.push('EXISTS (SELECT 1 FROM json_each(s.genres) j WHERE lower(j.value) = lower(?))');
@@ -77,7 +87,7 @@ router.get('/series', (req, res) => {
   if (p.read === 'reading') having.push('MAX(p.updated_at) IS NOT NULL AND SUM(CASE WHEN p.finished = 1 THEN 1 ELSE 0 END) < COUNT(b.id)');
   if (p.read === 'completed') having.push('SUM(CASE WHEN p.finished = 1 THEN 1 ELSE 0 END) = COUNT(b.id)');
   // Opening one library by id is a direct request (lets the admin view a user's library from the admin panel).
-  res.json(listSeries(req.user, { where, args, having, sort: p.sort, limit: p.limit, offset: p.offset, direct: Boolean(p.library) }));
+  res.json(listSeries(req.user, { where, args, having, sort: p.sort || (rankIds ? 'relevance' : undefined), rankIds, limit: p.limit, offset: p.offset, direct: Boolean(p.library) }));
 });
 
 // ---------------------------------------------------------------------------
@@ -136,6 +146,49 @@ function seriesStats(id, user) {
   }
   return out;
 }
+
+/**
+ * "More like this": other series the user can see, scored by shared genres and tags
+ * (rare ones count more than common ones), shared writers/artists, publisher,
+ * type of library and release year. Related series are left out (they have their own section).
+ */
+router.get('/series/:id/similar', (req, res) => {
+  const s = visibleSeries(req, res);
+  if (!s) return;
+  const limit = Math.min(Math.max(Number(req.query.limit) || 12, 1), 40);
+  const { accessFilter } = require('../util');
+  const age = accessFilter(req.user, 's');
+  const rows = q(`SELECT s.id, s.genres, s.tags, s.people, s.publisher, s.year, l.kind FROM series s JOIN libraries l ON l.id = s.library_id
+                  WHERE ${age.sql} AND EXISTS (SELECT 1 FROM books b WHERE b.series_id = s.id AND b.missing = 0)`).all(...age.args);
+  const lower = (list) => new Set(json(list, []).map((x) => String(x).toLowerCase().trim()).filter(Boolean));
+  const names = (people) => new Set(json(people, []).map((p) => String(p.name || '').toLowerCase().trim()).filter(Boolean));
+  // How common each genre/tag is, so "Fantasy" matters less than "Time travel".
+  const freq = new Map();
+  for (const r of rows) for (const g of new Set([...lower(r.genres), ...lower(r.tags)])) freq.set(g, (freq.get(g) || 0) + 1);
+  const weight = (g) => 1 / Math.log2(2 + (freq.get(g) || 0));
+  const me = rows.find((r) => r.id === s.id) || { genres: '[]', tags: '[]', people: '[]' };
+  const myGenres = lower(me.genres);
+  const myTags = lower(me.tags);
+  const myPeople = names(me.people);
+  const exclude = new Set([s.id, ...q('SELECT related_id FROM series_relations WHERE series_id = ?').all(s.id).map((r) => r.related_id)]);
+  const scored = [];
+  for (const r of rows) {
+    if (exclude.has(r.id)) continue;
+    let score = 0;
+    for (const g of lower(r.genres)) if (myGenres.has(g)) score += 4 * weight(g);
+    let tagScore = 0;
+    for (const t of lower(r.tags)) if (myTags.has(t) || myGenres.has(t)) tagScore += 2 * weight(t);
+    score += Math.min(tagScore, 6);
+    for (const n of names(r.people)) if (myPeople.has(n)) score += 3;
+    if (me.publisher && r.publisher && me.publisher.toLowerCase() === r.publisher.toLowerCase()) score += 0.5;
+    if (r.kind === me.kind) score += 0.5;
+    if (me.year && r.year && Math.abs(me.year - r.year) <= 5) score += 0.3;
+    if (score >= 1) scored.push({ id: r.id, score });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  const ids = scored.slice(0, limit).map((x) => x.id);
+  res.json(ids.length ? listSeries(req.user, { rankIds: ids, sort: 'relevance', limit }).items : []);
+});
 
 // Per-user state: want to read, reading status, personal tags, blurred artwork.
 router.put('/series/:id/user', (req, res) => {

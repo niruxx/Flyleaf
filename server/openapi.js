@@ -19,6 +19,13 @@ const R = [
   ['get', '/me', 'Account', 'The current user'],
   ['patch', '/me', 'Account', 'Update your profile', { body: { username: 'string', displayName: 'string', email: 'string' } }],
   ['put', '/me/prefs', 'Account', 'Save app preferences (merged with existing)', { body: { '*': 'any preference key, see GET /me' } }],
+  ['put', '/me/avatar', 'Account', 'Set your profile picture (raw image body: JPEG, PNG, WebP, GIF or AVIF, ≤ 10 MB)', { returns: '{ avatarUrl }' }],
+  ['delete', '/me/avatar', 'Account', 'Remove your profile picture'],
+  ['get', '/users/{id}/avatar', 'Account', 'A user’s profile picture'],
+  ['put', '/me/background', 'Account', 'Upload your app background (raw image or GIF body, ≤ 30 MB); turn it on with prefs.background', { returns: '{ backgroundUrl }' }],
+  ['delete', '/me/background', 'Account', 'Remove your uploaded background'],
+  ['get', '/me/background', 'Account', 'Your uploaded background'],
+  ['get', '/share-info', 'Account', 'Links others can open: the server’s home-network addresses and the public URL', { returns: '{ local: string[], public: string | null }' }],
   ['post', '/me/password', 'Account', 'Change your password (not allowed with an API key)', { body: { current: 'string', next: 'string' } }],
 
   // Personal libraries (users with a personal folder)
@@ -35,12 +42,13 @@ const R = [
   ['get', '/libraries', 'Browse', 'Libraries you can see'],
   ['get', '/series', 'Browse', 'List and filter series', {
     query: {
-      library: 'integer – library id', kind: 'books | manga | comics', q: 'string – text search', genre: 'string (repeatable)', tag: 'string', userTag: 'string – your own tag',
-      person: 'string – writer/artist name', status: 'string', want: '1 – only Want to read', read: 'unread | reading | finished', sort: 'name | added | read | year | updated | want', limit: 'integer ≤ 2000', offset: 'integer',
+      library: 'integer – library id', kind: 'books | manga | comics', q: 'string – ranked text search (best matches first unless sort is set)', letter: 'A–Z or # – first letter of the title', genre: 'string (repeatable)', tag: 'string', userTag: 'string – your own tag',
+      person: 'string – writer/artist name', status: 'string', want: '1 – only Want to read', read: 'unread | reading | finished', sort: 'name | name_desc | author | added | read | year | updated | want | relevance', limit: 'integer ≤ 2000', offset: 'integer',
     },
     returns: '{ items: Series[], hasMore }',
   }],
   ['get', '/series/{id}', 'Browse', 'One series with its volumes, your progress, links and relations'],
+  ['get', '/series/{id}/similar', 'Browse', 'More like this: series sharing genres, tags and creators, best first', { query: { limit: 'integer ≤ 40, default 12' }, returns: 'Series[]' }],
   ['get', '/series/{id}/cover', 'Browse', 'Series artwork (image)', { returns: 'image/*' }],
   ['get', '/genres', 'Browse', 'Genres with series counts'],
   ['get', '/user-tags', 'Browse', 'Your own tags with counts'],

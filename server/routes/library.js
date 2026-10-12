@@ -255,24 +255,29 @@ router.get('/genres', (req, res) => {
 router.get('/search', (req, res) => {
   const term = String(req.query.q || '').trim();
   if (!term) return res.json({ series: [], books: [], people: [], genres: [], collections: [] });
-  const like = likeArg(term);
+  const search = require('../search');
   const user = req.user;
   const limit = Math.min(Number(req.query.limit) || 8, 100);
-  const series = listSeries(user, {
-    where: [`(s.name LIKE ? ESCAPE '\\' OR s.localized_name LIKE ? ESCAPE '\\' OR s.sort_name LIKE ? ESCAPE '\\'
-             OR EXISTS (SELECT 1 FROM json_each(s.people) j WHERE json_extract(j.value, '$.name') LIKE ? ESCAPE '\\'))`],
-    args: [like, like, like, like],
-    limit,
-  }).items;
+  const toks = search.tokens(term);
+  const qn = search.norm(term);
+  const like = likeArg(toks[0] || term);
+  // Series, best match first.
+  const series = listSeries(user, { rankIds: search.rankSeries(user, term, { limit }), sort: 'relevance', limit }).items;
+  // Individual books whose own title or author matches.
   const age = accessFilter(user, 's');
-  const books = q(`${BOOK_SELECT} WHERE b.missing = 0 AND ${age.sql} AND (b.title LIKE ? ESCAPE '\\' OR b.author LIKE ? ESCAPE '\\')
-                   ORDER BY b.title COLLATE NOCASE LIMIT ?`).all(user.id, user.id, ...age.args, like, like, limit).map((r) => toBook(r, false, user));
-  const people = q(`SELECT DISTINCT json_extract(j.value, '$.name') AS name FROM series s, json_each(s.people) j
-                    WHERE ${age.sql} AND json_extract(j.value, '$.name') LIKE ? ESCAPE '\\' LIMIT ?`).all(...age.args, like, limit).map((r) => r.name);
-  const genres = q(`SELECT DISTINCT j.value AS name FROM series s, json_each(s.genres) j
-                    WHERE ${age.sql} AND j.value LIKE ? ESCAPE '\\' LIMIT ?`).all(...age.args, like, limit).map((r) => r.name);
-  const collections = q(`SELECT id, name FROM collections WHERE (user_id = ? OR promoted = 1) AND name LIKE ? ESCAPE '\\' LIMIT ?`).all(user.id, like, limit);
-  res.json({ series, books, people, genres, collections });
+  const books = q(`${BOOK_SELECT} WHERE b.missing = 0 AND ${age.sql} AND (b.title LIKE ? ESCAPE '\\' OR b.author LIKE ? ESCAPE '\\') LIMIT 400`)
+    .all(user.id, user.id, ...age.args, like, like)
+    .map((r) => ({ r, score: Math.max(search.scoreText(r.title, qn, toks), search.scoreText(r.author, qn, toks) * 0.7) }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((x) => toBook(x.r, false, user));
+  const people = search.rankStrings(q(`SELECT DISTINCT json_extract(j.value, '$.name') AS name FROM series s, json_each(s.people) j
+                    WHERE ${age.sql} AND json_extract(j.value, '$.name') LIKE ? ESCAPE '\\' LIMIT 500`).all(...age.args, like).map((r) => r.name), term, limit);
+  const genres = search.rankStrings(q(`SELECT DISTINCT j.value AS name FROM series s, json_each(s.genres) j
+                    WHERE ${age.sql} AND j.value LIKE ? ESCAPE '\\' LIMIT 500`).all(...age.args, like).map((r) => r.name), term, limit);
+  const collections = q(`SELECT id, name FROM collections WHERE (user_id = ? OR promoted = 1) AND name LIKE ? ESCAPE '\\' LIMIT 200`).all(user.id, like);
+  res.json({ series, books, people, genres, collections: collections.filter((c) => search.rankStrings([c.name], term, 1).length).slice(0, limit) });
 });
 
 module.exports = { router, KINDS, LIB_SELECT, libraryRow, validateLibrary, removeLibrary };

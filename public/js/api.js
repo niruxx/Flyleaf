@@ -67,6 +67,11 @@ export const api = {
   me: () => GET('/api/me'),
   updateMe: (b) => PATCH('/api/me', b),
   savePrefs: (b) => PUT('/api/me/prefs', b),
+  uploadAvatar: (file) => request('PUT', '/api/me/avatar', file, { headers: { 'Content-Type': 'application/octet-stream' } }),
+  removeAvatar: () => DEL('/api/me/avatar'),
+  uploadBackground: (file) => request('PUT', '/api/me/background', file, { headers: { 'Content-Type': 'application/octet-stream' } }),
+  removeBackground: () => DEL('/api/me/background'),
+  shareInfo: () => GET('/api/share-info'),
   changePassword: (current, next) => POST('/api/me/password', { current, next }),
 
   home: () => GET('/api/home'),
@@ -88,6 +93,7 @@ export const api = {
 
   seriesList: (params) => GET(`/api/series${qs(params)}`),
   series: (id) => GET(`/api/series/${id}`),
+  similarSeries: (id, limit) => GET(`/api/series/${id}/similar${qs({ limit })}`),
   setSeriesUser: (id, b) => PUT(`/api/series/${id}/user`, b),
   setSeriesFinished: (id, finished) => POST(`/api/series/${id}/finished`, { finished }),
   updateSeries: (id, b) => PATCH(`/api/series/${id}`, b),

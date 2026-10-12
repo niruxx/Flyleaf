@@ -1,7 +1,7 @@
 // Bookmarks, highlights and notes across the whole library.
 
 import { api, pageUrl } from '../api.js';
-import { h, icon, iconButton, cover, loading, emptyState, stagger, pageHeader, timeAgo, segmented, snackbar, confirmDialog, formDialog, field } from '../ui.js';
+import { h, icon, iconButton, button, menu, store, cover, loading, emptyState, stagger, pageHeader, timeAgo, segmented, snackbar, confirmDialog, formDialog, field } from '../ui.js';
 
 export const HIGHLIGHT_COLORS = {
   yellow: '#f5d34f',
@@ -12,40 +12,77 @@ export const HIGHLIGHT_COLORS = {
   underline: '#9aa0a6',
 };
 
+const SORTS = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'title', label: 'Book title A–Z' },
+  { value: 'position', label: 'Position in book' },
+];
+const time = (a) => Number(a.updatedAt || a.createdAt) || 0;
+const position = (a) => (a.percent != null ? a.percent : a.page != null ? a.page / 1e6 : 0);
+const bookName = (b) => String(b.series || b.title || '').replace(/^(the|an|a)\s+/i, '');
+
 export async function bookmarksView(view, params, stale) {
   const page = h('div.page', { style: { maxWidth: '980px' } });
   view.append(page);
   let kind = params.query.get('kind') || '';
+  let sort = SORTS.some((s) => s.value === store.get('bookmarks.sort')) ? store.get('bookmarks.sort') : 'newest';
+  let list = [];
   const body = h('div');
+  const sortLabel = h('span', SORTS.find((s) => s.value === sort).label);
+  const sortBtn = button(sortLabel, { variant: 'text', icon: 'sort' });
+  sortBtn.addEventListener('click', () => menu(sortBtn, SORTS.map((s) => ({
+    label: s.label,
+    checked: s.value === sort,
+    onClick: () => {
+      sort = s.value;
+      store.set('bookmarks.sort', sort);
+      sortLabel.textContent = s.label;
+      draw();
+    },
+  }))));
   page.append(
     pageHeader('Bookmarks & notes'),
-    h('div.enter', { style: { marginBottom: '16px' } }, segmented([
+    h('div.toolbar.enter', { style: { marginBottom: '16px' } }, segmented([
       { value: '', label: 'All', icon: 'select_all' },
       { value: 'bookmark', label: 'Bookmarks', icon: 'bookmark' },
       { value: 'highlight', label: 'Highlights', icon: 'ink_highlighter' },
     ], kind, (v) => {
       kind = v;
       load();
-    })),
+    }), h('div.spacer'), sortBtn),
     body,
   );
 
   async function load() {
     body.replaceChildren(loading());
-    const list = await api.annotations(kind || undefined);
+    list = await api.annotations(kind || undefined);
     if (stale()) return;
+    draw();
+  }
+
+  function draw() {
     if (!list.length) {
       body.replaceChildren(emptyState('bookmarks', 'Nothing saved yet', 'While reading, tap the bookmark button to save a page, or select text in an ebook to highlight it and add a note.'));
       return;
     }
-    // Group by book.
+    // Group by book, then order the books and the notes inside each one.
     const groups = new Map();
     for (const a of list) {
       if (!groups.has(a.book.id)) groups.set(a.book.id, { book: a.book, items: [] });
       groups.get(a.book.id).items.push(a);
     }
+    const sorted = [...groups.values()];
+    for (const g of sorted) {
+      g.items.sort(sort === 'newest' ? (a, b) => time(b) - time(a) : sort === 'oldest' ? (a, b) => time(a) - time(b) : (a, b) => position(a) - position(b));
+      g.newest = Math.max(...g.items.map(time));
+      g.oldest = Math.min(...g.items.map(time));
+    }
+    if (sort === 'title') sorted.sort((a, b) => bookName(a.book).localeCompare(bookName(b.book), undefined, { numeric: true, sensitivity: 'base' }));
+    else if (sort === 'oldest') sorted.sort((a, b) => a.oldest - b.oldest);
+    else sorted.sort((a, b) => b.newest - a.newest);
     body.replaceChildren(
-      stagger(h('div', [...groups.values()].map(({ book, items }) =>
+      stagger(h('div', sorted.map(({ book, items }) =>
         h('section', { style: { marginBottom: '28px' } },
           h('a', { href: `#/series/${book.seriesId}`, style: { display: 'flex', alignItems: 'center', gap: '12px', textDecoration: 'none', color: 'inherit', marginBottom: '10px' } },
             h('div', { style: { width: '36px' } }, cover(book, { showProgress: false })),

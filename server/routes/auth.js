@@ -19,6 +19,7 @@ const publicUser = (u) =>
     ageIncludeUnknown: u.ageIncludeUnknown,
     libraryIds: u.libraryIds,
     homeDir: u.homeDir,
+    avatarUrl: u.avatarUrl,
     permissions: u.permissions,
     prefs: u.prefs,
   };
@@ -26,7 +27,8 @@ const publicUser = (u) =>
 const validEmail = (e) => e == null || e === '' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
 router.get('/status', (req, res) => {
-  res.json({ needsSetup: userCount() === 0, user: publicUser(req.user) || null });
+  // Your own background is only ever sent to you.
+  res.json({ needsSetup: userCount() === 0, user: req.user ? { ...publicUser(req.user), backgroundUrl: req.user.backgroundUrl } : null });
 });
 
 // First-run: create the admin account. Only possible while no users exist.
@@ -59,7 +61,8 @@ router.post('/login', (req, res) => {
   throttle.reset();
   q('UPDATE users SET last_seen_at = ? WHERE id = ?').run(Date.now(), user.id);
   auth.createSession(res, user.id, req.get('user-agent'));
-  res.json({ user: publicUser(auth.toUser(user)) });
+  const signedIn = auth.toUser(user);
+  res.json({ user: { ...publicUser(signedIn), backgroundUrl: signedIn.backgroundUrl } });
 });
 
 router.post('/logout', (req, res) => {
@@ -73,7 +76,7 @@ router.post('/logout', (req, res) => {
 const me = express.Router();
 me.use(auth.requireUser);
 
-me.get('/', (req, res) => res.json(publicUser(req.user)));
+me.get('/', (req, res) => res.json({ ...publicUser(req.user), backgroundUrl: req.user.backgroundUrl }));
 
 me.patch('/', (req, res) => {
   const { username, email, displayName } = req.body || {};

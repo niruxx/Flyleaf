@@ -3,6 +3,7 @@
 import { api } from './api.js';
 import { session } from './router.js';
 import { applyTheme } from './theme.js';
+import { applyBackground } from './background.js';
 
 export const prefs = () => session.user?.prefs || {};
 
@@ -10,6 +11,7 @@ export const prefs = () => session.user?.prefs || {};
 export function applyUserPrefs() {
   const p = prefs();
   applyTheme({ ...(p.theme || {}), noMotion: Boolean(p.disableAnimations) });
+  applyBackground(p.background, session.user?.backgroundUrl);
 }
 
 let saveTimer;
@@ -25,6 +27,7 @@ export function setPref(key, value) {
     api.savePrefs(body).catch(() => {});
   }, 400);
   if (key === 'disableAnimations') applyTheme({ noMotion: Boolean(value) });
+  if (key === 'background') applyBackground(value, session.user?.backgroundUrl);
 }
 
 /** Change theme (mode/preset/hue) and remember it on the account. */

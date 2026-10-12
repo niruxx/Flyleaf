@@ -3,7 +3,7 @@
 import { api } from '../api.js';
 import { session, navigate } from '../router.js';
 import {
-  h, icon, iconButton, button, field, formError, snackbar, confirmDialog, formDialog, timeAgo, formatDuration, loading, menu, AGE_RATINGS,
+  h, icon, iconButton, button, field, formError, snackbar, confirmDialog, formDialog, timeAgo, formatDuration, loading, menu, AGE_RATINGS, avatar,
 } from '../ui.js';
 import { refreshShell } from '../shell.js';
 import { scanIndicator } from './scan.js';
@@ -277,7 +277,7 @@ export async function usersPanel(panel, stale) {
       ]),
     );
     return h('div.setting-row',
-      h('span.avatar', { style: { width: '40px', height: '40px', cursor: 'default' } }, (u.displayName || u.username)[0]),
+      avatar(u, 40),
       h('div.text',
         h('div', `${u.displayName}${isSelf ? ' (you)' : ''}`),
         h('div.s', `@${u.username}${u.email ? ` · ${u.email}` : ''} · ${u.role === 'admin' ? 'Admin' : 'Guest · read-only'}`),

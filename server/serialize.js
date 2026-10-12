@@ -92,8 +92,20 @@ const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' })
 // ---------------------------------------------------------------------------
 // Series
 
+/** Title for alphabetical order: the sort name if set, else the title without a leading "The/A/An". */
+const TITLE_KEY = `COALESCE(NULLIF(s.sort_name, ''), CASE
+    WHEN lower(s.name) LIKE 'the %' THEN substr(s.name, 5)
+    WHEN lower(s.name) LIKE 'an %' THEN substr(s.name, 4)
+    WHEN lower(s.name) LIKE 'a %' THEN substr(s.name, 3)
+    ELSE s.name END)`;
+/** First writer's name, for sorting by author. */
+const AUTHOR_KEY = `(SELECT json_extract(j.value, '$.name') FROM json_each(s.people) j
+    WHERE json_extract(j.value, '$.role') LIKE '%writer%' OR json_extract(j.value, '$.role') LIKE '%author%' LIMIT 1)`;
+
 const SERIES_SORTS = {
-  name: 'COALESCE(s.sort_name, s.name) COLLATE NOCASE',
+  name: `${TITLE_KEY} COLLATE NOCASE`,
+  name_desc: `${TITLE_KEY} COLLATE NOCASE DESC`,
+  author: `${AUTHOR_KEY} IS NULL, ${AUTHOR_KEY} COLLATE NOCASE, ${TITLE_KEY} COLLATE NOCASE`,
   added: 'last_added DESC',
   read: 'last_read IS NULL, last_read DESC',
   year: 's.year IS NULL, s.year DESC, s.name COLLATE NOCASE',
@@ -112,7 +124,17 @@ function listSeries(user, opts = {}) {
   const having = opts.having?.length ? `HAVING ${opts.having.join(' AND ')}` : '';
   const limit = Math.min(Number(opts.limit) || 120, 2000);
   const offset = Math.max(Number(opts.offset) || 0, 0);
-  const sort = SERIES_SORTS[opts.sort] || SERIES_SORTS.name;
+  let sort = SERIES_SORTS[opts.sort] || SERIES_SORTS.name;
+  // Ranked ids (search, recommendations): only those, in that order when sorting by relevance.
+  const orderArgs = [];
+  if (Array.isArray(opts.rankIds)) {
+    where.push('s.id IN (SELECT value FROM json_each(?))');
+    args.push(JSON.stringify(opts.rankIds));
+    if (opts.sort === 'relevance' || !opts.sort) {
+      sort = '(SELECT key FROM json_each(?) WHERE json_each.value = s.id)';
+      orderArgs.push(JSON.stringify(opts.rankIds));
+    }
+  }
   const rows = q(`
     SELECT s.*, l.kind, l.name AS library_name,
       COUNT(b.id) AS book_count,
@@ -130,7 +152,7 @@ function listSeries(user, opts = {}) {
     GROUP BY s.id
     ${having}
     ORDER BY ${sort}
-    LIMIT ? OFFSET ?`).all(...args, limit + 1, offset);
+    LIMIT ? OFFSET ?`).all(...args, ...orderArgs, limit + 1, offset);
   const items = rows.slice(0, limit).map((r) => toSeries(r, user));
   return { items, hasMore: rows.length > limit };
 }
@@ -213,6 +235,7 @@ function seriesBooks(seriesId, user) {
 }
 
 module.exports = {
+  TITLE_KEY,
   TEXT_FORMATS,
   BOOK_SELECT,
   toBook,

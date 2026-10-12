@@ -4,12 +4,14 @@ import { api, can } from '../api.js';
 import { isAdmin, session, navigate } from '../router.js';
 import { prefs, setPref, setTheme } from '../prefs.js';
 import { THEMES, themeState } from '../theme.js';
+import { BG_DEFAULTS } from '../background.js';
 import { ACTIONS, DEFAULT_KEYBINDS, keyString, resolveKeybinds } from '../keybinds.js';
 import {
   h, icon, iconButton, button, field, formError, snackbar, segmented, toggleSwitch, confirmDialog, formDialog, copyText, timeAgo, loading, AGE_RATINGS,
+  avatar, fillAvatar,
 } from '../ui.js';
 import { readerSettingsForm } from '../components/reader-settings.js';
-import { signOut } from '../shell.js';
+import { signOut, refreshAvatarInShell } from '../shell.js';
 
 const PANELS = [
   { group: 'You' },
@@ -88,8 +90,41 @@ function accountPanel(panel) {
     }
   } });
   const age = AGE_RATINGS.find((a) => a.value === u.maxAgeRating);
+
+  // Profile picture: shown in the top bar and to the admin.
+  const pic = avatar(u, 88);
+  const picInput = h('input', { type: 'file', accept: 'image/*', hidden: true });
+  const removePic = button('Remove', { variant: 'text', icon: 'delete', disabled: !u.avatarUrl, onclick: async () => {
+    await api.removeAvatar();
+    session.user.avatarUrl = null;
+    fillAvatar(pic, session.user);
+    removePic.disabled = true;
+    refreshAvatarInShell();
+    snackbar('Profile picture removed');
+  } });
+  picInput.addEventListener('change', async () => {
+    const file = picInput.files[0];
+    if (!file) return;
+    try {
+      const r = await api.uploadAvatar(file);
+      session.user.avatarUrl = r.avatarUrl;
+      fillAvatar(pic, session.user);
+      removePic.disabled = false;
+      refreshAvatarInShell();
+      snackbar('Profile picture updated');
+    } catch (e) {
+      snackbar(e.message, { duration: 6000 });
+    }
+    picInput.value = '';
+  });
+  const picRow = h('div.setting-row.profile-pic', pic,
+    h('div.text', h('div', 'Profile picture'), h('div.s', 'JPEG, PNG, WebP or GIF. It’s cropped to a circle.')),
+    h('div.pic-actions', button(u.avatarUrl ? 'Change' : 'Upload', { variant: 'tonal', icon: 'add_a_photo', onclick: () => picInput.click() }), removePic),
+    picInput);
+
   panel.append(
     h('h2', 'Account'),
+    group(picRow),
     group(h('div.setting-row.stack', err, username, display, email, h('div', save))),
     group(
       h('button.setting-row.state', { type: 'button', onclick: changePassword }, icon('key'), h('div.text', h('div', 'Password'), h('div.s', 'Change your password')), icon('chevron_right')),
@@ -163,6 +198,86 @@ function appearancePanel(panel) {
     h('div.sub-head', 'Theme'),
     group(cards, h('div.setting-row.stack', h('div.text', h('div', 'Custom colour'), h('div.s', 'Drag to generate a Material You palette from any hue.')), hue)),
     h('p.note', 'Themes and mode are saved to your account, so they follow you to other devices.'),
+    h('div.sub-head', 'Background'),
+    backgroundSection(),
+  );
+}
+
+/** Personal background: an uploaded picture or GIF, or a link to one. */
+function backgroundSection() {
+  let bg = { ...BG_DEFAULTS, ...(prefs().background || {}) };
+  const save = (patch) => {
+    bg = { ...bg, ...patch };
+    setPref('background', bg.source ? bg : null);
+    paint();
+  };
+  const current = () => (bg.source === 'upload' ? session.user.backgroundUrl : bg.source === 'url' ? bg.url : null);
+
+  const img = h('div.img');
+  const tint = h('div.tint');
+  const sample = h('div.sample', 'No background');
+  const preview = h('div.bg-preview', img, tint, sample);
+  const fileInput = h('input', { type: 'file', accept: 'image/*', hidden: true });
+  const removeBtn = button('Remove', { variant: 'text', icon: 'delete', onclick: async () => {
+    if (session.user.backgroundUrl) await api.removeBackground().catch(() => {});
+    session.user.backgroundUrl = null;
+    save({ source: null, url: null });
+    snackbar('Background removed');
+  } });
+  const dim = h('input.slider', { type: 'range', min: 0, max: 95, value: bg.dim, 'aria-label': 'Dim' });
+  const blur = h('input.slider', { type: 'range', min: 0, max: 30, value: bg.blur, 'aria-label': 'Blur' });
+  dim.addEventListener('input', () => save({ dim: Number(dim.value) }));
+  blur.addEventListener('input', () => save({ blur: Number(blur.value) }));
+  const fit = segmented([
+    { value: 'cover', label: 'Fill' },
+    { value: 'contain', label: 'Fit' },
+    { value: 'tile', label: 'Tile' },
+  ], bg.fit, (v) => save({ fit: v }));
+  const tuning = group(row('brightness_6', 'Dim', 'Fade the picture into your theme so text stays readable.', dim, '.wrap'),
+    row('blur_on', 'Blur', null, blur, '.wrap'), row('fit_screen', 'Size', null, fit, '.wrap'));
+
+  function paint() {
+    const url = current();
+    img.style.backgroundImage = url ? `url(${JSON.stringify(url)})` : '';
+    img.style.filter = `blur(${(bg.blur || 0) / 3}px)`;
+    tint.style.opacity = url ? String(bg.dim / 100) : '0';
+    sample.textContent = url ? 'Text stays readable' : 'No background';
+    removeBtn.disabled = !url;
+    tuning.hidden = !url;
+  }
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files[0];
+    fileInput.value = '';
+    if (!file) return;
+    snackbar('Uploading background…', { duration: 30000 });
+    try {
+      const r = await api.uploadBackground(file);
+      session.user.backgroundUrl = r.backgroundUrl;
+      save({ source: 'upload', url: null });
+      snackbar('Background updated');
+    } catch (e) {
+      snackbar(e.message, { duration: 6000 });
+    }
+  });
+  const fromUrl = async () => {
+    const f = field('Image URL', { type: 'url', required: true, value: bg.source === 'url' ? bg.url : '', support: 'A link to a picture or GIF (https://…).' });
+    await formDialog({ title: 'Background from a link', icon: 'link', fields: [f], onSubmit: () => {
+      const v = f.input.value.trim();
+      if (!/^https?:\/\//i.test(v)) throw new Error('Enter a link starting with http:// or https://');
+      save({ source: 'url', url: v });
+    } });
+  };
+  paint();
+  return h('div', group(
+    h('div.setting-row.stack', preview,
+      h('div.bg-actions',
+        button('Upload picture or GIF', { variant: 'tonal', icon: 'upload', onclick: () => fileInput.click() }),
+        button('Use a link', { variant: 'text', icon: 'link', onclick: fromUrl }),
+        removeBtn),
+      h('p.bg-hint', 'Only you see your background. Animated GIFs keep moving; large pictures are resized for speed.'),
+      fileInput)),
+    tuning,
   );
 }
 

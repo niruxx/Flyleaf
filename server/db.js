@@ -304,6 +304,12 @@ const migrations = [
   ALTER TABLE libraries ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE; -- NULL = shared
   CREATE INDEX libraries_owner ON libraries(owner_id);
   `,
+
+  // v5: profile pictures and per-user backgrounds.
+  `
+  ALTER TABLE users ADD COLUMN avatar TEXT;      -- file name in data/avatars
+  ALTER TABLE users ADD COLUMN background TEXT;  -- file name in data/backgrounds
+  `,
 ];
 
 const version = db.prepare('PRAGMA user_version').get().user_version;

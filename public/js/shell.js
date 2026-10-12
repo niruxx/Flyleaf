@@ -2,7 +2,7 @@
 
 import { api, can } from './api.js';
 import { session, navigate, onRoute, isAdmin } from './router.js';
-import { h, icon, iconButton, menu, cover } from './ui.js';
+import { h, icon, iconButton, menu, cover, fillAvatar } from './ui.js';
 import { setTheme } from './prefs.js';
 import { isDark, themeState } from './theme.js';
 import { themeReveal } from './motion.js';
@@ -23,13 +23,41 @@ export function initShell() {
   onRoute(({ r, full }) => {
     if (r.bare) return;
     highlight(full);
+    // New genres, libraries and collections show up without a reload (after scans,
+    // metadata edits, uploads…): re-check on navigation, at most every 10 seconds.
+    if (Date.now() - lastDrawerCheck > 10_000) refreshDrawer();
   });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refreshDrawer();
+  });
+  setInterval(() => document.visibilityState === 'visible' && refreshDrawer(), 60_000);
+}
+
+let lastDrawerCheck = 0;
+/** Reload the drawer's libraries, collections and genres; redraw only if something changed. */
+export async function refreshDrawer() {
+  if (!session.user) return;
+  lastDrawerCheck = Date.now();
+  try {
+    const [libraries, collections, genres] = await Promise.all([api.libraries(), api.collections(), api.genres()]);
+    const next = { libraries, collections, genres };
+    if (JSON.stringify(next) === JSON.stringify(drawerData)) return;
+    drawerData = next;
+    buildDrawer();
+    highlight(location.hash.replace(/^#/, '') || '/');
+  } catch {}
+}
+
+/** Redraw the top-bar account button (e.g. after changing the profile picture). */
+export function refreshAvatarInShell() {
+  buildEnd(document.querySelector('.app-bar .end'));
 }
 
 /** Rebuild account-dependent chrome (after sign-in, or when libraries/collections change). */
 export async function refreshShell() {
   if (!session.user) return;
   buildEnd(document.querySelector('.app-bar .end'));
+  lastDrawerCheck = Date.now();
   try {
     const [libraries, collections, genres] = await Promise.all([api.libraries(), api.collections(), api.genres()]);
     drawerData = { libraries, collections, genres };
@@ -50,7 +78,7 @@ function buildEnd(end) {
       toggle.querySelector('.icon').textContent = isDark() ? 'light_mode' : 'dark_mode';
     });
   });
-  const avatar = h('button.avatar', { type: 'button', title: u.displayName, 'aria-label': 'Account menu' }, (u.displayName || u.username || '?').trim()[0]);
+  const avatar = fillAvatar(h('button.avatar', { type: 'button', title: u.displayName, 'aria-label': 'Account menu' }), u);
   avatar.addEventListener('click', () => {
     const mode = themeState().mode;
     menu(avatar, [

@@ -3,7 +3,7 @@
 
 import { api } from '../api.js';
 import { navigate } from '../router.js';
-import { h, icon, iconButton, button, field, snackbar, confirmDialog, formDialog, dialog, loading, toggleSwitch, menu } from '../ui.js';
+import { h, icon, iconButton, button, field, snackbar, confirmDialog, formDialog, dialog, loading, toggleSwitch, menu, setButtonLabel } from '../ui.js';
 
 const group = (...rows) => h('div.settings-group', ...rows);
 // Refresh the panel – unless the user has already gone elsewhere (closing a dialog also runs this).
@@ -239,7 +239,7 @@ async function renderMihon(body) {
   function extRow(e) {
     const action = async (btn, act, label) => {
       btn.disabled = true;
-      btn.lastChild.textContent = `${label}…`;
+      setButtonLabel(btn, `${label}…`);
       try {
         await api.mihonAction(e.pkgName, act);
         snackbar(`${e.name} ${act === 'uninstall' ? 'removed' : act === 'update' ? 'updated' : 'installed'}`);

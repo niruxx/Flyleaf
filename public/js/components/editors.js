@@ -2,6 +2,7 @@
 
 import { api } from '../api.js';
 import { h, icon, iconButton, button, dialog, field, chipInput, formError, snackbar, cover, AGE_RATINGS, STATUS_LABEL, confirmDialog } from '../ui.js';
+import { refreshDrawer } from '../shell.js';
 
 const ROLES = ['Writer', 'Artist', 'Penciller', 'Inker', 'Colorist', 'Letterer', 'Cover artist', 'Editor', 'Translator', 'Publisher', 'Creator'];
 const RELATIONS = [
@@ -200,6 +201,7 @@ export async function editSeries(seriesId) {
               links: [...linkRows.children].map((r) => r.read()).filter((l) => l.url),
             });
             snackbar('Metadata saved');
+            refreshDrawer();
             return true;
           } catch (e) {
             err.append(formError(e.message));
@@ -321,6 +323,7 @@ export async function fetchMetadata(series) {
           const fields = checks.map((c) => c.querySelector('input')).filter((i) => i.checked).map((i) => i.dataset.field);
           try {
             await api.applyMetadata(series.id, { provider: selected.provider, providerId: selected.id, fields, cover: coverCheck.checked });
+            refreshDrawer();
             snackbar(`Metadata applied from ${providers.find((p) => p.id === selected.provider)?.name}`);
             return true;
           } catch (e) {

@@ -91,9 +91,16 @@ export async function download(url, label, size) {
 
 /** "Send to": email to an e-reader, download, or share a link. */
 export async function sendTo({ book, series }) {
-  const { devices, emailConfigured } = await api.devices();
+  const [{ devices, emailConfigured }, info] = await Promise.all([api.devices(), api.shareInfo().catch(() => ({ local: [], public: null }))]);
   const name = book ? book.label || book.title : series.name;
-  const shareUrl = `${location.origin}/#/series/${book ? book.seriesId : series.id}`;
+  const path = `/#/series/${book ? book.seriesId : series.id}`;
+  // Links others can open: the server's address on the home network (not this browser's
+  // origin, which may be localhost or a public address) and, when set, the public URL.
+  const links = [];
+  if (info.local[0]) links.push({ url: info.local[0] + path, title: 'Copy home-network link', sub: info.local[0].replace(/^https?:\/\//, '') + ' · works on your Wi-Fi', icon: 'home' });
+  if (info.public) links.push({ url: info.public + path, title: 'Copy internet link', sub: info.public.replace(/^https?:\/\//, '') + ' · works from anywhere', icon: 'public' });
+  if (!links.length) links.push({ url: location.origin + path, title: 'Share link', sub: 'For other Flyleaf users on this server', icon: 'share' });
+  const pick = (detail) => (e) => e.currentTarget.closest('dialog').dispatchEvent(new CustomEvent('pick', { detail }));
   const choice = await dialog({
     title: `Send “${name}”`,
     icon: 'send_to_mobile',
@@ -106,8 +113,8 @@ export async function sendTo({ book, series }) {
       h('hr.divider', { style: { margin: '4px 0' } }),
       h('button.list-item.state', { type: 'button', onclick: (e) => e.currentTarget.closest('dialog').dispatchEvent(new CustomEvent('pick', { detail: { download: true } })) },
         icon('download'), h('div.text', h('div.headline', 'Download to this device'))),
-      h('button.list-item.state', { type: 'button', onclick: (e) => e.currentTarget.closest('dialog').dispatchEvent(new CustomEvent('pick', { detail: { share: true } })) },
-        icon('share'), h('div.text', h('div.headline', 'Share link'), h('div.supporting', 'For other Flyleaf users on this server'))),
+      links.map((l) => h('button.list-item.state', { type: 'button', onclick: pick({ share: l.url }) },
+        icon(l.icon), h('div.text', h('div.headline', l.title), h('div.supporting', l.sub)), icon('content_copy'))),
       h('a.list-item.state', { href: '#/settings/devices' }, icon('add'), h('div.text', h('div.headline', 'Manage devices'))),
     ),
     actions: [{ label: 'Close' }],
@@ -116,8 +123,8 @@ export async function sendTo({ book, series }) {
   if (!choice) return;
   if (choice.download) return book ? download(downloadUrl(book), name, book.size) : download(seriesDownloadUrl(series.id), `${name} (all volumes, .zip)`);
   if (choice.share) {
-    if (navigator.share) return navigator.share({ title: name, url: shareUrl }).catch(() => {});
-    return copyText(shareUrl);
+    // Copy rather than the system share sheet, so the chosen address is what gets sent.
+    return copyText(choice.share);
   }
   if (choice.device) {
     snackbar(`Sending to ${choice.device.name}…`);

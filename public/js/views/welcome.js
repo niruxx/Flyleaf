@@ -5,7 +5,7 @@ import { api } from '../api.js';
 import { session, isAdmin, navigate } from '../router.js';
 import { prefs, setPref, setTheme } from '../prefs.js';
 import { THEMES, themeState } from '../theme.js';
-import { h, icon, button, field, formError, segmented, toggleSwitch, snackbar, loading } from '../ui.js';
+import { h, icon, button, field, formError, segmented, toggleSwitch, snackbar, loading, setButtonLabel } from '../ui.js';
 import { TEXT_THEMES } from '../components/reader-settings.js';
 
 export const STEPS = [
@@ -331,7 +331,7 @@ async function libraryStep() {
         h('div', h('div.title-small', l.name), h('div.body-small.muted', `${l.path} · ${admin.MODE_LABEL[l.mode] || l.mode}`)),
         l.seriesCount ? h('span.ob-badge', icon('check'), `${l.seriesCount} series`) : h('span.ob-badge', h('span.spinner.small'), 'Scanning…')))
       : [h('div.ob-empty', icon('folder_open'), h('div.title-small', 'No libraries yet'), h('div.body-small.muted', 'You can also skip this and add one later from Settings → Libraries.'))]));
-    addBtn.lastChild.textContent = libs.length ? 'Add another library' : 'Add a library';
+    setButtonLabel(addBtn, libs.length ? 'Add another library' : 'Add a library');
     // Keep counts fresh while the first scan runs.
     clearTimeout(poll);
     if (libs.some((l) => !l.seriesCount)) poll = setTimeout(() => list.isConnected && refresh(), 2500);

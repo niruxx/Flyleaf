@@ -48,6 +48,13 @@ export function button(label, { variant = 'filled', icon: ic, onclick, type = 'b
   return h(`button.btn.state.${variant.split(' ').join('.')}`, { type, onclick, ...rest }, ic && icon(ic), label);
 }
 
+/** Change a button()'s label. Not lastChild: a click appends a ripple after the text. */
+export function setButtonLabel(btn, text) {
+  const node = [...btn.childNodes].reverse().find((n) => n.nodeType === Node.TEXT_NODE);
+  if (node) node.textContent = text;
+  else btn.append(text);
+}
+
 /** Give children a staggered entrance animation. */
 export function stagger(el) {
   el.classList.add('stagger');
@@ -578,6 +585,24 @@ export function libraryOptions(libraries, label = (l) => l.name) {
     .sort((a, b) => rank(a) - rank(b) || String(a.ownerName || '').localeCompare(String(b.ownerName || '')))
     .map((l) => ({ value: l.id, label: label(l), group: l.own ? 'My libraries' : l.personal ? `${l.ownerName}’s libraries` : 'Shared libraries' }));
 }
+
+/** Fill an .avatar element with someone's profile picture, or their initial. */
+export function fillAvatar(el, user) {
+  const initial = (user?.displayName || user?.username || '?').trim()[0] || '?';
+  el.replaceChildren(initial);
+  el.classList.remove('has-img');
+  if (user?.avatarUrl) {
+    const img = h('img', { src: user.avatarUrl, alt: '', decoding: 'async' });
+    img.addEventListener('load', () => {
+      el.replaceChildren(img);
+      el.classList.add('has-img');
+    });
+  }
+  return el;
+}
+
+/** A round profile picture (or initial). */
+export const avatar = (user, size = 36) => fillAvatar(h('span.avatar', { style: { width: `${size}px`, height: `${size}px`, fontSize: `${Math.round(size * 0.42)}px`, cursor: 'default' } }), user);
 
 /** M3 Expressive-style loading indicator: a morphing, rotating shape. */
 export function loading() {

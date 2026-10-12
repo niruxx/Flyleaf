@@ -3786,3 +3786,145 @@ span.plugin-icon {
   align-items: center;
   gap: 8px;
 }
+
+/* ---------------------------------------------------------------------------
+   Personal background (Settings → Themes → Background) */
+
+html.has-bg body {
+  background: transparent;
+}
+html.has-bg body:not(.bare)::before {
+  content: '';
+  position: fixed;
+  inset: calc(-2 * var(--bg-blur, 0px));
+  z-index: -2;
+  background: var(--user-bg) center / cover no-repeat;
+  filter: blur(var(--bg-blur, 0px));
+  pointer-events: none;
+}
+html.has-bg[data-bg-fit='contain'] body:not(.bare)::before {
+  background-size: contain;
+}
+html.has-bg[data-bg-fit='tile'] body:not(.bare)::before {
+  background-size: auto;
+  background-repeat: repeat;
+}
+/* A layer of the theme's own surface colour keeps text readable over any picture. */
+html.has-bg body:not(.bare)::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: var(--md-surface);
+  opacity: var(--bg-dim, 0.7);
+  pointer-events: none;
+}
+html.has-bg body.bare {
+  background: var(--md-surface);
+}
+html.has-bg .app-bar,
+html.has-bg .drawer,
+html.has-bg .bottom-nav {
+  background: color-mix(in srgb, var(--md-surface) 72%, transparent);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+}
+html.has-bg body.scrolled .app-bar {
+  background: color-mix(in srgb, var(--md-surface-container) 78%, transparent);
+}
+.bg-preview {
+  position: relative;
+  height: 150px;
+  border-radius: var(--shape-lg);
+  overflow: hidden;
+  background: var(--md-surface-container-highest);
+  display: grid;
+  place-items: center;
+  color: var(--md-on-surface-variant);
+}
+.bg-preview .img {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-size: cover;
+}
+.bg-preview .tint {
+  position: absolute;
+  inset: 0;
+  background: var(--md-surface);
+}
+.bg-preview .sample {
+  position: relative;
+  padding: 8px 14px;
+  border-radius: var(--shape-md);
+  background: var(--md-surface-container);
+  color: var(--md-on-surface);
+  font-size: 13px;
+}
+.bg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 8px;
+}
+/* Text buttons carry a .text class, which .setting-row .text would stretch. */
+.setting-row .bg-actions > .btn,
+.setting-row .pic-actions > .btn {
+  flex: 0 0 auto;
+}
+.bg-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--md-on-surface-variant);
+}
+.profile-pic .avatar {
+  font-size: 34px;
+}
+.pic-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.avatar.has-img {
+  overflow: hidden;
+  padding: 0;
+}
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+/* A–Z jump bar on title-sorted lists */
+.letter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: -4px 0 16px;
+}
+.letter-bar[hidden] {
+  display: none;
+}
+.letter-bar .letter {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--shape-full, 999px);
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font: 500 13px/30px var(--font, inherit);
+  cursor: pointer;
+}
+.letter-bar .letter[aria-pressed='true'] {
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+}
+@media (max-width: 600px) {
+  .letter-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+}

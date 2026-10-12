@@ -257,6 +257,19 @@ export async function seriesView(view, params, stale) {
       volumes,
     ),
   );
+
+  // ----- More like this -----
+  // Loaded after the page shows: series sharing genres, tags and creators, best first.
+  const more = h('section.section.more-like', { hidden: true });
+  page.append(more);
+  api.similarSeries(s.id, 18).then((list) => {
+    if (!list.length || !more.isConnected) return;
+    more.append(
+      h('div.section-head', h('h2', 'More like this')),
+      stagger(h('div.grid', list.map((x) => seriesCard(x)))),
+    );
+    more.hidden = false;
+  }).catch(() => {});
 }
 
 const VOL_LAYOUT = 'flyleaf.volumeLayout';

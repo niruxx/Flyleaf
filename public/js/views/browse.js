@@ -10,12 +10,16 @@ import { scanIndicator } from './scan.js';
 
 const PAGE = 90;
 const SORTS = [
-  { value: 'name', label: 'Title' },
+  { value: 'relevance', label: 'Best match', search: true },
+  { value: 'name', label: 'Title A–Z' },
+  { value: 'name_desc', label: 'Title Z–A' },
+  { value: 'author', label: 'Author' },
   { value: 'added', label: 'Recently added' },
   { value: 'read', label: 'Recently read' },
   { value: 'year', label: 'Release year' },
   { value: 'updated', label: 'Recently updated' },
 ];
+const LETTERS = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'];
 const READ_FILTERS = [
   { value: '', label: 'All' },
   { value: 'unread', label: 'Unread' },
@@ -114,15 +118,18 @@ function browse(kind) {
 
     const prefKey = `browse.${kind}`;
     const saved = JSON.parse(store.get(prefKey, 'null')) || {};
+    const sorts = SORTS.filter((s) => !s.search || kind === 'search');
     const state = {
-      sort: params.query.get('sort') || saved.sort || (kind === 'want' ? 'want' : 'name'),
+      // Search results start with the best matches; other lists remember the last sort.
+      sort: params.query.get('sort') || (kind === 'search' ? 'relevance' : saved.sort) || (kind === 'want' ? 'want' : 'name'),
+      letter: '',
       read: '',
       status: '',
       userStatus: '',
       genres: [],
       offset: 0,
     };
-    const persist = () => store.set(prefKey, JSON.stringify({ sort: state.sort }));
+    const persist = () => kind !== 'search' && store.set(prefKey, JSON.stringify({ sort: state.sort }));
 
     page.append(pageHeader(title, ...headActions));
     if (sub) page.append(h('p.muted.enter', { style: { marginTop: '-14px', marginBottom: '16px' } }, sub));
@@ -174,21 +181,40 @@ function browse(kind) {
       genreChip.firstChild.textContent = state.genres.length ? `Genres · ${state.genres.length}` : 'Genres';
       genreChip.setAttribute('aria-pressed', String(state.genres.length > 0));
     };
-    const sortBtn = button((SORTS.find((s) => s.value === state.sort) || { label: 'Date added' }).label, { variant: 'text', icon: 'sort' });
+    // The label is its own node: clicks append a ripple, so lastChild isn't the text.
+    const sortLabel = h('span', (sorts.find((s) => s.value === state.sort) || { label: 'Date added' }).label);
+    const sortBtn = button(sortLabel, { variant: 'text', icon: 'sort' });
     sortBtn.addEventListener('click', () =>
-      menu(sortBtn, SORTS.map((s) => ({
+      menu(sortBtn, sorts.map((s) => ({
         label: s.label,
         checked: s.value === state.sort,
         onClick: () => {
           state.sort = s.value;
-          sortBtn.lastChild.textContent = s.label;
+          sortLabel.textContent = s.label;
           persist();
+          updateLetters();
           load();
         },
       }))),
     );
     const count = h('span.label-large.muted');
     page.append(h('div.toolbar.enter', readRow, statusChip, userStatusChip, kind !== 'genre' && genreChip, h('div.spacer'), count, sortBtn));
+
+    // A–Z jump bar, shown while sorted by title.
+    const letterBar = h('nav.letter-bar.enter', { 'aria-label': 'Jump to letter' },
+      h('button.letter.state', { type: 'button', 'aria-pressed': 'true', title: 'All', onclick: () => pickLetter('') }, 'All'),
+      LETTERS.map((l) => h('button.letter.state', { type: 'button', 'aria-pressed': 'false', 'data-letter': l, onclick: () => pickLetter(l) }, l)));
+    const pickLetter = (l) => {
+      state.letter = state.letter === l ? '' : l;
+      for (const b of letterBar.children) b.setAttribute('aria-pressed', String((b.dataset.letter || '') === state.letter));
+      load();
+    };
+    const updateLetters = () => {
+      letterBar.hidden = !['name', 'name_desc'].includes(state.sort);
+      if (letterBar.hidden && state.letter) pickLetter(state.letter);
+    };
+    updateLetters();
+    page.append(letterBar);
 
     const results = h('div');
     const sentinel = h('div', { style: { height: '1px' } });
@@ -206,6 +232,7 @@ function browse(kind) {
     const query = () => ({
       ...fixed,
       sort: state.sort,
+      letter: state.letter || undefined,
       read: state.read,
       status: state.status,
       userStatus: state.userStatus,
@@ -240,6 +267,7 @@ function browse(kind) {
     }
 
     const noResults = () => {
+      if (state.letter) return emptyState('sort_by_alpha', `Nothing under “${state.letter}”`, 'Pick another letter, or All.');
       if (state.read || state.status || state.userStatus || state.genres.length) return emptyState('filter_alt_off', 'No matches', 'Try removing some filters.');
       switch (kind) {
         case 'want':

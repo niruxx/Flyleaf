@@ -47,6 +47,7 @@ api.use(authRoutes.router);
 api.use(auth.requireUser);
 api.use('/me', authRoutes.me);
 api.use('/me', require('./routes/my-libraries').router);
+api.use(require('./routes/profile').router);
 api.use('/users', authRoutes.users);
 const finder = require('./routes/finder');
 api.use('/admin/plugins', finder.admin);
