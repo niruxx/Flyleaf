@@ -3,7 +3,7 @@
 
 import { api, can } from '../api.js';
 import { session, isAdmin, navigate, onLeave } from '../router.js';
-import { h, icon, iconButton, button, cover, dialog, snackbar, loading, skeleton, emptyState, stagger, field, formatBytes, timeAgo } from '../ui.js';
+import { h, icon, iconButton, button, cover, dialog, snackbar, loading, skeleton, emptyState, stagger, field, formatBytes, timeAgo, libraryOptions } from '../ui.js';
 
 const KIND_LABEL = { books: 'Books', manga: 'Manga', comics: 'Comics' };
 const LAST_SOURCE = 'flyleaf.finder.source';
@@ -36,7 +36,7 @@ export async function finderView(view, params, stale) {
     return;
   }
   view.append(loading());
-  const [sources, libraries] = await Promise.all([api.finderSources(), api.libraries()]);
+  const [sources, libraries] = await Promise.all([api.finderSources(), api.libraries(isAdmin() ? 'all' : undefined)]);
   if (stale()) return;
   view.replaceChildren();
 
@@ -60,11 +60,11 @@ export async function finderView(view, params, stale) {
 
   const chips = h('div.source-chips', { role: 'tablist' });
   function renderChips() {
-    chips.replaceChildren(
+    chips.replaceChildren(...[
       ready.length > 1 && h('button.chip.state', { type: 'button', role: 'tab', 'aria-pressed': String(current === ALL), onclick: () => pick(ALL) }, icon('travel_explore'), 'All sources'),
       ...sources.map((s) => h('button.chip.state', { type: 'button', role: 'tab', 'aria-pressed': String(current === s.id), title: s.description || s.name, onclick: () => pick(s.id) },
         sourceIcon(s), s.name, (s.needsSetup || s.error) && icon('warning'))),
-    );
+    ].filter(Boolean));
   }
   function pick(id) {
     current = id;
@@ -228,8 +228,9 @@ export async function finderView(view, params, stale) {
   function detailsContent(src, d, close) {
     // Only libraries you may write into (your own ones, if you have a personal folder).
     const usable = libraries.filter((l) => l.writable);
-    const preferred = usable.find((l) => (src.kinds || []).includes(l.kind)) || usable[0];
-    const lib = field('Save to library', { value: preferred?.id ?? '', options: usable.map((l) => ({ value: l.id, label: `${l.name} (${KIND_LABEL[l.kind]})` })) });
+    const fits = (l) => (src.kinds || []).includes(l.kind);
+    const preferred = usable.find((l) => l.own && fits(l)) || usable.find(fits) || usable[0];
+    const lib = field('Save to library', { value: preferred?.id ?? '', options: libraryOptions(usable, (l) => `${l.name} (${KIND_LABEL[l.kind]})`) });
 
     const many = d.files.length > 1;
     // Books: offer one format (the plugin lists the best first). Manga/comics: chapters/volumes, pick any.

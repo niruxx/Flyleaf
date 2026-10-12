@@ -197,6 +197,8 @@ function buildDrawer() {
   const d = drawerData;
   const genres = showAllGenres ? d.genres : d.genres.slice(0, GENRE_LIMIT);
   const hue = (s) => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
+  const mine = d.libraries.filter((l) => l.own);
+  const shared = d.libraries.filter((l) => !l.personal);
   const children = [
     navItem('/', 'home', 'Home'),
     navItem('/library', 'local_library', 'All series'),
@@ -206,8 +208,11 @@ function buildDrawer() {
     can(session.user, 'contentFinder') && navItem('/finder', 'travel_explore', 'Content Finder'),
     can(session.user, 'upload') && navItem('/upload', 'upload', 'Upload'),
 
-    d.libraries.length && h('div.section-label', 'Libraries'),
-    d.libraries.map((l) => navItem(`/library/${l.id}`, KIND_ICON[l.kind], l.name, l.seriesCount)),
+    // Your own libraries and the shared ones, each in its own section.
+    mine.length > 0 && h('div.section-label', 'My libraries'),
+    mine.map((l) => navItem(`/library/${l.id}`, KIND_ICON[l.kind], l.name, l.seriesCount)),
+    shared.length > 0 && h('div.section-label', mine.length ? 'Shared libraries' : 'Libraries'),
+    shared.map((l) => navItem(`/library/${l.id}`, KIND_ICON[l.kind], l.name, l.seriesCount)),
 
     h('div.section-label', 'Collections', iconButton('add', 'New collection', async () => {
       const { newCollection } = await import('./components/actions.js');

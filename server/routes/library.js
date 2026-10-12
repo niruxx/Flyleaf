@@ -10,7 +10,7 @@ const archive = require('../archive');
 const scanner = require('../scanner');
 const covers = require('../covers');
 const providers = require('../providers');
-const { accessFilter, canSeeLibrary, canWriteLibrary, likeArg, json } = require('../util');
+const { accessFilter, listsLibrary, canWriteLibrary, likeArg, json } = require('../util');
 const { BOOK_SELECT, toBook, listSeries } = require('../serialize');
 
 const router = express.Router();
@@ -79,24 +79,30 @@ router.get('/home', (req, res) => {
 // ---------------------------------------------------------------------------
 // Libraries
 
-/** Libraries `user` may see (paths only where they're allowed to know them). */
-function visibleLibraries(user) {
-  return q(`${LIB_SELECT} ORDER BY l.owner_id IS NOT NULL, l.name COLLATE NOCASE`).all()
-    .filter((l) => canSeeLibrary(user, l.id))
+/**
+ * Libraries `user` browses: shared ones they're allowed plus their own. `all` (admin
+ * only, for the admin panel) also includes every user's personal libraries.
+ */
+function visibleLibraries(user, { all = false } = {}) {
+  return q(`${LIB_SELECT} ORDER BY l.owner_id IS NOT NULL, owner_name COLLATE NOCASE, l.name COLLATE NOCASE`).all()
+    .filter((l) => (all && user.role === 'admin') || listsLibrary(user, l.id))
     .map((l) => libraryRow(l, user));
 }
 
-/** Validate an owner for a library: null (shared) or an existing non-admin user. */
-function ownerField(body, current) {
+/**
+ * Who a library belongs to: null = shared, the admin's own id = the admin's private
+ * library, or another user's id = that user's personal library.
+ */
+function ownerField(body, current, admin) {
   if (body.ownerId === undefined) return current ?? null;
   if (body.ownerId === null || body.ownerId === '') return null;
   const u = q('SELECT id, role FROM users WHERE id = ?').get(Number(body.ownerId));
-  if (!u || u.role === 'admin') throw new Error('Choose a user to own this library, or make it shared.');
+  if (!u || (u.role === 'admin' && u.id !== admin.id)) throw new Error('Choose who this library is for: you, a user, or shared.');
   return u.id;
 }
 
 router.get('/libraries', (req, res) => {
-  res.json(visibleLibraries(req.user));
+  res.json(visibleLibraries(req.user, { all: req.query.scope === 'all' }));
 });
 
 function validateLibrary(body, current = {}) {
@@ -124,7 +130,7 @@ router.post('/libraries', requireAdmin, async (req, res) => {
   let owner;
   try {
     fields = validateLibrary(req.body || {});
-    owner = ownerField(req.body || {}, null);
+    owner = ownerField(req.body || {}, null, req.user);
   } catch (e) {
     return res.status(400).json({ error: e.message });
   }
@@ -148,7 +154,7 @@ router.patch('/libraries/:id', requireAdmin, (req, res) => {
   let owner;
   try {
     f = validateLibrary(req.body || {}, lib);
-    owner = ownerField(req.body || {}, lib.owner_id);
+    owner = ownerField(req.body || {}, lib.owner_id, req.user);
   } catch (e) {
     return res.status(400).json({ error: e.message });
   }

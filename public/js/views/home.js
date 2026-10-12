@@ -57,23 +57,35 @@ export async function homeView(view, params, stale) {
       stagger(h('div.shelf', items.map(build))),
     );
 
-  page.append(
+  // append() would print false/null as text, so leave out sections with nothing to show.
+  page.append(...[
     data.continueReading.length > 0 &&
       h('section.section.enter', h('div.section-head', h('h2', 'Continue reading')), stagger(h('div.continue', data.continueReading.map(resumeCard)))),
     shelf('Want to read', data.wantToRead, '#/want-to-read'),
     shelf('Recently added', data.recentlyAdded, '#/library?sort=added'),
     shelf('Recently updated', data.recentlyUpdated, '#/library?sort=updated'),
-    h('section.section.enter',
-      h('div.section-head', h('h2', 'Libraries')),
-      stagger(h('div.list.card', { style: { padding: '8px 0', borderRadius: 'var(--shape-xl)' } },
-        data.libraries.map((l) =>
-          h('a.list-item.state', { href: `#/library/${l.id}` },
-            icon(KIND_ICON[l.kind]),
-            h('div.text', h('div.headline', l.name), h('div.supporting', `${l.seriesCount} series · ${l.bookCount} ${l.kind === 'books' ? 'books' : 'volumes & chapters'}`)),
-            icon('chevron_right'),
+    ...libraryGroups(data.libraries).map(([heading, list]) =>
+      h('section.section.enter',
+        h('div.section-head', h('h2', heading)),
+        stagger(h('div.list.card', { style: { padding: '8px 0', borderRadius: 'var(--shape-xl)' } },
+          list.map((l) =>
+            h('a.list-item.state', { href: `#/library/${l.id}` },
+              icon(l.own ? 'folder_special' : KIND_ICON[l.kind]),
+              h('div.text', h('div.headline', l.name), h('div.supporting', `${l.seriesCount} series · ${l.bookCount} ${l.kind === 'books' ? 'books' : 'volumes & chapters'}${l.own && l.path ? ` · ${l.path}` : ''}`)),
+              icon('chevron_right'),
+            ),
           ),
-        ),
+        )),
       )),
-    ),
-  );
+  ].filter(Boolean));
+}
+
+/** Your own libraries and the shared ones, as separate sections. */
+function libraryGroups(libraries) {
+  const mine = libraries.filter((l) => l.own);
+  const shared = libraries.filter((l) => !l.personal);
+  return [
+    mine.length > 0 && ['My libraries', mine],
+    shared.length > 0 && [mine.length ? 'Shared libraries' : 'Libraries', shared],
+  ].filter(Boolean);
 }

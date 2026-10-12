@@ -36,12 +36,13 @@ function browse(kind) {
     switch (kind) {
       case 'library': {
         if (params.id) {
-          const libs = await api.libraries();
+          // The admin can open users' personal libraries from the admin panel.
+          const libs = await api.libraries(isAdmin() ? 'all' : undefined);
           const lib = libs.find((l) => l.id === Number(params.id));
           if (!lib) return navigate('/library', { replace: true });
           fixed.library = lib.id;
           title = lib.name;
-          sub = `${lib.seriesCount} series · ${lib.kind === 'books' ? 'Books' : lib.kind === 'manga' ? 'Manga' : 'Comics'} · ${{ books: 'Regular books', kavita: 'Kavita-style (file names)', komga: 'Komga-style (folders)' }[lib.mode] || lib.mode}`;
+          sub = `${lib.personal ? (lib.own ? 'Your library · ' : `${lib.ownerName}’s personal library · `) : ''}${lib.seriesCount} series · ${lib.kind === 'books' ? 'Books' : lib.kind === 'manga' ? 'Manga' : 'Comics'} · ${{ books: 'Regular books', kavita: 'Kavita-style (file names)', komga: 'Komga-style (folders)' }[lib.mode] || lib.mode}`;
           if (isAdmin()) {
             headActions.push(scanIndicator(() => load(true)));
             headActions.push(iconButton('sync', 'Scan for new files', async () => {

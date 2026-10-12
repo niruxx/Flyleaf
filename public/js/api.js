@@ -74,7 +74,8 @@ export const api = {
   genres: () => GET('/api/genres'),
   userTags: () => GET('/api/user-tags'),
 
-  libraries: () => GET('/api/libraries'),
+  // scope 'all' (admin only): include every user's personal libraries, for the admin panel.
+  libraries: (scope) => GET(`/api/libraries${qs({ scope })}`),
   createLibrary: (b) => POST('/api/libraries', b),
   updateLibrary: (id, b) => PATCH(`/api/libraries/${id}`, b),
   deleteLibrary: (id) => DEL(`/api/libraries/${id}`),

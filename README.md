@@ -451,13 +451,25 @@ server {
 
 Then set `TRUST_PROXY=true` and `SECURE_COOKIES=true`.
 
+#### 🔐 Your libraries, shared libraries and users' libraries
+
+The admin is a reader too. Every library has an owner, set under **Who it's for** when you add or edit it in *Settings → Libraries*:
+
+| Who it's for | Who can see it |
+|---|---|
+| **Only me – private** *(default for new libraries)* | Just you |
+| **Shared with users** | You, and the users you allow in *Settings → Users → Edit* |
+| **A user's personal library** | Just that user (you can open it from *Settings → Libraries*) |
+
+You can switch a library between these at any time; nothing on disk changes. Libraries created before this update stay **shared**, so nobody loses access. Edit one and choose *Only me* to make it private.
+
 #### 📁 Personal folders & private libraries
 
 Give a user a **personal folder** when they should have their own space instead of (or as well as) the shared libraries:
 
 1. **Admin:** *Settings → Users → Edit* (or *Add guest*) → **Personal folder**. Type an absolute path, e.g. `/srv/flyleaf/alex`, or press *Browse the server*. Flyleaf creates the folder if it doesn't exist.
 2. **The user** gets **My libraries** in the menu and in Settings. There they create libraries inside their folder (picking or creating a sub-folder, a type and a folder structure), and can rename, rescan or remove them. Removing one keeps its files.
-3. **The admin** can also make a personal library directly: in *Settings → Libraries → Add library*, choose **Who it's for → Personal library of …**.
+3. **The admin** can also give someone a library directly: in *Settings → Libraries → Add library*, choose **Who it's for → (user) – their personal library**.
 
 What a personal folder changes for that user:
 
@@ -466,7 +478,12 @@ What a personal folder changes for that user:
 | Libraries they see | Shared libraries you allow | Shared libraries you allow **plus their own** |
 | Where **Content Finder downloads** go | Any library they can see | **Only their own libraries** |
 | Where **uploads** go | Any library they can see | **Only their own libraries** |
-| Their libraries visible to others | – | Never (only to them and the admin) |
+| Their libraries visible to others | – | Never. Only the owner sees them, plus the admin in *Settings → Libraries* |
+
+**Kept separate everywhere:**
+- Users see **My libraries** and **Shared libraries** as two sections in the menu, on Home and in library pickers.
+- Personal libraries never appear in anyone else's Home, *All series*, search, genres, menu or OPDS feed, and that includes the admin's own reading views.
+- The admin manages them in *Settings → Libraries*, under **Users' libraries**, grouped by user. Click one there to look inside. The same page lists your own private libraries under **My libraries**, and shared ones under **Shared libraries**.
 
 The two folder settings work separately. *Settings → Users → Edit → libraries* picks which **shared** libraries a user can read, and the **personal folder** is where their own files go. Deleting a user removes their personal libraries from Flyleaf but leaves the files on disk. Users can't reach anything outside their folder: paths with `..` stay inside it, and libraries can't overlap.
 

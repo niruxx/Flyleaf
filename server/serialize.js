@@ -77,7 +77,7 @@ function shouldBlur(userBlur, ageRating, user) {
 
 /** A book the user may access (respecting age restrictions), or null. */
 function getBook(id, user) {
-  const age = accessFilter(user, 's');
+  const age = accessFilter(user, 's', { direct: true });
   const row = q(`${BOOK_SELECT} WHERE b.id = ? AND (b.series_id IS NULL OR ${age.sql})`).get(user.id, user.id, Number(id), ...age.args);
   return row && canSeeLibrary(user, row.library_id) ? row : null;
 }
@@ -106,7 +106,7 @@ const SERIES_SORTS = {
  * opts: { where: [], args: [], having: [], sort, limit, offset }
  */
 function listSeries(user, opts = {}) {
-  const age = accessFilter(user, 's');
+  const age = accessFilter(user, 's', { direct: Boolean(opts.direct) });
   const where = ['b.missing = 0', age.sql, ...(opts.where || [])];
   const args = [user.id, user.id, ...age.args, ...(opts.args || [])];
   const having = opts.having?.length ? `HAVING ${opts.having.join(' AND ')}` : '';
@@ -194,7 +194,7 @@ function toSeries(row, user, detail = false) {
 
 /** Full series row for the user, or null if hidden/missing. */
 function getSeries(id, user) {
-  const { items } = listSeries(user, { where: ['s.id = ?'], args: [Number(id)], limit: 1 });
+  const { items } = listSeries(user, { where: ['s.id = ?'], args: [Number(id)], limit: 1, direct: true });
   if (!items.length) return null;
   const row = q(`SELECT s.*, l.kind, l.name AS library_name, us.want_to_read, us.status AS user_status, us.blur AS user_blur, us.user_tags
                  FROM series s JOIN libraries l ON l.id = s.library_id

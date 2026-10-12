@@ -23,10 +23,11 @@ const reload = (tab) => location.hash.startsWith(`#/settings/${tab}`) && navigat
 
 export async function librariesPanel(panel, stale) {
   panel.append(h('h2', 'Libraries'), loading());
-  const [libs, providers] = await Promise.all([api.libraries(), api.providers()]);
+  // The admin panel is where users' personal libraries are managed, so ask for all of them.
+  const [libs, providers] = await Promise.all([api.libraries('all'), api.providers()]);
   if (stale()) return;
   panel.lastChild.remove();
-  const rows = libs.map((l) => {
+  const rowFor = (l) => {
     const more = iconButton('more_vert', 'Library options', () =>
       menu(more, [
         { label: 'Scan now', icon: 'sync', onClick: async () => { await api.scanLibrary(l.id); snackbar(`Scanning ${l.name}…`); } },
@@ -57,13 +58,37 @@ export async function librariesPanel(panel, stale) {
     return h('div.setting-row',
       icon(KIND_ICON[l.kind]),
       h('div.text',
-        h('div', l.name, l.personal ? h('span.mini-chip', { style: { marginLeft: '8px' } }, icon('person'), `${l.ownerName}’s`) : null),
+        h('div', h('a', { href: `#/library/${l.id}`, style: { color: 'inherit' } }, l.name)),
         h('div.s.mono', l.path),
         h('div.s', `${l.seriesCount} series · ${l.bookCount} files · ${MODE_LABEL[l.mode] || l.mode}${l.autoMetadata ? ' · auto metadata' : ''} · ${l.lastScanAt ? `scanned ${timeAgo(l.lastScanAt)}` : 'not scanned yet'}`),
       ),
       more,
     );
-  });
+  };
+
+  // Your private libraries, the shared ones, then each user's libraries in their own section.
+  const mine = libs.filter((l) => l.own);
+  const shared = libs.filter((l) => !l.personal);
+  const owners = new Map();
+  for (const l of libs.filter((x) => x.personal && !x.own)) {
+    if (!owners.has(l.ownerId)) owners.set(l.ownerId, { name: l.ownerName, list: [] });
+    owners.get(l.ownerId).list.push(l);
+  }
+  const sections = [
+    h('div.sub-head', icon('lock'), 'My libraries'),
+    mine.length
+      ? group(...mine.map(rowFor))
+      : group(row('info', 'No private libraries', 'Libraries only you can see. New libraries are private unless you choose to share them.')),
+    h('div.sub-head', icon('groups'), 'Shared libraries'),
+    shared.length
+      ? group(...shared.map(rowFor))
+      : group(row('info', 'Nothing shared yet', 'Shared libraries are visible to the users you allow. Edit a library and choose “Shared with users” to share it.')),
+    owners.size > 0 && h('div.sub-head', icon('folder_special'), 'Users’ libraries'),
+    owners.size > 0 && h('p.note', { style: { margin: '-4px 4px 12px' } }, 'Personal libraries are private: only their owner sees them, and they don’t appear in your own Home, search or library lists. Open one from here to look inside.'),
+    ...[...owners.values()].map((o) => h('div.owner-group',
+      h('div.owner-head', h('span.avatar', o.name[0]), h('span.title-small', o.name), h('span.body-small.muted', `${o.list.length} ${o.list.length === 1 ? 'library' : 'libraries'}`)),
+      group(...o.list.map(rowFor)))),
+  ];
   panel.append(
     h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' } },
       button('Add library', { icon: 'create_new_folder', onclick: () => libraryDialog(null, providers) }),
@@ -73,9 +98,7 @@ export async function librariesPanel(panel, stale) {
         reload('libraries');
       }),
     ),
-    libs.length
-      ? group(...rows)
-      : group(row('info', 'No libraries yet', 'Add a folder containing EPUB, MOBI/AZW3, FB2, TXT, PDF, CBZ/ZIP, CBR/RAR, CB7/7z or CBT/tar files, or folders of images.')),
+    ...sections.filter(Boolean),
     h('p.note', 'Supported: EPUB · KEPUB · MOBI · AZW · AZW3 · FB2 · TXT · PDF · CBZ · ZIP · CBR · RAR · CB7 · 7Z · CBT · TAR · image folders. ComicInfo.xml and EPUB/Calibre metadata are read automatically.'),
   );
 }
@@ -117,12 +140,17 @@ export async function libraryDialog(lib, providers, { onSaved } = {}) {
     renderSources();
   });
 
-  // Shared with everyone (subject to each user's access), or one user's personal library.
+  // Private to you (the default for new libraries), shared with users, or one user's own library.
   const guests = (await api.users().catch(() => [])).filter((u) => u.role !== 'admin');
+  const me = session.user.id;
   const owner = field('Who it’s for', {
-    value: lib?.ownerId ?? '',
-    options: [{ value: '', label: 'Shared library' }, ...guests.map((u) => ({ value: u.id, label: `Personal library of ${u.displayName} (@${u.username})` }))],
-    support: 'A personal library is only visible to that user (and you), and is where their downloads and uploads go if they have a personal folder.',
+    value: lib ? lib.ownerId ?? '' : me,
+    options: [
+      { value: me, label: 'Only me – private' },
+      { value: '', label: 'Shared with users' },
+      ...guests.map((u) => ({ value: u.id, label: `${u.displayName} (@${u.username}) – their personal library`, group: 'A user’s library' })),
+    ],
+    support: 'Private libraries are yours alone. Shared libraries are visible to users you allow (Settings → Users). A user’s library is only theirs, and is where their downloads and uploads go if they have a personal folder.',
   });
 
   const auto = h('input', { type: 'checkbox', checked: lib?.autoMetadata ?? false });
@@ -165,7 +193,7 @@ export async function libraryDialog(lib, providers, { onSaved } = {}) {
     fields: [
       name,
       kind,
-      guests.length > 0 && owner,
+      owner,
       h('p.label-large', { style: { margin: '16px 0 0' } }, 'Folder structure'),
       modes,
       h('p.label-large', { style: { margin: '16px 0 4px' } }, 'Metadata'),

@@ -32,22 +32,28 @@ function parseAgeRating(raw) {
  * SQL fragment restricting series to what `user` may see: their age rating and,
  * when set, the libraries they've been given (alias = series table alias).
  */
-function accessFilter(user, alias = 's') {
+function accessFilter(user, alias = 's', { direct = false } = {}) {
   const parts = [];
   const args = [];
   if (user?.maxAgeRating != null) {
     parts.push(`((${alias}.age_rating IS NULL AND ? = 1) OR ${alias}.age_rating <= ?)`);
     args.push(user.ageIncludeUnknown ? 1 : 0, user.maxAgeRating);
   }
-  if (Array.isArray(user?.visibleLibraryIds)) {
+  // `direct`: one specific item or library was asked for. The admin may open anything that
+  // way (from the admin panel); everyone else is limited to what they can browse.
+  const bypass = direct && user?.role === 'admin';
+  if (!bypass && Array.isArray(user?.visibleLibraryIds)) {
     parts.push(`${alias}.library_id IN (SELECT value FROM json_each(?))`);
     args.push(JSON.stringify(user.visibleLibraryIds));
   }
   return { sql: parts.length ? parts.join(' AND ') : '1 = 1', args };
 }
 
-/** Whether `user` may see library `id` (shared ones they're allowed, plus their own). */
-const canSeeLibrary = (user, id) => !Array.isArray(user?.visibleLibraryIds) || user.visibleLibraryIds.includes(Number(id));
+/** Whether library `id` shows up in `user`'s browsing (shared ones they're allowed, plus their own). */
+const listsLibrary = (user, id) => !Array.isArray(user?.visibleLibraryIds) || user.visibleLibraryIds.includes(Number(id));
+
+/** Whether `user` may open library `id` at all. The admin can open every library. */
+const canSeeLibrary = (user, id) => user?.role === 'admin' || listsLibrary(user, id);
 
 /**
  * Whether `user` may put files (downloads, uploads) into library `id`. Users with a
@@ -104,7 +110,7 @@ function similarity(a, b) {
   return (2 * overlap) / (a.length - 1 + (b.length - 1)) || 0;
 }
 
-module.exports = { json, AGE_RATINGS, parseAgeRating, accessFilter, canSeeLibrary, canWriteLibrary, likeArg, stripHtml, similarity };
+module.exports = { json, AGE_RATINGS, parseAgeRating, accessFilter, canSeeLibrary, listsLibrary, canWriteLibrary, likeArg, stripHtml, similarity };
 
 const LINK_SOURCES = [
   [/myanimelist\.net/i, 'MyAnimeList'],

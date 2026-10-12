@@ -158,10 +158,11 @@ export function dialog({ title, icon: ic, content, actions = [], className = '',
       leave(dlg, () => dlg.open && dlg.close());
     };
     const body = typeof content === 'function' ? content(close) : content;
-    dlg.append(
+    // The append() helper skips false/0/null; the DOM method would print them.
+    append(dlg, [
       h('div.dialog-head', ic && icon(ic), title && h('h2.headline-small', title)),
       body && h('div.dialog-body', body),
-      actions.length &&
+      actions.length > 0 &&
         h(
           'div.dialog-actions',
           actions.map((a) =>
@@ -183,7 +184,7 @@ export function dialog({ title, icon: ic, content, actions = [], className = '',
             }),
           ),
         ),
-    );
+    ]);
     dlg.addEventListener('cancel', (e) => {
       // Escape: play the closing animation instead of vanishing.
       e.preventDefault();
@@ -245,7 +246,16 @@ export function field(label, { type = 'text', value = '', name, support, require
   const id = `f-${Math.random().toString(36).slice(2, 9)}`;
   let input;
   if (options) {
-    input = h('select', { id, name, required, ...rest }, options.map((o) => h('option', { value: o.value ?? '', selected: String(o.value ?? '') === String(value ?? '') }, o.label)));
+    const opt = (o) => h('option', { value: o.value ?? '', selected: String(o.value ?? '') === String(value ?? '') }, o.label);
+    // Options with a `group` are shown under that heading (in order of first appearance).
+    const groups = [];
+    for (const o of options) {
+      const g = o.group || '';
+      let entry = groups.find((x) => x.label === g);
+      if (!entry) groups.push((entry = { label: g, items: [] }));
+      entry.items.push(o);
+    }
+    input = h('select', { id, name, required, ...rest }, groups.map((g) => (g.label ? h('optgroup', { label: g.label }, g.items.map(opt)) : g.items.map(opt))));
   } else if (multiline) {
     input = h('textarea', { id, name, placeholder: ' ', required, ...rest });
     input.value = value ?? '';
@@ -556,6 +566,17 @@ export function formatBytes(n) {
 
 export function pageHeader(title, ...actions) {
   return h('div.page-head.enter', h('h1', title), ...actions.filter(Boolean));
+}
+
+/**
+ * Library picker options, grouped: your own libraries, the shared ones, then (admin only)
+ * each user's personal libraries.
+ */
+export function libraryOptions(libraries, label = (l) => l.name) {
+  const rank = (l) => (l.own ? 0 : l.personal ? 2 : 1);
+  return [...libraries]
+    .sort((a, b) => rank(a) - rank(b) || String(a.ownerName || '').localeCompare(String(b.ownerName || '')))
+    .map((l) => ({ value: l.id, label: label(l), group: l.own ? 'My libraries' : l.personal ? `${l.ownerName}’s libraries` : 'Shared libraries' }));
 }
 
 /** M3 Expressive-style loading indicator: a morphing, rotating shape. */

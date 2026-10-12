@@ -358,7 +358,7 @@ async function libraryStep() {
       h('div', addBtn),
       h('div.ob-section-title', icon('lightbulb'), 'Three ways to organise'),
       h('div.ob-hints', kinds.map(([ic, t, s]) => h('div.ob-hint', icon(ic), h('div', h('div.title-small', t), h('div.body-small.muted', s))))),
-      h('p.body-small.muted', 'If Flyleaf runs as a service, the service user needs permission to read the folder.'),
+      h('p.body-small.muted', 'New libraries are private to you. Choose “Shared with users” in the library dialog to let guests read it, or give a library to a specific user. If Flyleaf runs as a service, the service user needs permission to read the folder.'),
     ),
   };
 }

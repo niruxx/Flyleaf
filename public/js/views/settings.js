@@ -325,7 +325,7 @@ async function fontsPanel(panel, stale) {
   panel.append(
     h('p.note', { style: { margin: '-8px 4px 16px' } }, 'Choose which fonts appear in the ebook reader’s font menu.'),
     group(...rows),
-    upload && h('div', { style: { marginTop: '16px' } }, upload, h('p.note', 'Admins can add .woff2, .woff, .ttf or .otf fonts for everyone.')),
+    upload ? h('div', { style: { marginTop: '16px' } }, upload, h('p.note', 'Admins can add .woff2, .woff, .ttf or .otf fonts for everyone.')) : '',
   );
 }
 
@@ -396,7 +396,7 @@ async function devicesPanel(panel, stale) {
   const PLATFORM = { kindle: 'Kindle', kobo: 'Kobo', pocketbook: 'PocketBook', other: 'Other e-reader' };
   panel.append(
     h('p.note', { style: { margin: '-8px 4px 16px' } }, 'Books are emailed to these addresses with “Send to…”. For Kindle, add the server’s From address to your Amazon “Approved Personal Document E-mail List”.'),
-    !emailConfigured && h('div.form-error', { style: { marginBottom: '16px' } }, icon('info'), h('span', isAdmin() ? 'Email isn’t set up yet – add SMTP details in Server & email.' : 'The admin needs to set up email before books can be sent.')),
+    emailConfigured ? '' : h('div.form-error', { style: { marginBottom: '16px' } }, icon('info'), h('span', isAdmin() ? 'Email isn’t set up yet – add SMTP details in Server & email.' : 'The admin needs to set up email before books can be sent.')),
     devices.length
       ? group(...devices.map((d) => row(d.platform === 'kindle' ? 'tablet_android' : 'tablet', d.name, `${PLATFORM[d.platform]} · ${d.email}`, iconButton('delete', `Remove ${d.name}`, async () => {
           await api.deleteDevice(d.id);

@@ -82,11 +82,17 @@ function toUser(row) {
   const perms = { ...PERMISSION_DEFAULTS, ...parseJson(row.permissions, {}) };
   if (admin) for (const k of Object.keys(perms)) perms[k] = true;
   const libraryIds = admin ? null : parseJson(row.library_ids, null);
-  // What this user can see: their own libraries plus the shared ones the admin allowed.
-  // Other users' personal libraries are never visible. Admins see everything (null).
-  let visibleLibraryIds = null;
+  // What shows up while browsing: their own libraries plus the shared ones the admin allowed.
+  // Users' personal libraries never appear in anyone else's views, including the admin's
+  // reading views; the admin reaches them through the admin panel (see accessFilter's `direct`).
+  let visibleLibraryIds;
   let ownLibraryIds = [];
-  if (!admin) {
+  if (admin) {
+    // The admin is a reader too: shared libraries plus the admin's own private ones.
+    const libs = q('SELECT id, owner_id FROM libraries WHERE owner_id IS NULL OR owner_id = ?').all(row.id);
+    visibleLibraryIds = libs.map((l) => l.id);
+    ownLibraryIds = libs.filter((l) => l.owner_id === row.id).map((l) => l.id);
+  } else {
     const libs = q('SELECT id, owner_id FROM libraries').all();
     const allowed = Array.isArray(libraryIds) ? new Set(libraryIds.map(Number)) : null;
     ownLibraryIds = libs.filter((l) => l.owner_id === row.id).map((l) => l.id);

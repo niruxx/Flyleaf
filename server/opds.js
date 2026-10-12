@@ -14,7 +14,7 @@ const auth = require('./auth');
 const archive = require('./archive');
 const settings = require('./settings');
 const { listSeries, getSeries, seriesBooks, getBook, BOOK_SELECT, toBook } = require('./serialize');
-const { accessFilter, canSeeLibrary, likeArg } = require('./util');
+const { accessFilter, listsLibrary, likeArg } = require('./util');
 const { ORIGINAL_MIME } = require('./routes/books');
 
 const router = express.Router();
@@ -132,13 +132,13 @@ router.get('/:key/recent', (req, res) => seriesFeed(req, res, { id: 'recent', ti
 router.get('/:key/want-to-read', (req, res) => seriesFeed(req, res, { id: 'want', title: 'Want to read', where: ['us.want_to_read = 1'], sort: 'want' }));
 
 router.get('/:key/libraries', (req, res) => {
-  const libs = q('SELECT id, name, kind FROM libraries ORDER BY name COLLATE NOCASE').all().filter((l) => canSeeLibrary(req.user, l.id));
+  const libs = q('SELECT id, name, kind FROM libraries ORDER BY name COLLATE NOCASE').all().filter((l) => listsLibrary(req.user, l.id));
   send(res, feed(req, { id: 'libraries', title: 'Libraries', entries: libs.map((l) => navEntry(`library:${l.id}`, l.name, `${req.base}/libraries/${l.id}`, l.kind)) }));
 });
 
 router.get('/:key/libraries/:id', (req, res) => {
   const lib = q('SELECT name FROM libraries WHERE id = ?').get(Number(req.params.id));
-  if (!lib || !canSeeLibrary(req.user, req.params.id)) return res.status(404).end();
+  if (!lib || !listsLibrary(req.user, req.params.id)) return res.status(404).end();
   seriesFeed(req, res, { id: `library:${req.params.id}`, title: lib.name, where: ['s.library_id = ?'], args: [Number(req.params.id)] });
 });
 

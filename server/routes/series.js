@@ -76,7 +76,8 @@ router.get('/series', (req, res) => {
   if (p.read === 'unread') having.push('MAX(p.updated_at) IS NULL');
   if (p.read === 'reading') having.push('MAX(p.updated_at) IS NOT NULL AND SUM(CASE WHEN p.finished = 1 THEN 1 ELSE 0 END) < COUNT(b.id)');
   if (p.read === 'completed') having.push('SUM(CASE WHEN p.finished = 1 THEN 1 ELSE 0 END) = COUNT(b.id)');
-  res.json(listSeries(req.user, { where, args, having, sort: p.sort, limit: p.limit, offset: p.offset }));
+  // Opening one library by id is a direct request (lets the admin view a user's library from the admin panel).
+  res.json(listSeries(req.user, { where, args, having, sort: p.sort, limit: p.limit, offset: p.offset, direct: Boolean(p.library) }));
 });
 
 // ---------------------------------------------------------------------------

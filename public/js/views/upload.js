@@ -2,8 +2,8 @@
 // folder, optionally adding the result to a collection.
 
 import { api, can } from '../api.js';
-import { session, navigate, onLeave } from '../router.js';
-import { h, icon, iconButton, button, field, formDialog, snackbar, emptyState, formatBytes, loading } from '../ui.js';
+import { session, navigate, onLeave, isAdmin } from '../router.js';
+import { h, icon, iconButton, button, field, formDialog, snackbar, emptyState, formatBytes, loading, libraryOptions } from '../ui.js';
 import { refreshShell } from '../shell.js';
 
 const KIND_LABEL = { books: 'Books', manga: 'Manga', comics: 'Comics' };
@@ -42,7 +42,8 @@ export async function uploadView(view, params, stale) {
     return;
   }
   view.append(loading());
-  const [allLibraries, collections, limits] = await Promise.all([api.libraries(), api.collections().catch(() => []), api.uploadLimits().catch(() => ({ maxBytes: 0 }))]);
+  // The admin may also upload into users' personal libraries.
+  const [allLibraries, collections, limits] = await Promise.all([api.libraries(isAdmin() ? 'all' : undefined), api.collections().catch(() => []), api.uploadLimits().catch(() => ({ maxBytes: 0 }))]);
   // Only libraries you may write into (with a personal folder: your own libraries).
   const libraries = allLibraries.filter((l) => l.writable);
   if (stale()) return;
@@ -60,7 +61,7 @@ export async function uploadView(view, params, stale) {
   const owned = collections.filter((c) => c.owned);
 
   // ----- Destination -----
-  const libField = field('Library', { value: state.libraryId, options: libraries.map((l) => ({ value: l.id, label: `${l.name} · ${KIND_LABEL[l.kind]}` })) });
+  const libField = field('Library', { value: state.libraryId, options: libraryOptions(libraries, (l) => `${l.name} · ${KIND_LABEL[l.kind]}`) });
   libField.input.addEventListener('change', () => {
     state.libraryId = Number(libField.input.value);
     state.folder = '';

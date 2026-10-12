@@ -3750,3 +3750,23 @@ span.plugin-icon {
   opacity: 0.6;
   cursor: default;
 }
+.sub-head .icon {
+  font-size: 18px;
+  vertical-align: -3px;
+  margin-right: 6px;
+}
+.owner-group {
+  margin-bottom: 12px;
+}
+.owner-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 4px 8px;
+}
+.owner-head .avatar {
+  width: 28px;
+  height: 28px;
+  font-size: 13px;
+  cursor: default;
+}
