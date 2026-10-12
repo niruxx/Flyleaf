@@ -250,7 +250,7 @@ export async function finderView(view, params, stale) {
       if (!lib.input.value) return snackbar('Choose a library first.');
       go.disabled = true;
       try {
-        await api.finderDownload(src.id, { libraryId: Number(lib.input.value), book: { title: d.title, author: d.author, series: d.series }, files: picked });
+        await api.finderDownload(src.id, { libraryId: Number(lib.input.value), book: { title: d.title, author: d.author, series: d.series, ageRating: d.ageRating }, files: picked });
         close();
         snackbar(`Downloading ${picked.length === 1 ? `“${d.title}”` : `${picked.length} files`}…`, { action: 'View', onAction: () => navigate('/finder/downloads') });
       } catch (e) {

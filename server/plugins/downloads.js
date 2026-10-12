@@ -153,6 +153,7 @@ async function runDownload(d) {
     q("UPDATE downloads SET status = 'done', received = ?, total = ?, file = ?, finished_at = ? WHERE id = ?").run(received, received, dest, Date.now(), d.id);
     require('../scanner').requestScan(lib.id);
     log.info(`Downloaded "${d.title}" to ${dest}`);
+    rememberRating(lib.id, dest, item.ageRating);
     events.emit('download.completed', { downloadId: d.id, plugin: d.plugin_id, libraryId: lib.id, title: d.title, file: path.relative(lib.path, dest) });
   } catch (e) {
     const message = controller.signal.aborted && controller.signal.reason?.message === 'cancelled' ? 'Cancelled' : e.message;
@@ -262,8 +263,40 @@ async function downloadPages(d, item, lib, spec, controller) {
   q("UPDATE downloads SET status = 'done', received = ?, total = ?, file = ?, finished_at = ? WHERE id = ?").run(received, received, dest, Date.now(), d.id);
   require('../scanner').requestScan(lib.id);
   log.info(`Downloaded "${d.title}" (${pages.length} pages) to ${dest}`);
+  rememberRating(lib.id, dest, item.ageRating);
   events.emit('download.completed', { downloadId: d.id, plugin: d.plugin_id, libraryId: lib.id, title: d.title, file: path.relative(lib.path, dest) });
 }
+
+// ---------------------------------------------------------------------------
+// Age ratings from the source (e.g. AO3's Explicit) aren't in the downloaded file, so
+// apply them to the series once the scanner has picked the book up. Guests' age
+// restrictions then cover downloaded books too.
+
+const pendingRatings = []; // { libraryId, rel, rating, until }
+
+function rememberRating(libraryId, file, rating) {
+  if (rating == null) return;
+  const lib = q('SELECT path FROM libraries WHERE id = ?').get(libraryId);
+  if (!lib) return;
+  pendingRatings.push({ libraryId, rel: path.relative(lib.path, file), rating, until: Date.now() + 60 * 60_000 });
+}
+
+events.on('book.added', (b) => {
+  const now = Date.now();
+  for (let i = pendingRatings.length - 1; i >= 0; i--) {
+    const p = pendingRatings[i];
+    if (p.until < now) {
+      pendingRatings.splice(i, 1);
+      continue;
+    }
+    if (p.libraryId !== b.libraryId || p.rel !== b.path || !b.seriesId) continue;
+    pendingRatings.splice(i, 1);
+    const s = q('SELECT age_rating, locked FROM series WHERE id = ?').get(b.seriesId);
+    if (!s || json(s.locked, []).includes('age_rating')) continue;
+    // Never lower a rating that's already there.
+    if (s.age_rating == null || s.age_rating < p.rating) q('UPDATE series SET age_rating = ? WHERE id = ?').run(p.rating, b.seriesId);
+  }
+});
 
 function pump() {
   while (running.size < CONCURRENCY) {
@@ -283,7 +316,7 @@ function enqueue({ userId, pluginId, libraryId, book, files }) {
     files.length > 1 && f.title ? `${book.title} – ${f.title}` : book.title,
     JSON.stringify({
       fileId: f.id, fileTitle: f.title || null, format: f.format || null, volume: f.volume ?? null, chapter: f.chapter ?? null,
-      title: book.title, bookTitle: book.title, author: book.author || null, series: book.series || null,
+      title: book.title, bookTitle: book.title, author: book.author || null, series: book.series || null, ageRating: book.ageRating ?? null,
     }),
     now,
   ).lastInsertRowid));

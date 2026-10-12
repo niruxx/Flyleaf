@@ -24,7 +24,8 @@ const log = require('../log').logger('plugins');
 
 const factory = new LuaFactory();
 const MAX_BODY = 10 * 1024 * 1024;
-const HTTP_TIMEOUT = 20_000;
+const HTTP_TIMEOUT = 20_000; // per request; plugins may ask for up to MAX_HTTP_TIMEOUT
+const MAX_HTTP_TIMEOUT = 45_000;
 const USER_AGENT = `Flyleaf/${pkg.version} (+https://github.com/niruxx/Flyleaf)`;
 
 class PluginError extends Error {
@@ -111,7 +112,14 @@ function makeHttp(ctx) {
     } else if (opts.body != null) body = String(opts.body);
     ctx.requests++;
     if (ctx.requests > 60) throw new Error('Too many HTTP requests in one call (limit 60).');
-    const res = await fetch(u, { method, headers, body, signal: AbortSignal.timeout(HTTP_TIMEOUT), redirect: 'follow' });
+    const wait = Math.min(Math.max(Number(opts.timeout) || HTTP_TIMEOUT, 1000), MAX_HTTP_TIMEOUT);
+    let res;
+    try {
+      res = await fetch(u, { method, headers, body, signal: AbortSignal.timeout(wait), redirect: 'follow' });
+    } catch (e) {
+      if (e.name === 'TimeoutError') throw new Error(`${u.hostname} didn't answer within ${Math.round(wait / 1000)} s. It may be busy – try again.`);
+      throw e;
+    }
     const text = await readLimited(res);
     return { status: res.status, ok: res.ok, body: text, url: res.url, headers: Object.fromEntries(res.headers.entries()) };
   };
@@ -227,7 +235,7 @@ function log(...) local t = {} for i = 1, select("#", ...) do t[#t + 1] = tostri
  * Run `fn(...args)` from a plugin's Lua source in a fresh sandbox.
  * Returns the function's result converted to plain JS (tables → objects/arrays).
  */
-async function call(source, fn, args = [], { settings = {}, pluginId = 'plugin', timeout = 30_000, sub = null } = {}) {
+async function call(source, fn, args = [], { settings = {}, pluginId = 'plugin', timeout = 60_000, sub = null } = {}) {
   const lua = await factory.createEngine({ injectObjects: false, enableProxy: false });
   const ctx = { requests: 0 };
   const http = makeHttp(ctx);

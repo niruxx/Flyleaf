@@ -11,6 +11,15 @@
       "file": "standard-ebooks.lua"
     },
     {
+      "id": "internet-archive",
+      "file": "internet-archive.lua"
+    },
+    {
+      "id": "ao3",
+      "file": "ao3.lua",
+      "seed": false
+    },
+    {
       "id": "opds-catalog",
       "file": "opds-catalog.lua"
     },

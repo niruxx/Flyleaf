@@ -55,7 +55,9 @@ function cleanDetails(d, id, img = (u) => u) {
     cover: img(httpUrl(d?.cover)),
     summary: str(d?.summary, 5000),
     genres: [...new Map((Array.isArray(d?.genres) ? d.genres : []).map((g) => str(g, 60)).filter(Boolean).map((g) => [g.toLowerCase(), g])).values()].slice(0, 20),
-    status: str(d?.status, 40),
+    status: str(d?.status, 120),
+    // 0 Everyone · 1 Teen (13+) · 2 Mature (17+) · 3 Adults (18+); applied to the series after download.
+    ageRating: [0, 1, 2, 3].includes(d?.ageRating) ? d.ageRating : null,
     url: httpUrl(d?.url),
     files,
   };
@@ -127,7 +129,10 @@ router.post('/:plugin/download', async (req, res) => {
     userId: req.user.id,
     pluginId: req.params.plugin,
     libraryId: lib.id,
-    book: { title: str(book?.title, 300) || 'Untitled', author: str(book?.author, 200), series: str(book?.series, 300) },
+    book: {
+      title: str(book?.title, 300) || 'Untitled', author: str(book?.author, 200), series: str(book?.series, 300),
+      ageRating: [0, 1, 2, 3].includes(book?.ageRating) ? book.ageRating : null,
+    },
     files: clean,
   });
   res.status(202).json({ ids });

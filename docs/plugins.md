@@ -2,8 +2,9 @@
 
 Content Finder searches websites for books, manga and comics, and downloads what you pick straight into a Flyleaf library. Every website is handled by a **plugin**: one small [Lua 5.4](https://www.lua.org/manual/5.4/) file. It's the same idea as Mihon/Tachiyomi extensions.
 
-Flyleaf ships with four plugins in [`plugins/`](../plugins):
-- **Project Gutenberg** and **Standard Ebooks**
+Flyleaf ships with six plugins in [`plugins/`](../plugins):
+- **Project Gutenberg**, **Standard Ebooks** and the **Internet Archive** (a JSON API)
+- **Archive of Our Own**, which scrapes HTML and reports age ratings
 - a generic **OPDS catalog** client
 - the **Mihon extensions** bridge for Suwayomi-Server, which shows `sources()`, page downloads and image proxying
 
@@ -68,6 +69,7 @@ end
 |---|---|
 | `function sources()` | The plugin provides **several sources** (like the Mihon bridge: one per extension). Return `{ { id, name, icon, language, nsfw, browse }, … }`. Each one is listed separately in Content Finder, and in every other call the global `source` holds the one being used (`source.id`). The list is cached for 10 minutes. |
 | `download()` returning `pages` | Return `{ pages = { url1, url2, … }, headers = {…}, filename = "Chapter 12", comicInfo = { Number = 12 } }` instead of `url`. Flyleaf fetches the pages (four at a time, with retries) and builds a CBZ with a `ComicInfo.xml` (series, chapter title, number, writer, page count). |
+| `ageRating` in `details()` | `0` Everyone, `1` Teen (13+), `2` Mature (17+), `3` Adults (18+). After the download is scanned, Flyleaf applies it to the series (never lowering an existing rating, and not if the admin locked it), so guests' age restrictions cover downloaded books. |
 | `proxy_images = true` / `function image(url)` | Covers and icons are served **through Flyleaf**. Use this when the browser can't reach the images directly, or they need a login. `image(url)` may return `{ url, headers }` to add headers; only send credentials to your own server. Proxied URLs are signed, so they only work for URLs your plugin returned. |
 
 `id` values are yours to choose: a number, a URL path, or a JSON string (see `opds-catalog.lua`). Flyleaf passes them back to you unchanged.
@@ -95,11 +97,11 @@ After a download, Flyleaf rescans that library, so the new book appears on its o
 
 ## What plugins can use
 
-Plugins run in a sandbox: there is no file access, `os.execute`, `require`, `io` or `debug`. Each call gets a fresh Lua state, must finish within **30 seconds**, and may make up to **60 HTTP requests**. Everything a plugin can reach goes through these helpers:
+Plugins run in a sandbox: there is no file access, `os.execute`, `require`, `io` or `debug`. Each call gets a fresh Lua state, must finish within **60 seconds**, and may make up to **60 HTTP requests**. Everything a plugin can reach goes through these helpers:
 
 | Helper | Returns |
 |---|---|
-| `http.get(url, opts)` / `http.post(url, opts)` | `{ status, ok, body, url, headers }`. `opts`: `headers`, `query` (a table), and for POST `json`, `form` or `body`. Responses are capped at 10 MB. |
+| `http.get(url, opts)` / `http.post(url, opts)` | `{ status, ok, body, url, headers }`. `opts`: `headers`, `query` (a table), `timeout` (ms, default 20 000, max 45 000), and for POST `json`, `form` or `body`. Responses are capped at 10 MB. |
 | `json.decode(s)` / `json.encode(v)` | Lua tables ⇄ JSON |
 | `html.select(markup, css)` | A list of `{ tag, text, html, outer, attrs }` |
 | `html.select_one(markup, css)` | One element, or `nil` |

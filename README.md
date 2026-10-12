@@ -70,7 +70,7 @@
 - Live per-file progress, uploads keep going if you switch pages, and the library rescans when they finish
 
 ### 🧭 Content Finder & plugins
-- A **Content Finder** tab that searches **Project Gutenberg**, **Standard Ebooks** and any **OPDS catalog**, and downloads straight into a library
+- A **Content Finder** tab that searches **Project Gutenberg**, **Standard Ebooks**, the **Internet Archive**, **Archive of Our Own** (fan fiction) and any **OPDS catalog**, and downloads straight into a library
 - **Lua plugins**, Mihon/Tachiyomi-style: install from repositories, URLs or files, or [write your own](docs/plugins.md)
 - **Mihon/Tachiyomi extensions** through [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server): every extension becomes a source, and chapters download as CBZ
 
@@ -354,7 +354,16 @@ curl -X POST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json"
 
 **Content Finder** (left menu) searches the sources installed as plugins and downloads what you pick into one of your libraries. Flyleaf then rescans that library so the book appears straight away.
 
-- **Built in:** Project Gutenberg, Standard Ebooks, and an **OPDS catalog** plugin for your own Calibre-Web/Kavita/Komga/another Flyleaf (set its URL under *Settings → Content Finder plugins → ⋮ → Settings*).
+- **Built in:**
+  - Project Gutenberg, Standard Ebooks and the **Internet Archive**, installed automatically.
+  - **Archive of Our Own**: install it from *Available from repositories*.
+  - An **OPDS catalog** plugin for your own Calibre-Web/Kavita/Komga or another Flyleaf: set its URL under *Settings → Content Finder plugins → ⋮ → Settings*.
+- **Internet Archive (archive.org):** searches the big library-digitised, public-domain collections by default (Library of Congress, university libraries, Smithsonian, Wellcome, Gutenberg…). Its settings can switch to *Everything downloadable*, which adds user uploads (only download what you're allowed to), show comics, or filter by language. Borrow-only lending-library books are never offered.
+- **Archive of Our Own (AO3):** fan fiction, downloaded with AO3's own EPUB/AZW3/MOBI/PDF export.
+  - **Ratings:** Mature and Explicit works are hidden until you turn on *Show Mature and Explicit works* in the plugin settings. Each work's rating carries over to Flyleaf (General → Everyone, Teen → 13+, Mature → 17+, Explicit → 18+), so guests' age restrictions apply to downloaded fics.
+  - **Other settings:** filter by language and show only complete works.
+  - **Not available:** works limited to logged-in AO3 users.
+  - **Speed:** AO3 is volunteer-run and can be slow when busy; Flyleaf waits up to 45 s per page.
 - **More sources:** in *Settings → Content Finder plugins*, add a plugin **repository**, install from a **URL**, or **upload** a `.lua` file. Plugins are sandboxed Lua scripts with no access to your files. See **[docs/plugins.md](docs/plugins.md)** to write one.
 - **Who can use it:** the admin always can. Turn it on for a guest in *Settings → Users → Edit → Content Finder*. Guests can only save into libraries they can see.
 - **Running as a service:** the service can't write under `/home` (`ProtectHome=read-only`). To let downloads into a library folder there, run:
