@@ -11,7 +11,7 @@ const scanner = require('../scanner');
 const covers = require('../covers');
 const formats = require('../formats');
 const profiles = require('../profiles');
-const { getBook, toBook, seriesBooks, canDeleteBook } = require('../serialize');
+const { BOOK_SELECT, getBook, getSeries, toBook, seriesBooks, canDeleteBook } = require('../serialize');
 const events = require('../events');
 const log = require('../log').logger('books');
 const { json } = require('../util');
@@ -216,24 +216,16 @@ router.post('/books/:id/refresh', requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-/**
- * Delete a book: its file on disk, then everything Flyleaf knew about it. Users may only
- * delete books in their own libraries or ones they downloaded (see canDeleteBook).
- */
-router.delete('/books/:id', async (req, res) => {
-  const row = getBook(req.params.id, req.user);
-  if (!row) return res.status(404).json({ error: 'Book not found.' });
-  if (!canDeleteBook(req.user, row)) {
-    return res.status(403).json({ error: 'You can only delete books in your own libraries or ones you downloaded.' });
-  }
+/** Remove a book's file from disk, then everything Flyleaf knew about it. Returns whether its series went too. */
+async function deleteBook(row, user) {
   const lib = q('SELECT path FROM libraries WHERE id = ?').get(row.library_id);
   const root = path.resolve(lib.path);
   const file = path.resolve(row.path);
-  if (!file.startsWith(root + path.sep)) return res.status(400).json({ error: 'That file is outside its library folder.' });
+  if (!file.startsWith(root + path.sep)) throw Object.assign(new Error('That file is outside its library folder.'), { status: 400, expose: true });
   try {
     await fsp.rm(file, { recursive: row.format === 'folder', force: true });
   } catch (e) {
-    return res.status(500).json({ error: require('../plugins/downloads').friendlyFsError(e, path.dirname(file)) });
+    throw Object.assign(new Error(require('../plugins/downloads').friendlyFsError(e, path.dirname(file))), { status: 500, expose: true });
   }
   // Tidy up folders the deletion left empty, never the library folder itself.
   for (let dir = path.dirname(file); dir.startsWith(root + path.sep); dir = path.dirname(dir)) {
@@ -253,9 +245,29 @@ router.delete('/books/:id', async (req, res) => {
   });
   await covers.removeCovers(row.id);
   if (seriesRemoved) await covers.removeSeriesCover(row.series_id);
-  log.info(`${req.user.username} deleted "${row.title}" (${row.path})`);
-  events.emit('book.deleted', { bookId: row.id, libraryId: row.library_id, title: row.title, file: row.rel_path, userId: req.user.id });
-  res.json({ ok: true, seriesRemoved });
+  log.info(`${user.username} deleted "${row.title}" (${row.path})`);
+  events.emit('book.deleted', { bookId: row.id, libraryId: row.library_id, title: row.title, file: row.rel_path, userId: user.id });
+  return seriesRemoved;
+}
+
+const DELETE_DENIED = 'You can only delete books in your own libraries or ones you downloaded.';
+
+// Users may only delete books in their own libraries or ones they downloaded (see canDeleteBook).
+router.delete('/books/:id', async (req, res) => {
+  const row = getBook(req.params.id, req.user);
+  if (!row) return res.status(404).json({ error: 'Book not found.' });
+  if (!canDeleteBook(req.user, row)) return res.status(403).json({ error: DELETE_DENIED });
+  res.json({ ok: true, seriesRemoved: await deleteBook(row, req.user) });
+});
+
+/** Delete every book in a series; refused unless all of them are the user's to delete. */
+router.delete('/series/:id', async (req, res) => {
+  const s = getSeries(req.params.id, req.user);
+  if (!s) return res.status(404).json({ error: 'Series not found.' });
+  const rows = q(`${BOOK_SELECT} WHERE b.series_id = ?`).all(req.user.id, req.user.id, s.id);
+  if (!rows.length || !rows.every((r) => canDeleteBook(req.user, r))) return res.status(403).json({ error: DELETE_DENIED });
+  for (const row of rows) await deleteBook(row, req.user);
+  res.json({ ok: true, deleted: rows.length });
 });
 
 const rawImage = express.raw({ type: ['image/*', 'application/octet-stream'], limit: '25mb' });

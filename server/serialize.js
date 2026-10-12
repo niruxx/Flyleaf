@@ -93,6 +93,18 @@ function canDeleteBook(user, row) {
   return (user.ownLibraryIds || []).includes(row.library_id) || Boolean(row.path && downloadedFiles(user).has(row.path));
 }
 
+/** Whether the user may delete a whole series: every book in it must be theirs to delete. */
+function canDeleteSeries(user, row) {
+  if (!user || !row) return false;
+  if (user.role === 'admin') return true;
+  if (!user.permissions?.deleteBooks) return false;
+  if ((user.ownLibraryIds || []).includes(row.library_id)) return true;
+  const files = downloadedFiles(user);
+  if (!files.size) return false;
+  const paths = q('SELECT path FROM books WHERE series_id = ?').all(row.id);
+  return paths.length > 0 && paths.every((b) => files.has(b.path));
+}
+
 function shouldBlur(userBlur, ageRating, user) {
   if (userBlur) return true;
   return Boolean(user?.prefs?.blurMature && ageRating != null && ageRating >= 3);
@@ -213,6 +225,7 @@ function toSeries(row, user, detail = false) {
     wantToRead: Boolean(row.want_to_read),
     userStatus: row.user_status || null,
     blur: shouldBlur(row.user_blur, row.age_rating, user),
+    canDelete: canDeleteSeries(user, row),
   };
   if (detail) {
     Object.assign(s, {
@@ -264,6 +277,7 @@ module.exports = {
   toBook,
   getBook,
   canDeleteBook,
+  canDeleteSeries,
   bookSort,
   listSeries,
   toSeries,

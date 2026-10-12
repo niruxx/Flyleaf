@@ -163,6 +163,28 @@ export async function deleteBook(b, { onChange } = {}) {
   }
 }
 
+export async function deleteSeries(s, { onChange } = {}) {
+  const many = s.count > 1;
+  const ok = await confirmDialog({
+    title: `Delete “${s.name}”?`,
+    icon: 'delete',
+    message: `${many ? `All ${s.count} books in this series are` : 'The file is'} removed from disk, along with your progress, bookmarks and notes. This can’t be undone.`,
+    confirm: 'Delete',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    await api.deleteSeries(s.id);
+    snackbar(`Deleted “${s.name}”`);
+    const [, view, id] = location.hash.split(/[/?]/);
+    if (view === 'series' && id === String(s.id)) navigate('/library');
+    else onChange?.();
+    refreshShell();
+  } catch (e) {
+    snackbar(e.message, { duration: 7000 });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Action menus
 
@@ -200,6 +222,7 @@ export function seriesActions(anchor, s, { onChange, at } = {}) {
       { label: 'Fetch metadata', icon: 'travel_explore', onClick: () => import('./editors.js').then((m) => m.fetchMetadata(s).then(changed)) },
     );
   }
+  if (s.canDelete) items.push('-', { label: 'Delete', icon: 'delete', onClick: () => deleteSeries(s, { onChange }) });
   return actions(anchor, items, { title: s.name, at });
 }
 
