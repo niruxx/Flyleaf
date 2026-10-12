@@ -297,6 +297,13 @@ const migrations = [
     finished_at INTEGER
   );
   `,
+
+  // v4: personal folders and per-user libraries.
+  `
+  ALTER TABLE users ADD COLUMN home_dir TEXT;   -- the admin-assigned personal folder, or NULL
+  ALTER TABLE libraries ADD COLUMN owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE; -- NULL = shared
+  CREATE INDEX libraries_owner ON libraries(owner_id);
+  `,
 ];
 
 const version = db.prepare('PRAGMA user_version').get().user_version;

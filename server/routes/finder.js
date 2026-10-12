@@ -7,7 +7,7 @@
 const express = require('express');
 const { q } = require('../db');
 const { requirePermission, requireAdmin } = require('../auth');
-const { canSeeLibrary } = require('../util');
+const { canWriteLibrary } = require('../util');
 const manager = require('../plugins/manager');
 const downloads = require('../plugins/downloads');
 
@@ -117,7 +117,7 @@ router.get('/:plugin/image', async (req, res) => {
 router.post('/:plugin/download', async (req, res) => {
   const { libraryId, book, files } = req.body || {};
   const lib = q('SELECT id FROM libraries WHERE id = ?').get(Number(libraryId));
-  if (!lib || !canSeeLibrary(req.user, lib.id)) return res.status(400).json({ error: 'Choose a library to download into.' });
+  if (!lib || !canWriteLibrary(req.user, lib.id)) return res.status(400).json({ error: 'Choose a library you can download into.' });
   await manager.describe(req.params.plugin);
   if (!Array.isArray(files) || !files.length || files.length > 2000) return res.status(400).json({ error: 'Pick at least one file.' });
   const clean = files.map((f) => f && f.id != null && {

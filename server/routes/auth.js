@@ -18,6 +18,7 @@ const publicUser = (u) =>
     maxAgeRating: u.maxAgeRating,
     ageIncludeUnknown: u.ageIncludeUnknown,
     libraryIds: u.libraryIds,
+    homeDir: u.homeDir,
     permissions: u.permissions,
     prefs: u.prefs,
   };
@@ -159,6 +160,28 @@ function ageFields(body) {
       out.library_ids = JSON.stringify(ids);
     }
   }
+  // Personal folder: the user can create their own libraries inside it, and their
+  // downloads and uploads go only there. null/'' removes it.
+  if (body.homeDir !== undefined) {
+    if (body.homeDir === null || body.homeDir === '') out.home_dir = null;
+    else {
+      const path = require('node:path');
+      const fs = require('node:fs');
+      const dir = String(body.homeDir).trim();
+      if (!path.isAbsolute(dir)) throw new Error('The personal folder must be an absolute path, e.g. /srv/books/alex.');
+      const resolved = path.resolve(dir);
+      if (resolved === path.parse(resolved).root) throw new Error('Pick a folder, not the whole disk.');
+      try {
+        fs.mkdirSync(resolved, { recursive: true });
+      } catch (e) {
+        throw new Error(['EROFS', 'EACCES', 'EPERM'].includes(e.code)
+          ? `Flyleaf can't create ${resolved}. Create it yourself and give the Flyleaf service user access (see “flyleaf allow-write” in the README).`
+          : `Can't use ${resolved}: ${e.code || e.message}`);
+      }
+      if (!fs.statSync(resolved).isDirectory()) throw new Error(`${resolved} isn’t a folder.`);
+      out.home_dir = resolved;
+    }
+  }
   if (body.permissions !== undefined) {
     if (!body.permissions || typeof body.permissions !== 'object') throw new Error('Invalid permissions.');
     const perms = {};
@@ -204,7 +227,7 @@ users.post('/', (req, res) => {
     age.max_age_rating ?? null,
     age.age_include_unknown ?? 1,
   );
-  applyAccess(Number(lastInsertRowid), { library_ids: age.library_ids ?? null, permissions: age.permissions ?? {} });
+  applyAccess(Number(lastInsertRowid), { library_ids: age.library_ids ?? null, home_dir: age.home_dir ?? null, permissions: age.permissions ?? {} });
   require('../events').emit('user.created', { userId: Number(lastInsertRowid), username });
   res.status(201).json({ id: Number(lastInsertRowid) });
 });
@@ -236,7 +259,7 @@ users.patch('/:id', (req, res) => {
   }
   try {
     const age = ageFields(req.body || {});
-    if (user.role === 'admin' && (age.max_age_rating != null || age.library_ids)) return res.status(400).json({ error: 'The admin account can’t be restricted.' });
+    if (user.role === 'admin' && (age.max_age_rating != null || age.library_ids || age.home_dir)) return res.status(400).json({ error: 'The admin account can’t be restricted.' });
     applyAccess(id, age);
   } catch (e) {
     return res.status(400).json({ error: e.message });

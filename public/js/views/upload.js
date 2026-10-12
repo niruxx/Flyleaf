@@ -42,11 +42,15 @@ export async function uploadView(view, params, stale) {
     return;
   }
   view.append(loading());
-  const [libraries, collections, limits] = await Promise.all([api.libraries(), api.collections().catch(() => []), api.uploadLimits().catch(() => ({ maxBytes: 0 }))]);
+  const [allLibraries, collections, limits] = await Promise.all([api.libraries(), api.collections().catch(() => []), api.uploadLimits().catch(() => ({ maxBytes: 0 }))]);
+  // Only libraries you may write into (with a personal folder: your own libraries).
+  const libraries = allLibraries.filter((l) => l.writable);
   if (stale()) return;
   view.replaceChildren();
   if (!libraries.length) {
-    view.append(h('div.page', h('div.page-head.enter', h('h1', 'Upload')), emptyState('folder_off', 'No libraries to upload into', 'The admin needs to add a library first.')));
+    view.append(h('div.page', h('div.page-head.enter', h('h1', 'Upload')), session.user.homeDir
+      ? emptyState('create_new_folder', 'Create a library first', 'Uploads go into your own libraries. Create one in your personal folder.', button('My libraries', { icon: 'folder_special', onclick: () => navigate('/settings/mylibs') }))
+      : emptyState('folder_off', 'No libraries to upload into', 'The admin needs to add a library first.')));
     return;
   }
   if (!libraries.some((l) => l.id === state.libraryId)) {

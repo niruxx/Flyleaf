@@ -39,15 +39,25 @@ function accessFilter(user, alias = 's') {
     parts.push(`((${alias}.age_rating IS NULL AND ? = 1) OR ${alias}.age_rating <= ?)`);
     args.push(user.ageIncludeUnknown ? 1 : 0, user.maxAgeRating);
   }
-  if (Array.isArray(user?.libraryIds)) {
+  if (Array.isArray(user?.visibleLibraryIds)) {
     parts.push(`${alias}.library_id IN (SELECT value FROM json_each(?))`);
-    args.push(JSON.stringify(user.libraryIds));
+    args.push(JSON.stringify(user.visibleLibraryIds));
   }
   return { sql: parts.length ? parts.join(' AND ') : '1 = 1', args };
 }
 
-/** Whether `user` may see library `id`. */
-const canSeeLibrary = (user, id) => !Array.isArray(user?.libraryIds) || user.libraryIds.includes(Number(id));
+/** Whether `user` may see library `id` (shared ones they're allowed, plus their own). */
+const canSeeLibrary = (user, id) => !Array.isArray(user?.visibleLibraryIds) || user.visibleLibraryIds.includes(Number(id));
+
+/**
+ * Whether `user` may put files (downloads, uploads) into library `id`. Users with a
+ * personal folder write only into their own libraries; others into any library they see.
+ */
+const canWriteLibrary = (user, id) => {
+  if (user?.role === 'admin') return true;
+  if (user?.homeDir) return (user.ownLibraryIds || []).includes(Number(id));
+  return canSeeLibrary(user, id);
+};
 
 function likeArg(s) {
   return `%${String(s).replace(/[\\%_]/g, '\\$&')}%`;
@@ -94,7 +104,7 @@ function similarity(a, b) {
   return (2 * overlap) / (a.length - 1 + (b.length - 1)) || 0;
 }
 
-module.exports = { json, AGE_RATINGS, parseAgeRating, accessFilter, canSeeLibrary, likeArg, stripHtml, similarity };
+module.exports = { json, AGE_RATINGS, parseAgeRating, accessFilter, canSeeLibrary, canWriteLibrary, likeArg, stripHtml, similarity };
 
 const LINK_SOURCES = [
   [/myanimelist\.net/i, 'MyAnimeList'],

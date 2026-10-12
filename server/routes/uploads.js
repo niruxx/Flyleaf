@@ -14,7 +14,7 @@ const express = require('express');
 const { q } = require('../db');
 const config = require('../config');
 const { requirePermission } = require('../auth');
-const { canSeeLibrary } = require('../util');
+const { canWriteLibrary } = require('../util');
 const { IMAGE_EXT } = require('../archive');
 const events = require('../events');
 const log = require('../log').logger('uploads');
@@ -28,7 +28,7 @@ const err = (message, status = 400) => Object.assign(new Error(message), { statu
 /** A library the user may upload into. */
 function libraryFor(req, id) {
   const lib = q('SELECT * FROM libraries WHERE id = ?').get(Number(id));
-  if (!lib || !canSeeLibrary(req.user, lib.id)) throw err('Choose a library you can upload into.', 404);
+  if (!lib || !canWriteLibrary(req.user, lib.id)) throw err('Choose a library you can upload into.', 404);
   return lib;
 }
 

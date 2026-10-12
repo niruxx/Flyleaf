@@ -21,6 +21,15 @@ const R = [
   ['put', '/me/prefs', 'Account', 'Save app preferences (merged with existing)', { body: { '*': 'any preference key, see GET /me' } }],
   ['post', '/me/password', 'Account', 'Change your password (not allowed with an API key)', { body: { current: 'string', next: 'string' } }],
 
+  // Personal libraries (users with a personal folder)
+  ['get', '/me/libraries', 'My libraries', 'Your own libraries and your personal folder'],
+  ['post', '/me/libraries', 'My libraries', 'Create a library inside your personal folder', { body: { name: 'string', kind: 'books | manga | comics', mode: 'books | kavita | komga', path: 'string – folder relative to your personal folder', autoMetadata: 'boolean' } }],
+  ['patch', '/me/libraries/{id}', 'My libraries', 'Rename or re-type one of your libraries', { body: { name: 'string', kind: 'string', mode: 'string', autoMetadata: 'boolean' } }],
+  ['post', '/me/libraries/{id}/scan', 'My libraries', 'Scan one of your libraries'],
+  ['delete', '/me/libraries/{id}', 'My libraries', 'Remove one of your libraries (files are kept)'],
+  ['get', '/me/folders', 'My libraries', 'Folders inside your personal folder', { query: { path: 'string – relative folder' } }],
+  ['post', '/me/folders', 'My libraries', 'Create a folder inside your personal folder', { body: { path: 'string – parent folder', name: 'string' } }],
+
   // Browsing
   ['get', '/home', 'Browse', 'Home page: continue reading, want to read, recently added/updated, libraries'],
   ['get', '/libraries', 'Browse', 'Libraries you can see'],
@@ -105,7 +114,7 @@ const R = [
   ['get', '/uploads/limits', 'Uploads', 'Largest file the server accepts', { perm: 'upload' }],
 
   // Admin
-  ['post', '/libraries', 'Admin: libraries', 'Add a library', { admin: true, body: { name: 'string', path: 'string – absolute folder', kind: 'books | manga | comics', mode: 'books | kavita | komga', autoMetadata: 'boolean', coverPolicy: 'missing | always | never', sources: 'string[]' } }],
+  ['post', '/libraries', 'Admin: libraries', 'Add a library', { admin: true, body: { ownerId: 'integer | null – make it a personal library of this user', name: 'string', path: 'string – absolute folder', kind: 'books | manga | comics', mode: 'books | kavita | komga', autoMetadata: 'boolean', coverPolicy: 'missing | always | never', sources: 'string[]' } }],
   ['patch', '/libraries/{id}', 'Admin: libraries', 'Edit a library', { admin: true, body: { name: 'string', kind: 'string', mode: 'string', autoMetadata: 'boolean', coverPolicy: 'string', sources: 'string[]' } }],
   ['delete', '/libraries/{id}', 'Admin: libraries', 'Remove a library (files are not touched)', { admin: true }],
   ['post', '/libraries/{id}/scan', 'Admin: libraries', 'Scan one library now', { admin: true }],
@@ -134,7 +143,8 @@ const R = [
     admin: true,
     body: {
       username: 'string', password: 'string', displayName: 'string', email: 'string', maxAgeRating: '0–3 | null', ageIncludeUnknown: 'boolean',
-      libraryIds: 'integer[] | null – null means every library', permissions: '{ download, contentFinder, apiAccess, upload }',
+      libraryIds: 'integer[] | null – shared libraries; null means all of them', homeDir: 'string | null – personal folder (absolute path) for their own libraries, downloads and uploads',
+      permissions: '{ download, contentFinder, apiAccess, upload }',
     },
   }],
   ['patch', '/users/{id}', 'Admin: users', 'Edit a user (same fields as create)', { admin: true }],

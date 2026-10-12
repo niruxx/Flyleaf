@@ -226,7 +226,8 @@ export async function finderView(view, params, stale) {
   }
 
   function detailsContent(src, d, close) {
-    const usable = libraries.filter((l) => canSeeLib(l));
+    // Only libraries you may write into (your own ones, if you have a personal folder).
+    const usable = libraries.filter((l) => l.writable);
     const preferred = usable.find((l) => (src.kinds || []).includes(l.kind)) || usable[0];
     const lib = field('Save to library', { value: preferred?.id ?? '', options: usable.map((l) => ({ value: l.id, label: `${l.name} (${KIND_LABEL[l.kind]})` })) });
 
@@ -273,7 +274,9 @@ export async function finderView(view, params, stale) {
       d.files.length
         ? h('div', h('div.label-large', { style: { margin: '16px 0 8px' } }, singleChoice ? 'Format' : `Files (${d.files.length})`), selectAll, h('div.file-list', rows))
         : h('p.body-medium.muted', 'This item has nothing to download.'),
-      usable.length ? lib : h('p.form-error', icon('error'), 'You don’t have access to any library to save into.'),
+      usable.length ? lib : h('p.form-error', icon('error'), session.user.homeDir
+        ? h('span', 'Create a library in your personal folder first: ', h('a', { href: '#/settings/mylibs', onclick: () => close() }, 'My libraries'), '.')
+        : 'You don’t have access to any library to save into.'),
       h('div.dialog-actions', button('Cancel', { variant: 'text', onclick: () => close() }), d.files.length > 0 && usable.length > 0 && go),
     );
   }
@@ -281,7 +284,6 @@ export async function finderView(view, params, stale) {
   run(true);
 }
 
-const canSeeLib = (l) => !Array.isArray(session.user?.libraryIds) || session.user.libraryIds.includes(l.id);
 
 // ---------------------------------------------------------------------------
 // Downloads

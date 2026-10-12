@@ -233,6 +233,7 @@ function buildDrawer() {
     h('hr'),
     navItem('/settings', 'settings', 'Settings'),
     isAdmin() && navItem('/settings/libraries', 'admin_panel_settings', 'Manage libraries'),
+    !isAdmin() && session.user?.homeDir && navItem('/settings/mylibs', 'folder_special', 'My libraries'),
   ];
   document.querySelector('.drawer').replaceChildren(...children.flat(Infinity).filter(Boolean));
   highlight(location.hash.replace(/^#/, '') || '/');
@@ -243,7 +244,7 @@ function highlight(path) {
   const root = base.split('/')[1] || '';
   for (const a of document.querySelectorAll('.drawer .nav-item[data-to]')) {
     const to = a.dataset.to;
-    const on = to === base || (to === '/settings' && root === 'settings' && base !== '/settings/libraries');
+    const on = to === base || (to === '/settings' && root === 'settings' && !['/settings/libraries', '/settings/mylibs'].includes(base));
     if (on) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   }

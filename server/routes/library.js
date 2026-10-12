@@ -10,7 +10,7 @@ const archive = require('../archive');
 const scanner = require('../scanner');
 const covers = require('../covers');
 const providers = require('../providers');
-const { accessFilter, canSeeLibrary, likeArg, json } = require('../util');
+const { accessFilter, canSeeLibrary, canWriteLibrary, likeArg, json } = require('../util');
 const { BOOK_SELECT, toBook, listSeries } = require('../serialize');
 
 const router = express.Router();
@@ -19,11 +19,28 @@ const KINDS = ['books', 'manga', 'comics'];
 const MODES = ['komga', 'kavita', 'books'];
 const COVER_POLICIES = ['missing', 'always', 'never'];
 
-function libraryRow(l) {
+/**
+ * A library as `user` sees it. The admin gets the full path. A user's own library shows
+ * its path inside their personal folder ("~/Manga"). Other users get no path at all.
+ */
+function libraryRow(l, user) {
+  const admin = user?.role === 'admin';
+  const own = l.owner_id != null && l.owner_id === user?.id;
+  let shownPath;
+  if (admin) shownPath = l.path;
+  else if (own && user.homeDir) {
+    const rel = path.relative(user.homeDir, l.path);
+    shownPath = rel && !rel.startsWith('..') ? `~/${rel.split(path.sep).join('/')}` : rel === '' ? '~' : undefined;
+  }
   return {
     id: l.id,
     name: l.name,
-    path: l.path,
+    path: shownPath,
+    ownerId: l.owner_id ?? null,
+    ownerName: l.owner_name ?? null,
+    personal: l.owner_id != null,
+    own,
+    writable: user ? canWriteLibrary(user, l.id) : false,
     kind: l.kind,
     mode: l.mode,
     autoMetadata: Boolean(l.auto_metadata),
@@ -38,7 +55,8 @@ function libraryRow(l) {
 const LIB_SELECT = `
   SELECT l.*,
     (SELECT COUNT(*) FROM books b WHERE b.library_id = l.id AND b.missing = 0) AS book_count,
-    (SELECT COUNT(*) FROM series s WHERE s.library_id = l.id) AS series_count
+    (SELECT COUNT(*) FROM series s WHERE s.library_id = l.id) AS series_count,
+    (SELECT COALESCE(u.display_name, u.username) FROM users u WHERE u.id = l.owner_id) AS owner_name
   FROM libraries l`;
 
 // ---------------------------------------------------------------------------
@@ -61,11 +79,20 @@ router.get('/home', (req, res) => {
 // ---------------------------------------------------------------------------
 // Libraries
 
-/** Libraries `user` may see; guests don't get server paths. */
+/** Libraries `user` may see (paths only where they're allowed to know them). */
 function visibleLibraries(user) {
-  return q(`${LIB_SELECT} ORDER BY l.name COLLATE NOCASE`).all()
+  return q(`${LIB_SELECT} ORDER BY l.owner_id IS NOT NULL, l.name COLLATE NOCASE`).all()
     .filter((l) => canSeeLibrary(user, l.id))
-    .map((l) => (user.role === 'admin' ? libraryRow(l) : { ...libraryRow(l), path: undefined }));
+    .map((l) => libraryRow(l, user));
+}
+
+/** Validate an owner for a library: null (shared) or an existing non-admin user. */
+function ownerField(body, current) {
+  if (body.ownerId === undefined) return current ?? null;
+  if (body.ownerId === null || body.ownerId === '') return null;
+  const u = q('SELECT id, role FROM users WHERE id = ?').get(Number(body.ownerId));
+  if (!u || u.role === 'admin') throw new Error('Choose a user to own this library, or make it shared.');
+  return u.id;
 }
 
 router.get('/libraries', (req, res) => {
@@ -94,8 +121,10 @@ function validateLibrary(body, current = {}) {
 
 router.post('/libraries', requireAdmin, async (req, res) => {
   let fields;
+  let owner;
   try {
     fields = validateLibrary(req.body || {});
+    owner = ownerField(req.body || {}, null);
   } catch (e) {
     return res.status(400).json({ error: e.message });
   }
@@ -106,8 +135,8 @@ router.post('/libraries', requireAdmin, async (req, res) => {
   if (!st?.isDirectory()) return res.status(400).json({ error: "That folder doesn't exist or isn't readable." });
   if (q('SELECT 1 FROM libraries WHERE path = ?').get(dir)) return res.status(409).json({ error: 'That folder is already a library.' });
   const { lastInsertRowid } = q(
-    'INSERT INTO libraries (name, path, kind, mode, auto_metadata, cover_policy, sources, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(fields.name, dir, fields.kind, fields.mode, fields.auto_metadata, fields.cover_policy, fields.sources, Date.now());
+    'INSERT INTO libraries (name, path, kind, mode, auto_metadata, cover_policy, sources, owner_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(fields.name, dir, fields.kind, fields.mode, fields.auto_metadata, fields.cover_policy, fields.sources, owner, Date.now());
   scanner.requestScan(Number(lastInsertRowid));
   res.status(201).json({ id: Number(lastInsertRowid) });
 });
@@ -116,13 +145,15 @@ router.patch('/libraries/:id', requireAdmin, (req, res) => {
   const lib = q('SELECT * FROM libraries WHERE id = ?').get(Number(req.params.id));
   if (!lib) return res.status(404).json({ error: 'Library not found.' });
   let f;
+  let owner;
   try {
     f = validateLibrary(req.body || {}, lib);
+    owner = ownerField(req.body || {}, lib.owner_id);
   } catch (e) {
     return res.status(400).json({ error: e.message });
   }
-  q('UPDATE libraries SET name = ?, kind = ?, mode = ?, auto_metadata = ?, cover_policy = ?, sources = ? WHERE id = ?').run(
-    f.name, f.kind, f.mode, f.auto_metadata, f.cover_policy, f.sources, lib.id,
+  q('UPDATE libraries SET name = ?, kind = ?, mode = ?, auto_metadata = ?, cover_policy = ?, sources = ?, owner_id = ? WHERE id = ?').run(
+    f.name, f.kind, f.mode, f.auto_metadata, f.cover_policy, f.sources, owner, lib.id,
   );
   // Changing type or folder structure regroups series.
   if (f.mode !== lib.mode || f.kind !== lib.kind) {
@@ -134,13 +165,17 @@ router.patch('/libraries/:id', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete('/libraries/:id', requireAdmin, async (req, res) => {
-  const id = Number(req.params.id);
+/** Forget a library (its files on disk are never touched). */
+async function removeLibrary(id) {
   const bookIds = q('SELECT id FROM books WHERE library_id = ?').all(id).map((r) => r.id);
   const seriesIds = q('SELECT id FROM series WHERE library_id = ?').all(id).map((r) => r.id);
   q('DELETE FROM libraries WHERE id = ?').run(id);
   for (const b of bookIds) await covers.removeCovers(b);
   for (const s of seriesIds) await covers.removeSeriesCover(s);
+}
+
+router.delete('/libraries/:id', requireAdmin, async (req, res) => {
+  await removeLibrary(Number(req.params.id));
   res.json({ ok: true });
 });
 
@@ -234,4 +269,4 @@ router.get('/search', (req, res) => {
   res.json({ series, books, people, genres, collections });
 });
 
-module.exports = { router, KINDS };
+module.exports = { router, KINDS, LIB_SELECT, libraryRow, validateLibrary, removeLibrary };

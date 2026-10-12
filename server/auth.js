@@ -82,6 +82,16 @@ function toUser(row) {
   const perms = { ...PERMISSION_DEFAULTS, ...parseJson(row.permissions, {}) };
   if (admin) for (const k of Object.keys(perms)) perms[k] = true;
   const libraryIds = admin ? null : parseJson(row.library_ids, null);
+  // What this user can see: their own libraries plus the shared ones the admin allowed.
+  // Other users' personal libraries are never visible. Admins see everything (null).
+  let visibleLibraryIds = null;
+  let ownLibraryIds = [];
+  if (!admin) {
+    const libs = q('SELECT id, owner_id FROM libraries').all();
+    const allowed = Array.isArray(libraryIds) ? new Set(libraryIds.map(Number)) : null;
+    ownLibraryIds = libs.filter((l) => l.owner_id === row.id).map((l) => l.id);
+    visibleLibraryIds = libs.filter((l) => l.owner_id === row.id || (l.owner_id == null && (!allowed || allowed.has(l.id)))).map((l) => l.id);
+  }
   return {
     id: row.id,
     username: row.username,
@@ -91,6 +101,9 @@ function toUser(row) {
     maxAgeRating: row.max_age_rating,
     ageIncludeUnknown: Boolean(row.age_include_unknown),
     libraryIds: Array.isArray(libraryIds) ? libraryIds.map(Number) : null,
+    homeDir: row.home_dir || null,
+    visibleLibraryIds,
+    ownLibraryIds,
     permissions: perms,
     prefs: { ...PREF_DEFAULTS, ...prefs },
   };

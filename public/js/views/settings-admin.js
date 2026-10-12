@@ -57,7 +57,7 @@ export async function librariesPanel(panel, stale) {
     return h('div.setting-row',
       icon(KIND_ICON[l.kind]),
       h('div.text',
-        h('div', l.name),
+        h('div', l.name, l.personal ? h('span.mini-chip', { style: { marginLeft: '8px' } }, icon('person'), `${l.ownerName}’s`) : null),
         h('div.s.mono', l.path),
         h('div.s', `${l.seriesCount} series · ${l.bookCount} files · ${MODE_LABEL[l.mode] || l.mode}${l.autoMetadata ? ' · auto metadata' : ''} · ${l.lastScanAt ? `scanned ${timeAgo(l.lastScanAt)}` : 'not scanned yet'}`),
       ),
@@ -117,6 +117,14 @@ export async function libraryDialog(lib, providers, { onSaved } = {}) {
     renderSources();
   });
 
+  // Shared with everyone (subject to each user's access), or one user's personal library.
+  const guests = (await api.users().catch(() => [])).filter((u) => u.role !== 'admin');
+  const owner = field('Who it’s for', {
+    value: lib?.ownerId ?? '',
+    options: [{ value: '', label: 'Shared library' }, ...guests.map((u) => ({ value: u.id, label: `Personal library of ${u.displayName} (@${u.username})` }))],
+    support: 'A personal library is only visible to that user (and you), and is where their downloads and uploads go if they have a personal folder.',
+  });
+
   const auto = h('input', { type: 'checkbox', checked: lib?.autoMetadata ?? false });
   const policy = field('Artwork from sources', {
     value: lib?.coverPolicy || 'missing',
@@ -157,6 +165,7 @@ export async function libraryDialog(lib, providers, { onSaved } = {}) {
     fields: [
       name,
       kind,
+      guests.length > 0 && owner,
       h('p.label-large', { style: { margin: '16px 0 0' } }, 'Folder structure'),
       modes,
       h('p.label-large', { style: { margin: '16px 0 4px' } }, 'Metadata'),
@@ -169,7 +178,7 @@ export async function libraryDialog(lib, providers, { onSaved } = {}) {
     ],
     onSubmit: async () => {
       const sources = [...sourceBox.querySelectorAll('input')].filter((i) => i.checked).map((i) => i.dataset.id);
-      const body = { name: name.input.value, kind: kind.input.value, mode, autoMetadata: auto.checked, coverPolicy: policy.input.value, sources };
+      const body = { name: name.input.value, kind: kind.input.value, mode, autoMetadata: auto.checked, coverPolicy: policy.input.value, sources, ownerId: owner.input.value ? Number(owner.input.value) : null };
       if (lib) await api.updateLibrary(lib.id, body);
       else await api.createLibrary({ ...body, path: pathField.input.value });
       snackbar(lib ? 'Library updated' : 'Library added – scanning now');
@@ -245,6 +254,7 @@ export async function usersPanel(panel, stale) {
         h('div', `${u.displayName}${isSelf ? ' (you)' : ''}`),
         h('div.s', `@${u.username}${u.email ? ` · ${u.email}` : ''} · ${u.role === 'admin' ? 'Admin' : 'Guest · read-only'}`),
         h('div.s', `${u.maxAgeRating == null ? 'No age restriction' : `Up to ${age?.label}`} · ${u.libraryIds ? `${u.libraryIds.length} ${u.libraryIds.length === 1 ? 'library' : 'libraries'}` : 'All libraries'} · active ${timeAgo(u.lastSeenAt)} · ${formatDuration(u.secondsRead, { short: true })} read · ${u.finished} finished`),
+        u.homeDir && h('div.s', h('span.mono', `📁 ${u.homeDir}`)),
         u.role !== 'admin' && h('div.perm-chips', PERMISSIONS.filter((p) => u.permissions?.[p.key]).map((p) => h('span.mini-chip', icon(p.icon), p.label))),
       ),
       more,
@@ -273,7 +283,8 @@ export async function userDialog(user, { onSaved } = {}) {
   const unknown = h('input', { type: 'checkbox', checked: user ? user.ageIncludeUnknown : true });
 
   // Library access: everything, or a chosen set.
-  const libs = await api.libraries();
+  // Shared libraries only: personal libraries belong to one user and are never shared.
+  const libs = (await api.libraries()).filter((l) => !l.personal);
   const restricted = Array.isArray(user?.libraryIds);
   const allLibs = h('input', { type: 'checkbox', checked: !restricted });
   const libChecks = libs.map((l) => {
@@ -288,6 +299,21 @@ export async function userDialog(user, { onSaved } = {}) {
       if (allLibs.checked) input.checked = true;
     }
   });
+  // Personal folder: their own libraries live here, and their downloads/uploads go only here.
+  const homeField = field('Personal folder', {
+    value: user?.homeDir || '',
+    support: 'Optional. An absolute folder on the server, e.g. /srv/flyleaf/alex. Created if it doesn’t exist.',
+    autocomplete: 'off',
+  });
+  const homeBrowser = h('div.home-browser', { hidden: true });
+  const homeBrowse = button('Browse the server', { variant: 'text', icon: 'folder_open', onclick: () => {
+    homeBrowser.hidden = !homeBrowser.hidden;
+    if (!homeBrowser.hidden && !homeBrowser.childElementCount) {
+      homeBrowser.append(folderBrowser((p, picked) => {
+        if (picked) homeField.input.value = p;
+      }));
+    }
+  } });
   const perms = { download: true, contentFinder: false, apiAccess: true, upload: false, ...(user?.permissions || {}) };
   const permRows = PERMISSIONS.map((p) => {
     const input = h('input', { type: 'checkbox', checked: perms[p.key] });
@@ -306,6 +332,12 @@ export async function userDialog(user, { onSaved } = {}) {
       libs.length > 0 && h('div', { style: { marginTop: '8px' } },
         h('label.check', allLibs, h('strong', 'All libraries, including ones added later')),
         h('div.check-grid', { style: { paddingLeft: '28px' } }, libChecks)),
+      h('p.label-large', { style: { margin: '16px 0 4px' } }, 'Personal folder'),
+      h('p.body-small.muted', { style: { marginBottom: '8px' } },
+        'Give this user a folder of their own. They can create their own libraries inside it (nobody else sees them), and their Content Finder downloads and uploads go only into those libraries. The shared libraries above stay read-only for them.'),
+      homeField,
+      homeBrowse,
+      homeBrowser,
       h('p.label-large', { style: { margin: '16px 0 4px' } }, 'Permissions'),
       h('div.perm-list', permRows),
       h('p.body-small.muted', 'Guests always have their own progress, collections, bookmarks and stats, and can never change libraries, metadata or other users.'),
@@ -321,6 +353,7 @@ export async function userDialog(user, { onSaved } = {}) {
         maxAgeRating: age.input.value === '' ? null : Number(age.input.value),
         ageIncludeUnknown: unknown.checked,
         libraryIds,
+        homeDir: homeField.input.value.trim() || null,
         permissions: Object.fromEntries(permRows.map((r) => r.querySelector('input')).map((i) => [i.dataset.key, i.checked])),
       };
       if (user) await api.updateUser(user.id, body);

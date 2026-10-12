@@ -16,6 +16,7 @@ const PANELS = [
   { id: 'account', label: 'Account', icon: 'manage_accounts' },
   { id: 'preferences', label: 'Preferences', icon: 'tune' },
   { id: 'appearance', label: 'Themes', icon: 'palette' },
+  { id: 'mylibs', label: 'My libraries', icon: 'folder_special', home: true },
   { group: 'Reading' },
   { id: 'reading', label: 'Reading profiles', icon: 'chrome_reader_mode' },
   { id: 'keybinds', label: 'Key binds', icon: 'keyboard' },
@@ -34,7 +35,7 @@ const PANELS = [
 ];
 
 export async function settingsView(view, params, stale) {
-  const panels = PANELS.filter((p) => (!p.admin || isAdmin()) && (!p.perm || can(session.user, p.perm)));
+  const panels = PANELS.filter((p) => (!p.admin || isAdmin()) && (!p.perm || can(session.user, p.perm)) && (!p.home || (session.user.homeDir && !isAdmin())));
   const current = params.tab && panels.some((p) => p.id === params.tab) ? params.tab : 'account';
   const nav = h('nav.settings-nav', panels.map((p) =>
     p.group
@@ -59,6 +60,7 @@ export async function settingsView(view, params, stale) {
   }[current];
   if (render) return render(panel, stale);
   if (current === 'api') return (await import('./settings-api.js')).apiPanel(panel, stale);
+  if (current === 'mylibs') return (await import('./settings-mylibs.js')).mylibsPanel(panel, stale);
   if (current === 'plugins') return (await import('./settings-plugins.js')).pluginsPanel(panel, stale);
   const admin = await import('./settings-admin.js');
   return admin[`${current}Panel`](panel, stale);

@@ -3724,3 +3724,29 @@ span.plugin-icon {
 .up-check .icon {
   font-size: 40px;
 }
+
+/* Personal folder */
+.home-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  padding: 16px 18px;
+  border-radius: var(--shape-lg);
+  background: color-mix(in srgb, var(--md-primary-container) 55%, transparent);
+}
+.home-card > .icon {
+  font-size: 28px;
+  color: var(--md-primary);
+}
+.home-card .mono {
+  margin: 2px 0 6px;
+  overflow-wrap: anywhere;
+}
+.home-browser {
+  margin-top: 4px;
+}
+.up-folder[disabled] {
+  opacity: 0.6;
+  cursor: default;
+}

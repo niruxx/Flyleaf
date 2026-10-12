@@ -46,6 +46,7 @@ const authRoutes = require('./routes/auth');
 api.use(authRoutes.router);
 api.use(auth.requireUser);
 api.use('/me', authRoutes.me);
+api.use('/me', require('./routes/my-libraries').router);
 api.use('/users', authRoutes.users);
 const finder = require('./routes/finder');
 api.use('/admin/plugins', finder.admin);
@@ -60,7 +61,9 @@ api.use(require('./routes/personal').router);
 
 api.use((req, res) => res.status(404).json({ error: 'Not found.' }));
 api.use((err, req, res, next) => {
-  log.error(`${req.method} ${req.originalUrl}:`, err);
+  // Expected refusals (bad input, no permission…) go to the log file; only real faults reach the console.
+  if (err.expose && (err.status || 500) < 500) log.file(`${req.method} ${req.originalUrl}: ${err.message}`);
+  else log.error(`${req.method} ${req.originalUrl}:`, err);
   if (res.headersSent) return next(err);
   res.status(err.status || 500).json({ error: err.expose ? err.message : 'Something went wrong on the server.' });
 });

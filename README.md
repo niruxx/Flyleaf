@@ -61,6 +61,7 @@
 - **Admin + read-only guest accounts** – share over the internet with port forwarding
 - Per-user **progress, resume, reading time & stats** and **reading lists**
 - Per-user **age limits**, **library access** and **permissions** (downloads, uploads, Content Finder, API keys)
+- **Personal folders**: give a user their own folder on the server, with **private libraries** that their downloads and uploads go into
 - **OPDS 1.2 + OPDS-PSE** for Panels, Chunky, KOReader, Moon+ … with progress sync
 - **Send to Kindle / Kobo** by email, download single books or whole series
 
@@ -92,6 +93,7 @@
 
 ## 🆕 What's new
 
+- 📁 **Personal folders** – the admin can give each user a folder on the server. They create private libraries in it, and their Content Finder downloads and uploads go only there.
 - ⬆️ **Upload tab** – drag and drop books, comics or whole folders into any library folder from your phone or computer, with live progress, and add the new series straight to a collection.
 - ℹ️ **Book details** – a Details panel for every file (format, pages, size, location, ISBN, publisher, your reading time and time left), a detailed list view for volumes, and more facts on series pages.
 - ✨ **Smoother motion** – direction-aware page transitions, skeleton loading, scroll-in reveals, 3D cover tilt, a circular dark-mode reveal, and closing animations for dialogs, menus and sheets.
@@ -447,7 +449,28 @@ server {
 ```
 </details>
 
-Then set `TRUST_PROXY=true` and `SECURE_COOKIES=true`. Cloudflare Tunnel and Tailscale Funnel work too.
+Then set `TRUST_PROXY=true` and `SECURE_COOKIES=true`.
+
+#### 📁 Personal folders & private libraries
+
+Give a user a **personal folder** when they should have their own space instead of (or as well as) the shared libraries:
+
+1. **Admin:** *Settings → Users → Edit* (or *Add guest*) → **Personal folder**. Type an absolute path, e.g. `/srv/flyleaf/alex`, or press *Browse the server*. Flyleaf creates the folder if it doesn't exist.
+2. **The user** gets **My libraries** in the menu and in Settings. There they create libraries inside their folder (picking or creating a sub-folder, a type and a folder structure), and can rename, rescan or remove them. Removing one keeps its files.
+3. **The admin** can also make a personal library directly: in *Settings → Libraries → Add library*, choose **Who it's for → Personal library of …**.
+
+What a personal folder changes for that user:
+
+| | Without a personal folder | With a personal folder |
+|---|---|---|
+| Libraries they see | Shared libraries you allow | Shared libraries you allow **plus their own** |
+| Where **Content Finder downloads** go | Any library they can see | **Only their own libraries** |
+| Where **uploads** go | Any library they can see | **Only their own libraries** |
+| Their libraries visible to others | – | Never (only to them and the admin) |
+
+The two folder settings work separately. *Settings → Users → Edit → libraries* picks which **shared** libraries a user can read, and the **personal folder** is where their own files go. Deleting a user removes their personal libraries from Flyleaf but leaves the files on disk. Users can't reach anything outside their folder: paths with `..` stay inside it, and libraries can't overlap.
+
+If Flyleaf runs as a service and the folder is under `/home`, allow writes first: `flyleaf allow-write /home/…/alex`. Cloudflare Tunnel and Tailscale Funnel work too.
 
 🔒 Built in: scrypt password hashing, HttpOnly SameSite cookies, CSRF protection, login rate limiting, and server-side read-only enforcement for guests.
 
@@ -468,6 +491,7 @@ Open Flyleaf in **Safari**, then tap **Share → Add to Home Screen**. It launch
 | A file won't open | Check the log. Damaged archives are skipped during scans and listed there. |
 | Metadata source errors | Some sources rate-limit. Wait a minute or add an API key in *Settings → Metadata sources*. |
 | Upload fails with **can't write** or **out of disk space** | Run `flyleaf allow-write /path/to/library`, make sure the service user can write there, and check free space with `df -h` |
+| A user's personal folder **can't be created** | Create it yourself and give the service user access (`sudo chown <service user>: /srv/flyleaf/alex`; the service user is shown by `flyleaf status`), and for folders under `/home` run `flyleaf allow-write` |
 | Upload rejected as **too large** | Raise `MAX_UPLOAD_MB` in `/etc/flyleaf/flyleaf.env`, then `flyleaf restart`. A reverse proxy may have its own limit (nginx: `client_max_body_size`) |
 | Content Finder download says it **can't write** | Run `flyleaf allow-write /path/to/library`, and make sure the service user can write there |
 | **Mihon extensions** source says it can't reach Suwayomi | Check the URL in the plugin settings from the Flyleaf server (`curl http://localhost:4567/api/v1/settings/about`). If Suwayomi's log ends with a Chromium/`libcef` crash, start it with `kcefEnabled=false` (`KCEF_ENABLED=false` in Docker) |
