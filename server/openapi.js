@@ -58,6 +58,7 @@ const R = [
 
   // Books & reading
   ['get', '/books/{id}', 'Books', 'One book or volume'],
+  ['delete', '/books/{id}', 'Books', 'Delete a book and its file (your own libraries and your downloads; admins: any)', { perm: 'deleteBooks' }],
   ['get', '/books/{id}/reader', 'Books', 'Everything the reader needs: book, settings, annotations'],
   ['get', '/books/{id}/cover', 'Books', 'Book cover (image)', { returns: 'image/*' }],
   ['get', '/books/{id}/file', 'Books', 'File for in-browser reading (TXT, DOCX and RTF are converted to EPUB)', { returns: 'file' }],

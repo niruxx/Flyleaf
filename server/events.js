@@ -12,6 +12,7 @@ const log = require('./log').logger('webhooks');
 const EVENTS = {
   'library.scanned': 'A library scan finished with changes',
   'book.added': 'A new book or comic was found during a scan',
+  'book.deleted': 'A user deleted a book and its file',
   'book.finished': 'A user finished a book',
   'progress.updated': 'A user’s reading position changed',
   'download.completed': 'A Content Finder download was added to a library',

@@ -63,7 +63,8 @@
 ### 🌐 Share & sync
 - **Admin + read-only guest accounts** – share over the internet with port forwarding
 - Per-user **progress, resume, reading time & stats** and **reading lists**
-- Per-user **age limits**, **library access** and **permissions** (downloads, uploads, Content Finder, API keys)
+- Per-user **age limits**, **library access** and **permissions** (downloads, uploads, Content Finder, deleting books, API keys)
+- **Delete books** from the ⋮ menu: users can delete books in their own libraries and ones they downloaded, never other books in shared libraries
 - **Personal folders**: give a user their own folder on the server, with **private libraries** that their downloads and uploads go into
 - **OPDS 1.2 + OPDS-PSE** for Panels, Chunky, KOReader, Moon+ … with progress sync
 - **Send to Kindle / Kobo** by email, download single books or whole series

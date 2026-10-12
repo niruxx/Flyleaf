@@ -50,6 +50,7 @@ function toBook(row, detail = false, user = null) {
     coverUrl: row.cover ? `/api/books/${row.id}/cover?v=${encodeURIComponent(row.cover)}` : null,
     blur: shouldBlur(row.us_blur, row.s_age_rating, user),
     version: row.mtime,
+    canDelete: canDeleteBook(user, row),
     progress:
       row.p_updated_at != null
         ? { percent: row.p_percent, page: row.p_page, finished: Boolean(row.p_finished), updatedAt: row.p_updated_at }
@@ -68,6 +69,28 @@ function toBook(row, detail = false, user = null) {
     }
   }
   return b;
+}
+
+// Files each request's user downloaded with Content Finder, looked up once per request.
+const downloadedCache = new WeakMap();
+function downloadedFiles(user) {
+  let files = downloadedCache.get(user);
+  if (!files) {
+    files = new Set(q("SELECT file FROM downloads WHERE user_id = ? AND status = 'done' AND file IS NOT NULL").all(user.id).map((r) => r.file));
+    downloadedCache.set(user, files);
+  }
+  return files;
+}
+
+/**
+ * Whether the user may delete this book's file. Admins may delete anything; other users
+ * (with the deleteBooks permission) only books in their own libraries or ones they downloaded.
+ */
+function canDeleteBook(user, row) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  if (!user.permissions?.deleteBooks) return false;
+  return (user.ownLibraryIds || []).includes(row.library_id) || Boolean(row.path && downloadedFiles(user).has(row.path));
 }
 
 function shouldBlur(userBlur, ageRating, user) {
@@ -240,6 +263,7 @@ module.exports = {
   BOOK_SELECT,
   toBook,
   getBook,
+  canDeleteBook,
   bookSort,
   listSeries,
   toSeries,

@@ -138,6 +138,32 @@ export async function sendTo({ book, series }) {
 }
 
 // ---------------------------------------------------------------------------
+// Deleting
+
+export async function deleteBook(b, { onChange } = {}) {
+  const name = b.label || b.title;
+  const ok = await confirmDialog({
+    title: `Delete “${name}”?`,
+    icon: 'delete',
+    message: 'The file is removed from disk, along with your progress, bookmarks and notes for it. This can’t be undone.',
+    confirm: 'Delete',
+    danger: true,
+  });
+  if (!ok) return;
+  try {
+    const r = await api.deleteBook(b.id);
+    snackbar(`Deleted “${name}”`);
+    // The last volume took its series with it, so don't leave the user on an empty series page.
+    const [, view, id] = location.hash.split(/[/?]/);
+    if (r.seriesRemoved && view === 'series' && id === String(b.seriesId)) navigate('/library');
+    else onChange?.();
+    refreshShell();
+  } catch (e) {
+    snackbar(e.message, { duration: 7000 });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Action menus
 
 /** ⋮ actions for a series card or the series page. `onChange` refreshes the caller. */
@@ -196,6 +222,8 @@ export function bookActions(anchor, b, { onChange, series, at } = {}) {
       b.seriesId && b.coverUrl && { label: 'Use as series artwork', icon: 'wallpaper', onClick: async () => { await api.setSeriesCoverFromBook(b.seriesId, b.id); snackbar('Series artwork updated'); changed(); } },
     );
   }
+  // The server decides: admins may delete anything, others only their own libraries' books and their downloads.
+  if (b.canDelete) items.push('-', { label: 'Delete', icon: 'delete', onClick: () => deleteBook(b, { onChange }) });
   return actions(anchor, items, { title: b.label || b.title, at });
 }
 

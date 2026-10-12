@@ -299,6 +299,7 @@ const PERMISSIONS = [
   { key: 'download', icon: 'download', label: 'Download & Send to', sub: 'Download original files and zips, and email books to e-readers.' },
   { key: 'contentFinder', icon: 'travel_explore', label: 'Content Finder', sub: 'Search plugin sources and download new books into the libraries they can see.' },
   { key: 'upload', icon: 'upload', label: 'Upload', sub: 'Upload files and folders into the libraries they can see.' },
+  { key: 'deleteBooks', icon: 'delete', label: 'Delete books', sub: 'Delete books in their own libraries and files they downloaded. Other books in shared libraries can’t be deleted.' },
   { key: 'apiAccess', icon: 'key', label: 'API keys', sub: 'Create keys for OPDS reading apps and the REST API.' },
 ];
 
@@ -342,7 +343,7 @@ export async function userDialog(user, { onSaved } = {}) {
       }));
     }
   } });
-  const perms = { download: true, contentFinder: false, apiAccess: true, upload: false, ...(user?.permissions || {}) };
+  const perms = { download: true, contentFinder: false, apiAccess: true, upload: false, deleteBooks: true, ...(user?.permissions || {}) };
   const permRows = PERMISSIONS.map((p) => {
     const input = h('input', { type: 'checkbox', checked: perms[p.key] });
     input.dataset.key = p.key;

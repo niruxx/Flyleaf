@@ -69,6 +69,7 @@ const PERMISSION_DEFAULTS = {
   contentFinder: false, // search plugins and download new books into libraries
   apiAccess: true, // create API keys for OPDS apps and the REST API
   upload: false, // upload files into the libraries they can see
+  deleteBooks: true, // delete books in their own libraries and files they downloaded (never other shared books)
 };
 
 function parseJson(text, fallback) {

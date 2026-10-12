@@ -116,6 +116,7 @@ export const api = {
   bookInfo: (id) => GET(`/api/books/${id}/info`),
   reader: (id) => GET(`/api/books/${id}/reader`),
   updateBook: (id, b) => PATCH(`/api/books/${id}`, b),
+  deleteBook: (id) => DEL(`/api/books/${id}`),
   refreshBook: (id) => POST(`/api/books/${id}/refresh`),
   setCover: (id, blob) => request('PUT', `/api/books/${id}/cover`, blob),
   generatedCover: (id, blob) => request('POST', `/api/books/${id}/cover/generated`, blob),

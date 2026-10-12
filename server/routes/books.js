@@ -1,16 +1,19 @@
 'use strict';
 
 const express = require('express');
+const fsp = require('node:fs/promises');
 const path = require('node:path');
 const { pipeline } = require('node:stream/promises');
-const { q } = require('../db');
+const { q, tx } = require('../db');
 const { requireAdmin, requirePermission } = require('../auth');
 const archive = require('../archive');
 const scanner = require('../scanner');
 const covers = require('../covers');
 const formats = require('../formats');
 const profiles = require('../profiles');
-const { getBook, toBook, seriesBooks } = require('../serialize');
+const { getBook, toBook, seriesBooks, canDeleteBook } = require('../serialize');
+const events = require('../events');
+const log = require('../log').logger('books');
 const { json } = require('../util');
 
 const router = express.Router();
@@ -211,6 +214,48 @@ router.post('/books/:id/refresh', requireAdmin, async (req, res) => {
     return res.status(500).json({ error: `Couldn't read the file: ${err.message}` });
   }
   res.json({ ok: true });
+});
+
+/**
+ * Delete a book: its file on disk, then everything Flyleaf knew about it. Users may only
+ * delete books in their own libraries or ones they downloaded (see canDeleteBook).
+ */
+router.delete('/books/:id', async (req, res) => {
+  const row = getBook(req.params.id, req.user);
+  if (!row) return res.status(404).json({ error: 'Book not found.' });
+  if (!canDeleteBook(req.user, row)) {
+    return res.status(403).json({ error: 'You can only delete books in your own libraries or ones you downloaded.' });
+  }
+  const lib = q('SELECT path FROM libraries WHERE id = ?').get(row.library_id);
+  const root = path.resolve(lib.path);
+  const file = path.resolve(row.path);
+  if (!file.startsWith(root + path.sep)) return res.status(400).json({ error: 'That file is outside its library folder.' });
+  try {
+    await fsp.rm(file, { recursive: row.format === 'folder', force: true });
+  } catch (e) {
+    return res.status(500).json({ error: require('../plugins/downloads').friendlyFsError(e, path.dirname(file)) });
+  }
+  // Tidy up folders the deletion left empty, never the library folder itself.
+  for (let dir = path.dirname(file); dir.startsWith(root + path.sep); dir = path.dirname(dir)) {
+    try {
+      await fsp.rmdir(dir);
+    } catch {
+      break;
+    }
+  }
+  const seriesRemoved = tx(() => {
+    q('DELETE FROM books WHERE id = ?').run(row.id);
+    // So a different file later saved at this path doesn't count as the old downloader's.
+    q('UPDATE downloads SET file = NULL WHERE file = ?').run(row.path);
+    if (!row.series_id || q('SELECT 1 FROM books WHERE series_id = ?').get(row.series_id)) return false;
+    q('DELETE FROM series WHERE id = ?').run(row.series_id);
+    return true;
+  });
+  await covers.removeCovers(row.id);
+  if (seriesRemoved) await covers.removeSeriesCover(row.series_id);
+  log.info(`${req.user.username} deleted "${row.title}" (${row.path})`);
+  events.emit('book.deleted', { bookId: row.id, libraryId: row.library_id, title: row.title, file: row.rel_path, userId: req.user.id });
+  res.json({ ok: true, seriesRemoved });
 });
 
 const rawImage = express.raw({ type: ['image/*', 'application/octet-stream'], limit: '25mb' });
