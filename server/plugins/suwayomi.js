@@ -8,8 +8,6 @@ const { q } = require('../db');
 const { json } = require('../util');
 const runtime = require('./runtime');
 const manager = require('./manager');
-const config = require('../config');
-const stores = require('./extension-store');
 
 const PLUGIN_ID = 'mihon';
 const err = (message, status = 400) => Object.assign(new Error(message), { status, expose: true });
@@ -58,44 +56,47 @@ async function graphql(query, variables) {
 async function status() {
   const about = await call('/api/v1/settings/about');
   const native = await nativeStores();
-  await migrateRepos().catch(() => {});
-  return { version: about?.version || null, url: connection().base, nativeStores: native, flyleafUrl: native ? null : flyleafUrl() };
+  return { version: about?.version || null, url: connection().base, nativeStores: native };
 }
 
-// Newer Suwayomi reads Mihon's index.pb "extension stores" itself; older versions only read
-// index.min.json, so for those Flyleaf serves a converted copy (extension-store.js).
-let storesSupport = null; // { base, native, at }
+// Mihon's newer repositories are "extension stores" with a compressed index.pb (Keiyoushi,
+// Yūzōnō…). Suwayomi v2.3+ reads them itself. Older versions only accept GitHub
+// index.min.json URLs (they reject anything else), so .pb stores need a newer Suwayomi.
+let storesSupport = null; // { base, native, version, at }
 async function nativeStores() {
   const { base } = connection();
   if (storesSupport && storesSupport.base === base && Date.now() - storesSupport.at < 600_000) return storesSupport.native;
-  let native = false;
-  try {
-    await graphql('{ extensionStores { nodes { indexUrl } } }');
-    native = true;
-  } catch {}
-  storesSupport = { base, native, at: Date.now() };
+  const about = await call('/api/v1/settings/about').catch(() => null);
+  const version = about?.version || null;
+  const [maj, min] = String(version || '').replace(/^v/i, '').split('.').map(Number);
+  let native = maj > 2 || (maj === 2 && min >= 3);
+  if (!native) {
+    try {
+      await graphql('{ extensionStores { nodes { indexUrl } } }');
+      native = true;
+    } catch {}
+  }
+  storesSupport = { base, native, version, at: Date.now() };
   return native;
 }
 
-/** Where Suwayomi can reach Flyleaf, for converted stores (plugin setting, else this machine). */
-function flyleafUrl() {
-  const s = json(q('SELECT settings FROM plugins WHERE id = ?').get(PLUGIN_ID)?.settings, {});
-  return String(s.flyleafUrl || `http://127.0.0.1:${config.port}`).replace(/\/+$/, '');
-}
-
 const isPb = (u) => /\.pb(\?.*)?$/i.test(u);
+const isGithubJson = (u) => /^https:\/\/(?:www\.|raw\.)?(?:github|githubusercontent)\.com\/[^/]+\/[^/]+/i.test(u) && !isPb(u);
+// Suwayomi lists a JSON repository by its repo.json and may follow a repo to its index.pb, so
+// compare repositories by their folder.
+const repoBase = (u) => String(u).replace(/\/(?:index\.min\.json|repo\.json|index\.pb)(?:\?.*)?$/i, '').toLowerCase();
+const sameRepo = (a, b) => repoBase(a) === repoBase(b);
 
 async function repos() {
   if (await nativeStores()) {
     const data = await graphql('{ extensionStores { nodes { indexUrl } } }');
     return (data.extensionStores?.nodes || []).map((n) => n.indexUrl);
   }
-  const list = (await graphql('{ settings { extensionRepos } }')).settings.extensionRepos || [];
-  // Show converted stores by their real address.
-  return list.map((u) => stores.originalOf(u) || u);
+  return (await graphql('{ settings { extensionRepos } }')).settings.extensionRepos || [];
 }
 
 // Repositories whose index.min.json is now only a stub ("Outdated App"): use their index.pb.
+// (Suwayomi also follows the "index_v2" link in their repo.json, so this just saves a step.)
 const MOVED_TO_PB = {
   'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json': 'https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.pb',
 };
@@ -105,18 +106,22 @@ function normalizeRepo(u) {
   let url = String(u || '').trim();
   const deep = url.match(/^[a-z]+:\/\/[a-z-]+\?(?:.*&)?url=([^&]+)/i);
   if (deep && !/^https?:/i.test(url)) url = decodeURIComponent(deep[1]);
-  return MOVED_TO_PB[url] || url;
+  return url;
 }
+
+/** Is this a Mihon/Tachiyomi repository link (rather than a Flyleaf plugin repository)? */
+const isMihonRepo = (u) => /^(?:mihon|tachiyomi|aniyomi):\/\//i.test(String(u).trim()) || isPb(u) || /\/index\.min\.json(?:\?.*)?$/i.test(String(u).trim());
 
 async function setRepos(list) {
   if (Array.isArray(list)) list = [...new Set(list.map(normalizeRepo))];
   if (!Array.isArray(list) || list.some((u) => typeof u !== 'string' || !/^https?:\/\/\S+$/.test(u))) throw err('Repository URLs must start with http:// or https://');
   if (await nativeStores()) {
+    list = list.map((u) => MOVED_TO_PB[u] || u);
     const current = await repos();
-    for (const url of current.filter((u) => !list.includes(u))) {
+    for (const url of current.filter((u) => !list.some((x) => sameRepo(x, u)))) {
       await graphql('mutation ($url: String!) { removeExtensionStore(input: { indexUrl: $url }) { clientMutationId } }', { url });
     }
-    for (const url of list.filter((u) => !current.includes(u))) {
+    for (const url of list.filter((u) => !current.some((x) => sameRepo(x, u)))) {
       await graphql('mutation ($url: String!) { addExtensionStore(input: { indexUrl: $url }) { clientMutationId } }', { url })
         .catch((e) => {
           throw err(`Suwayomi couldn’t read ${url}: ${e.message.replace(/^Suwayomi: /, '')}`, 502);
@@ -124,17 +129,22 @@ async function setRepos(list) {
     }
     return repos();
   }
-  // Older Suwayomi: index.pb stores go through Flyleaf's converter.
-  const mapped = list.map((u) => (isPb(u) ? `${flyleafUrl()}/mihon-bridge/${stores.register(u)}/index.min.json` : u));
-  await graphql('mutation ($repos: [String!]!) { setSettings(input: { settings: { extensionRepos: $repos } }) { settings { extensionRepos } } }', { repos: mapped });
+  // Older Suwayomi: only GitHub index.min.json repositories.
+  const version = storesSupport?.version || 'this version';
+  const pb = list.find(isPb);
+  if (pb) {
+    throw err(`Suwayomi ${version} can’t use index.pb repositories like ${pb}. They need Suwayomi v2.3 or newer, which reads them itself. Update Suwayomi-Server (for Docker: docker pull ghcr.io/suwayomi/suwayomi-server:stable and recreate the container), then add it again.`);
+  }
+  const other = list.find((u) => !isGithubJson(u));
+  if (other) throw err(`Suwayomi ${version} only accepts GitHub repositories (https://raw.githubusercontent.com/…/index.min.json). Update Suwayomi to v2.3 or newer to use ${other}.`);
+  try {
+    await graphql('mutation ($repos: [String!]!) { setSettings(input: { settings: { extensionRepos: $repos } }) { settings { extensionRepos } } }', { repos: list });
+  } catch (e) {
+    throw err(`Suwayomi rejected the repository list: ${e.message.replace(/^Suwayomi: /, '')}`, 502);
+  }
   return repos();
 }
 
-/** Earlier Flyleaf versions saved Keiyoushi's stub index.min.json; switch those to index.pb. */
-async function migrateRepos() {
-  const list = await repos();
-  if (list.some((u) => MOVED_TO_PB[u])) await setRepos(list);
-}
 
 /** All extensions from the configured repositories (refreshed from the repos each time). */
 async function extensions() {
@@ -225,7 +235,7 @@ async function suggestedRepos() {
       name: known.name || repoKey(url).split('/')[0],
       description: known.description || null,
       nsfw: Boolean(known.nsfw),
-      // index.pb stores work too: newer Suwayomi reads them, and Flyleaf converts them for older ones.
+      // index.pb stores need Suwayomi v2.3+ (the dialog says so on older versions).
       supported: ok,
       format: isPb(url) ? 'pb' : 'json',
     };
@@ -238,4 +248,4 @@ async function suggestedRepos() {
   return result;
 }
 
-module.exports = { PLUGIN_ID, status, repos, setRepos, extensions, extensionAction, suggestedRepos, normalizeRepo, nativeStores };
+module.exports = { PLUGIN_ID, status, repos, setRepos, extensions, extensionAction, suggestedRepos, normalizeRepo, nativeStores, isMihonRepo, sameRepo };

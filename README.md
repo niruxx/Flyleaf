@@ -107,7 +107,7 @@ Anime+ Sources
 
 - 📜 **WEBTOON downloads** – a WEBTOON source for Content Finder: search Originals and Canvas, download episodes as CBZ, and they open in webtoon (vertical scroll) mode.
 - 🧭 **Discover in Content Finder** – recommendations from outside your library: Flyleaf searches your Content Finder sources for the authors and genres you like and suggests what you don't have yet. Pick which sources it uses in *Settings → Preferences*.
-- 🧩 **One-click Mihon repositories** from [wotaku.wiki](https://wotaku.wiki/ext/mihon) and [Yūzōnō](https://yuzono.github.io/extensions), support for Mihon's newer `index.pb` repositories (Keiyoushi's full 1,400+ extensions) even on older Suwayomi, and pasted `mihon://` links just work.
+- 🧩 **One-click Mihon repositories** from [wotaku.wiki](https://wotaku.wiki/ext/mihon) and [Yūzōnō](https://yuzono.github.io/extensions), support for Mihon's newer `index.pb` repositories (Keiyoushi's full 1,400+ extensions) on Suwayomi v2.3+, and pasted `mihon://` links just work.
 - 💡 **Recommendations** – a *Recommended for you* shelf on Home (and a full page) built from your own reading, plus *You might also like* in every book's Details. It all runs on your server, with no AI service or account needed.
 - 🖼️ **Make it yours** – profile pictures, and a per-user background picture or GIF behind the whole app (*Settings → Themes → Background*).
 - 🔎 **Better search & sorting** – ranked search results, title A–Z / Z–A and author sorts with an A–Z jump bar, bookmark sorting, and **More like this** recommendations on series pages.
@@ -431,14 +431,16 @@ java -Dsuwayomi.tachidesk.config.server.kcefEnabled=false \
 
 **3. Add extensions:** press **Extensions**. Under **Popular repositories**, Flyleaf lists the Mihon repositories from the community list at [wotaku.wiki/ext/mihon](https://wotaku.wiki/ext/mihon), plus [Yūzōnō](https://yuzono.github.io/extensions); press **Add** next to one (Keiyoushi is the big one, with 1,400+ extensions). You can also paste any repository yourself: an `index.pb` or `index.min.json` URL, or a `mihon://` / `tachiyomi://` “add repo” link from a repository's website. Then install the extensions you want; each one appears in Content Finder straight away. Only add repositories you trust, for sources you're allowed to download from.
 
-**Newer `index.pb` repositories.** Mihon's newer repository format is a compressed `index.pb` file. Keiyoushi, Yūzōnō and FelipeGFA use it, and Keiyoushi's old `index.min.json` is now an empty “Outdated App” stub. Flyleaf handles both kinds of Suwayomi:
+**Newer `index.pb` repositories need Suwayomi v2.3 or newer.** Mihon's newer repository format is a compressed `index.pb` file. Keiyoushi, Yūzōnō and FelipeGFA use it, and Keiyoushi's old `index.min.json` is now an empty “Outdated App” stub. Suwayomi v2.3+ reads `index.pb` itself (and follows Keiyoushi's old link to its new index). Older Suwayomi versions only accept GitHub `index.min.json` URLs and reject everything else, so:
 
-| Your Suwayomi | What happens |
-|---|---|
-| Recent versions with *extension stores* | Flyleaf passes the `index.pb` URL straight to Suwayomi. |
-| Older versions (only `index.min.json`) | Flyleaf reads the `index.pb` and serves Suwayomi a converted copy at `/mihon-bridge/…` on the Flyleaf server, with the real repository name and signing key. APK and icon downloads are redirected to the original files, so nothing is re-hosted. |
+| Your Suwayomi | `index.pb` links (Keiyoushi, Yūzōnō…) | GitHub `index.min.json` links |
+|---|---|---|
+| v2.3 or newer | ✅ | ✅ |
+| v2.0 – v2.2 | ❌ update Suwayomi first | ✅ (Keiyoushi's is only a stub) |
 
-The Extensions dialog says which mode is in use. For the converted copies, Suwayomi has to reach Flyleaf: by default at `http://127.0.0.1:<port>`, which works when both run on the same machine. If Suwayomi runs in Docker, set **Flyleaf address for Suwayomi** in the plugin's settings (for example `http://host.docker.internal:7878`, with `--add-host=host.docker.internal:host-gateway` on the Suwayomi container). If you added Keiyoushi's `index.min.json` with an earlier Flyleaf version, it's switched to `index.pb` automatically.
+The Extensions dialog shows which you have, greys out the repositories your Suwayomi can't use, and explains why if adding one fails. To update a Docker install: `docker pull ghcr.io/suwayomi/suwayomi-server:stable`, then recreate the container (your extensions and settings are kept in the volume).
+
+Pasted a Mihon link into *Add repository* (the box for Flyleaf's own plugin repositories) by mistake? Flyleaf recognises `index.pb`, `index.min.json` and `mihon://` links there and adds them to Suwayomi instead.
 
 Aniyomi (anime) repositories, such as Yūzōnō's anime store, are left out: they're for video, which Suwayomi and Flyleaf don't play.
 

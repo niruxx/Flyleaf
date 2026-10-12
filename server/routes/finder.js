@@ -235,7 +235,20 @@ admin.delete('/:id', (req, res) => {
 });
 
 admin.post('/repos', async (req, res) => {
-  const r = await manager.addRepo(String(req.body?.url || '').trim());
+  const url = String(req.body?.url || '').trim();
+  // Mihon/Tachiyomi repositories (index.pb, index.min.json, mihon:// links) belong to Suwayomi, not here.
+  if (suwayomi.isMihonRepo(url)) {
+    const mihon = q('SELECT settings FROM plugins WHERE id = ?').get(suwayomi.PLUGIN_ID);
+    if (!mihon) {
+      throw Object.assign(new Error('That’s a Mihon extension repository, not a Flyleaf plugin repository. Install the “Mihon extensions” plugin (it needs Suwayomi-Server), then add it under Extensions.'), { status: 400, expose: true });
+    }
+    const list = await suwayomi.repos();
+    const target = suwayomi.normalizeRepo(url);
+    if (list.some((u) => suwayomi.sameRepo(u, target))) return res.status(200).json({ mihon: true, already: true });
+    await suwayomi.setRepos([...list, target]);
+    return res.status(201).json({ mihon: true });
+  }
+  const r = await manager.addRepo(url);
   res.status(201).json(r);
 });
 

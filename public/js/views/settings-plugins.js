@@ -166,10 +166,11 @@ function installFromFile() {
 }
 
 async function addRepo() {
-  const url = field('Repository URL', { type: 'url', required: true, support: 'Link to the repository’s index.json' });
+  const url = field('Repository URL', { type: 'text', required: true, support: 'Link to the repository’s index.json. Mihon links (index.pb, mihon://…) are added to Suwayomi.' });
   await formDialog({ title: 'Add plugin repository', icon: 'add_link', fields: [url], submit: 'Add', onSubmit: async () => {
     const r = await api.addPluginRepo(url.input.value.trim());
-    snackbar(`Added ${r.name || 'repository'} (${r.count} plugins)`);
+    if (r.mihon) snackbar(r.already ? 'Suwayomi already has that Mihon repository.' : 'Added to Suwayomi. Install its extensions under Mihon extensions → Extensions.', { duration: 6000 });
+    else snackbar(`Added ${r.name || 'repository'} (${r.count} plugins)`);
   } });
   reload();
 }
@@ -218,10 +219,13 @@ async function renderMihon(body) {
   const suggested = h('div.settings-group', h('div.setting-row', loading()));
   const suggestedNote = h('p.body-small.muted', { style: { margin: '8px 0 0' } });
   let suggestions = [];
+  // Suwayomi lists a repository by its repo.json or index.pb, so compare by folder.
+  const base = (u) => String(u).replace(/\/(?:index\.min\.json|repo\.json|index\.pb)(?:\?.*)?$/i, '').toLowerCase();
   const drawSuggested = () => {
-    const has = (u) => repos.includes(u);
+    const has = (u) => repos.some((r) => base(r) === base(u));
     suggested.replaceChildren(...suggestions.map((r) => {
-      const add = button(has(r.url) ? 'Added' : 'Add', { variant: has(r.url) ? 'text' : 'tonal', icon: has(r.url) ? 'check' : 'add', disabled: has(r.url) || !r.supported, onclick: async () => {
+      const needsUpdate = r.format === 'pb' && !status.nativeStores;
+      const add = button(has(r.url) ? 'Added' : 'Add', { variant: has(r.url) ? 'text' : 'tonal', icon: has(r.url) ? 'check' : 'add', disabled: has(r.url) || !r.supported || needsUpdate, onclick: async () => {
         add.disabled = true;
         try {
           repos = await api.setMihonRepos([...repos, r.url]);
@@ -236,7 +240,7 @@ async function renderMihon(body) {
       } });
       return h('div.setting-row', icon(r.nsfw ? 'explicit' : 'inventory_2'),
         h('div.text', h('div', r.name, r.nsfw ? h('span.mini-chip', '18+') : null),
-          h('div.s', r.supported ? r.description || r.url : 'Couldn’t be reached just now.')),
+          h('div.s', needsUpdate ? 'Needs Suwayomi v2.3 or newer (index.pb repository).' : r.supported ? r.description || r.url : 'Couldn’t be reached just now.')),
         add);
     }));
   };
@@ -323,9 +327,10 @@ async function renderMihon(body) {
 
   body.replaceChildren(
     h('p.body-medium', `Connected to Suwayomi ${status.version || ''} at ${status.url}. Extensions you install appear as sources in Content Finder.`),
-    h('p.body-small.muted', { style: { marginTop: '6px' } }, status.nativeStores
-      ? 'This Suwayomi reads Mihon’s newer index.pb repositories itself.'
-      : `This Suwayomi only reads index.min.json, so Flyleaf converts index.pb repositories (Keiyoushi, Yūzōnō…) for it. Suwayomi fetches them from ${status.flyleafUrl}; if it can’t reach that, set “Flyleaf address for Suwayomi” in this plugin’s settings.`),
+    status.nativeStores
+      ? h('p.body-small.muted', { style: { marginTop: '6px' } }, 'This Suwayomi reads Mihon’s newer index.pb repositories (Keiyoushi, Yūzōnō…) itself.')
+      : h('div.form-error', { style: { marginTop: '10px' } }, icon('system_update'),
+        h('span', `Suwayomi ${status.version || ''} only accepts GitHub index.min.json repositories. Mihon’s newer index.pb repositories, including Keiyoushi’s full list and Yūzōnō, need Suwayomi v2.3 or newer. Update Suwayomi-Server, then reopen this dialog.`)),
     h('p.label-large', { style: { margin: '16px 0 8px' } }, 'Repositories'),
     repoList,
     h('div.repo-add', repoField, addRepo),

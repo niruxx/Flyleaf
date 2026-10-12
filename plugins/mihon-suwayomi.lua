@@ -8,7 +8,7 @@
 plugin = {
   id = "mihon",
   name = "Mihon extensions",
-  version = "1.1.0",
+  version = "1.1.1",
   author = "Flyleaf",
   description = "Use Mihon/Tachiyomi extensions as sources, through a Suwayomi-Server you run.",
   site = "https://github.com/Suwayomi/Suwayomi-Server",
@@ -20,7 +20,6 @@ plugin = {
     { key = "password", label = "Password", type = "password" },
     { key = "languages", label = "Languages", type = "text", default = "en", help = "Comma-separated language codes to show, e.g. en,ja. Leave empty for all." },
     { key = "nsfw", label = "Show NSFW sources", type = "toggle", default = false },
-    { key = "flyleafUrl", label = "Flyleaf address for Suwayomi", type = "text", help = "Only for older Suwayomi versions with index.pb repositories (Keiyoushi, Yūzōnō): how Suwayomi reaches Flyleaf. Default http://127.0.0.1:<port>; in Docker try http://host.docker.internal:7878" },
   },
 }
 
