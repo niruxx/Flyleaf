@@ -147,47 +147,22 @@ function seriesStats(id, user) {
   return out;
 }
 
-/**
- * "More like this": other series the user can see, scored by shared genres and tags
- * (rare ones count more than common ones), shared writers/artists, publisher,
- * type of library and release year. Related series are left out (they have their own section).
- */
+// "More like this" for one series, and personal recommendations (see recommend.js).
 router.get('/series/:id/similar', (req, res) => {
   const s = visibleSeries(req, res);
   if (!s) return;
   const limit = Math.min(Math.max(Number(req.query.limit) || 12, 1), 40);
-  const { accessFilter } = require('../util');
-  const age = accessFilter(req.user, 's');
-  const rows = q(`SELECT s.id, s.genres, s.tags, s.people, s.publisher, s.year, l.kind FROM series s JOIN libraries l ON l.id = s.library_id
-                  WHERE ${age.sql} AND EXISTS (SELECT 1 FROM books b WHERE b.series_id = s.id AND b.missing = 0)`).all(...age.args);
-  const lower = (list) => new Set(json(list, []).map((x) => String(x).toLowerCase().trim()).filter(Boolean));
-  const names = (people) => new Set(json(people, []).map((p) => String(p.name || '').toLowerCase().trim()).filter(Boolean));
-  // How common each genre/tag is, so "Fantasy" matters less than "Time travel".
-  const freq = new Map();
-  for (const r of rows) for (const g of new Set([...lower(r.genres), ...lower(r.tags)])) freq.set(g, (freq.get(g) || 0) + 1);
-  const weight = (g) => 1 / Math.log2(2 + (freq.get(g) || 0));
-  const me = rows.find((r) => r.id === s.id) || { genres: '[]', tags: '[]', people: '[]' };
-  const myGenres = lower(me.genres);
-  const myTags = lower(me.tags);
-  const myPeople = names(me.people);
-  const exclude = new Set([s.id, ...q('SELECT related_id FROM series_relations WHERE series_id = ?').all(s.id).map((r) => r.related_id)]);
-  const scored = [];
-  for (const r of rows) {
-    if (exclude.has(r.id)) continue;
-    let score = 0;
-    for (const g of lower(r.genres)) if (myGenres.has(g)) score += 4 * weight(g);
-    let tagScore = 0;
-    for (const t of lower(r.tags)) if (myTags.has(t) || myGenres.has(t)) tagScore += 2 * weight(t);
-    score += Math.min(tagScore, 6);
-    for (const n of names(r.people)) if (myPeople.has(n)) score += 3;
-    if (me.publisher && r.publisher && me.publisher.toLowerCase() === r.publisher.toLowerCase()) score += 0.5;
-    if (r.kind === me.kind) score += 0.5;
-    if (me.year && r.year && Math.abs(me.year - r.year) <= 5) score += 0.3;
-    if (score >= 1) scored.push({ id: r.id, score });
-  }
-  scored.sort((a, b) => b.score - a.score);
-  const ids = scored.slice(0, limit).map((x) => x.id);
+  const ids = require('../recommend').similar(req.user, s.id, limit);
   res.json(ids.length ? listSeries(req.user, { rankIds: ids, sort: 'relevance', limit }).items : []);
+});
+
+router.get('/recommendations', (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 24, 1), 60);
+  const picks = require('../recommend').forYou(req.user, limit);
+  if (!picks.length) return res.json([]);
+  const why = new Map(picks.map((p) => [p.id, p]));
+  const items = listSeries(req.user, { rankIds: picks.map((p) => p.id), sort: 'relevance', limit }).items;
+  res.json(items.map((it) => ({ ...it, reason: why.get(it.id)?.reason || null, becauseId: why.get(it.id)?.becauseId || null })));
 });
 
 // Per-user state: want to read, reading status, personal tags, blurred artwork.

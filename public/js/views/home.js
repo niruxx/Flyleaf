@@ -1,6 +1,6 @@
 import { api } from '../api.js';
 import { isAdmin, session, render } from '../router.js';
-import { h, icon, skeleton, emptyState, stagger } from '../ui.js';
+import { h, icon, skeleton, emptyState, stagger, pageHeader } from '../ui.js';
 import { seriesCard, resumeCard } from '../components/cards.js';
 import { scanIndicator } from './scan.js';
 import { refreshShell } from '../shell.js';
@@ -58,9 +58,21 @@ export async function homeView(view, params, stale) {
     );
 
   // append() would print false/null as text, so leave out sections with nothing to show.
+  // Recommendations load after the rest of the page, so they never slow it down.
+  const recs = h('section.section.recs', { hidden: true });
+  api.recommendations(18).then((list) => {
+    if (!list.length || !recs.isConnected) return;
+    recs.append(
+      h('div.section-head', h('h2', 'Recommended for you'), h('a.btn.text.state', { href: '#/recommended' }, 'See all', icon('chevron_right'))),
+      stagger(h('div.shelf', list.map((s) => recCard(s, reload)))),
+    );
+    recs.hidden = false;
+  }).catch(() => {});
+
   page.append(...[
     data.continueReading.length > 0 &&
       h('section.section.enter', h('div.section-head', h('h2', 'Continue reading')), stagger(h('div.continue', data.continueReading.map(resumeCard)))),
+    recs,
     shelf('Want to read', data.wantToRead, '#/want-to-read'),
     shelf('Recently added', data.recentlyAdded, '#/library?sort=added'),
     shelf('Recently updated', data.recentlyUpdated, '#/library?sort=updated'),
@@ -78,6 +90,33 @@ export async function homeView(view, params, stale) {
         )),
       )),
   ].filter(Boolean));
+}
+
+/** A series card whose subtitle says why it was recommended. */
+export function recCard(s, onChange) {
+  const card = seriesCard(s, { onChange });
+  const sub = card.querySelector('.t-sub');
+  if (sub && s.reason) {
+    card.classList.add('rec-card');
+    sub.textContent = s.reason;
+    sub.title = s.reason;
+  }
+  return card;
+}
+
+/** All recommendations, as a grid. */
+export async function recommendedView(view, params, stale) {
+  const page = h('div.page');
+  view.append(page);
+  page.append(pageHeader('Recommended for you'), h('p.muted.enter', { style: { marginTop: '-14px', marginBottom: '16px' } },
+    'Picked from what you read, finish, rate and save. Series you’ve started or saved aren’t repeated here.'));
+  const body = h('div', skeleton('grid'));
+  page.append(body);
+  const list = await api.recommendations(60);
+  if (stale()) return;
+  body.replaceChildren(list.length
+    ? stagger(h('div.grid', list.map((s) => recCard(s, () => render()))))
+    : emptyState('recommend', 'Nothing to recommend yet', 'Read a few books, or mark series as completed or Want to read, and suggestions will show up here.'));
 }
 
 /** Your own libraries and the shared ones, as separate sections. */

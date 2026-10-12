@@ -19,7 +19,6 @@
 ---
 ## TODO
 Screensaver functionality (timeout section)
-Recommendations (Possibly through AI)
 
 ## TODO: Sources
 Webtoons
@@ -60,7 +59,8 @@ Anime+ Sources
 - **Related series** (sequels, spin-offs…), age ratings, publication status
 - Sort by **title A–Z / Z–A**, **author**, date added, last read, year or last updated, with an **A–Z jump bar**
 - **Search that ranks**: exact titles first, words matched from their start (so “it” doesn't find *Kitchen*), accents ignored
-- **More like this** on every series page, from shared genres, tags and creators
+- **More like this** on every series page and in each book's Details, from shared genres, tags and creators
+- **Recommended for you** on Home: picks from what you read, finish and save, each with a reason (“Because you finished *Berserk*”)
 
 ### 🔎 Metadata & artwork
 - Scrape from **AniList · MangaDex · MyAnimeList · MangaUpdates · ComicVine · Open Library · Google Books**
@@ -105,6 +105,7 @@ Anime+ Sources
 
 ## 🆕 What's new
 
+- 💡 **Recommendations** – a *Recommended for you* shelf on Home (and a full page) built from your own reading, plus *You might also like* in every book's Details. It all runs on your server, with no AI service or account needed.
 - 🖼️ **Make it yours** – profile pictures, and a per-user background picture or GIF behind the whole app (*Settings → Themes → Background*).
 - 🔎 **Better search & sorting** – ranked search results, title A–Z / Z–A and author sorts with an A–Z jump bar, bookmark sorting, and **More like this** recommendations on series pages.
 - 🔗 **Share links that work at home** – *Send to… → Copy home-network link* gives the server's LAN address (like `http://192.168.1.20:7878`) instead of whatever address your browser used; *Copy internet link* uses your Public URL.
@@ -456,7 +457,8 @@ Pictures are stored in `data/avatars` and `data/backgrounds`. Large still images
 
 - **Search** matches titles, alternative titles, book titles and creators. Every word you type has to start a word in the result, and results are ranked: exact title, then titles starting with your words, then everything else. Accents don't matter (*pokemon* finds *Pokémon*). Search results default to **Best match**; you can still sort them like any list.
 - **Sorting:** *Title A–Z*, *Title Z–A* and *Author* ignore a leading “The”, “A” or “An”. While sorting by title, an **A–Z bar** jumps to a letter (“#” is numbers and symbols).
-- **More like this** at the bottom of a series page suggests series you can see that share genres (rarer genres count more), tags, writers or artists, plus small boosts for the same publisher, type and era. It's also in the API: `GET /api/series/{id}/similar`.
+- **Recommended for you** (Home, and *See all*) learns from your reading: finished books count most, then books you're reading, time spent, series you marked *Completed*, *Reading*, *Plan to read* or *On hold*, and *Want to read*. *Dropped* series count against their genres. You never get suggestions for something you've already started, finished, dropped or saved, and each suggestion says which of your books it's based on. Until you've read anything, it shows what other people on the server read most. API: `GET /api/recommendations`.
+- **More like this** at the bottom of a series page (and *You might also like* in a book's Details) suggests series you can see that share genres (rarer genres count more), tags, writers or artists, plus small boosts for the same publisher, type and era. It's also in the API: `GET /api/series/{id}/similar`.
 
 ### 👥 Users & sharing outside your network
 

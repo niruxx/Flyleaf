@@ -1,7 +1,7 @@
 // Flyleaf service worker: keeps the app shell available offline and caches
 // covers. Book files, pages and API data always go to the network.
 
-const VERSION = 'flyleaf-v6';
+const VERSION = 'flyleaf-v7';
 const SHELL = [
   '/',
   '/css/m3.css',

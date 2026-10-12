@@ -3928,3 +3928,33 @@ html.has-bg body.scrolled .app-bar {
     scrollbar-width: none;
   }
 }
+
+/* Recommendations in the book Details sheet */
+.info-recs {
+  margin-top: 20px;
+}
+.info-recs[hidden] {
+  display: none;
+}
+.info-recs h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.info-recs .shelf {
+  margin: 0;
+  padding-bottom: 4px;
+}
+
+/* "Because you finished …" wraps to two lines instead of being cut off. */
+.rec-card .t-sub {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}

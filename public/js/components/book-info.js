@@ -2,7 +2,8 @@
 
 import { api, can, downloadUrl } from '../api.js';
 import { session, navigate, isAdmin } from '../router.js';
-import { h, icon, button, cover, dialog, formatBytes, formatDuration, timeAgo, copyText, loading } from '../ui.js';
+import { h, icon, button, cover, dialog, formatBytes, formatDuration, timeAgo, copyText, loading, stagger } from '../ui.js';
+import { seriesCard } from './cards.js';
 
 const FORMAT_LABEL = {
   epub: 'EPUB', mobi: 'MOBI', azw3: 'AZW3', fb2: 'FB2', txt: 'Plain text', docx: 'Word (DOCX)', rtf: 'Rich text (RTF)', pdf: 'PDF',
@@ -146,6 +147,22 @@ function render(b, close) {
       metaFacts.children.length > 0 && h('section.info-card', h('h3', icon('library_books'), 'About this book'), metaFacts),
       h('section.info-card.wide', h('h3', icon('folder_open'), 'File'), fileFacts),
     ),
+    recommendations(b, close),
     h('div.dialog-actions', button('Close', { variant: 'text', onclick: () => close() })),
   );
+}
+
+/** "You might also like": series similar to this book's, loaded after the sheet opens. */
+function recommendations(b, close) {
+  const section = h('section.info-recs', { hidden: true });
+  if (!b.seriesId) return section;
+  api.similarSeries(b.seriesId, 12).then((list) => {
+    if (!list.length) return;
+    const shelf = stagger(h('div.shelf', list.map((s) => seriesCard(s))));
+    // Opening a suggestion leaves the sheet.
+    shelf.addEventListener('click', (e) => e.target.closest('a[href^="#/series/"]') && close());
+    section.append(h('h3', icon('recommend'), 'You might also like'), shelf);
+    section.hidden = false;
+  }).catch(() => {});
+  return section;
 }

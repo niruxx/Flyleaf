@@ -281,7 +281,7 @@ function highlight(path) {
     if (on) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   }
-  const navKey = { '': 'home', library: 'library', series: 'library', genre: 'library', person: 'library', collection: 'library', collections: 'library', search: 'library', 'want-to-read': 'want', bookmarks: 'bookmarks' }[root];
+  const navKey = { '': 'home', library: 'library', series: 'library', genre: 'library', person: 'library', collection: 'library', collections: 'library', search: 'library', recommended: 'home', 'want-to-read': 'want', bookmarks: 'bookmarks' }[root];
   for (const a of document.querySelectorAll('.bottom-nav a')) {
     if (a.dataset.nav === navKey) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');

@@ -94,6 +94,7 @@ export const api = {
   seriesList: (params) => GET(`/api/series${qs(params)}`),
   series: (id) => GET(`/api/series/${id}`),
   similarSeries: (id, limit) => GET(`/api/series/${id}/similar${qs({ limit })}`),
+  recommendations: (limit) => GET(`/api/recommendations${qs({ limit })}`),
   setSeriesUser: (id, b) => PUT(`/api/series/${id}/user`, b),
   setSeriesFinished: (id, finished) => POST(`/api/series/${id}/finished`, { finished }),
   updateSeries: (id, b) => PATCH(`/api/series/${id}`, b),
