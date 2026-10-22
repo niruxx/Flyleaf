@@ -3,7 +3,7 @@
 
 import { api } from '../api.js';
 import { navigate } from '../router.js';
-import { h, icon, iconButton, button, field, snackbar, confirmDialog, formDialog, dialog, loading, toggleSwitch, menu, setButtonLabel } from '../ui.js';
+import { h, icon, iconButton, button, field, snackbar, confirmDialog, formDialog, dialog, loading, toggleSwitch, menu, setButtonLabel, formatBytes } from '../ui.js';
 
 const group = (...rows) => h('div.settings-group', ...rows);
 // Refresh the panel – unless the user has already gone elsewhere (closing a dialog also runs this).
@@ -28,6 +28,8 @@ export async function pluginsPanel(panel, stale) {
   panel.append(
     h('p.note', { style: { margin: '-8px 4px 16px' } },
       'Plugins are small Lua scripts that teach Content Finder how to search a website and download from it. They run in a sandbox with no access to your files. Only install plugins for sources you’re allowed to download from.'),
+    h('div.sub-head', 'Mihon & Tachiyomi extensions'),
+    runtimeCard(stale),
     h('div.sub-head', `Installed (${installed.length})`),
     installed.length ? group(...installed.map(installedRow)) : h('p.note', 'No plugins installed.'),
     h('div', { style: { marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' } },
@@ -75,6 +77,174 @@ export async function pluginsPanel(panel, stale) {
         : h('p.note', 'Everything from your repositories is installed and up to date.'),
     );
   }).catch((e) => catalogBox.replaceChildren(h('div.form-error', icon('error'), e.message)));
+}
+
+// ---------------------------------------------------------------------------
+// The built-in extension runtime: Suwayomi-Server, downloaded and run by Flyleaf.
+
+const PHASE = { running: 'Running', starting: 'Starting', stopping: 'Stopping', stopped: 'Stopped' };
+
+function runtimeCard(stale) {
+  const box = h('div', loading());
+  let timer = null;
+  async function draw() {
+    clearTimeout(timer);
+    if (stale() || (box.dataset.drawn && !box.isConnected)) return;
+    let st;
+    try {
+      st = await api.extRuntime();
+    } catch (e) {
+      box.replaceChildren(h('div.form-error', icon('error'), e.message));
+      return;
+    }
+    if (stale()) return;
+    box.dataset.drawn = '1';
+    box.replaceChildren(...runtimeView(st, draw).filter(Boolean));
+    // Keep the card live while something is happening.
+    if (['installing', 'starting', 'stopping'].includes(st.phase)) timer = setTimeout(draw, 1500);
+  }
+  draw();
+  return box;
+}
+
+function runtimeView(st, redraw) {
+  const act = (fn, done) => async () => {
+    try {
+      await fn();
+      if (done) snackbar(done);
+    } catch (e) {
+      snackbar(e.message, { duration: 7000 });
+    }
+    redraw();
+  };
+  const error = st.error && h('div.form-error', { style: { marginTop: '8px' } }, icon('error'), st.error);
+
+  if (st.phase === 'absent') {
+    return [
+      group(h('div.setting-row', icon('extension'),
+        h('div.text', h('div', 'Extension runtime'),
+          h('div.s', 'Use Mihon and Tachiyomi extensions, including old APKs, as Content Finder sources.')),
+        button('Set up', { icon: 'download', onclick: act(() => api.installExtRuntime()) }))),
+      error,
+      h('p.note', 'Flyleaf downloads, runs and updates Suwayomi-Server and Java for you: about 230 MB to download, 340 MB on disk, and around 500 MB of memory while it runs. Already have your own Suwayomi-Server? Install the “Mihon extensions” plugin below and point it at that instead.'),
+    ];
+  }
+
+  if (st.phase === 'installing') {
+    const pct = st.total ? Math.min(100, Math.round((st.received / st.total) * 100)) : null;
+    return [group(h('div.setting-row', icon('downloading'),
+      h('div.text', h('div', st.step || 'Setting up…'),
+        h('div.s', st.received ? `${formatBytes(st.received)}${st.total ? ` of ${formatBytes(st.total)}` : ''}` : 'This only happens once.'),
+        h(`div.progress${pct == null ? '.indeterminate' : ''}`, { style: { marginTop: '8px' } }, h('span', { style: pct == null ? {} : { width: `${pct}%` } }))),
+    ))];
+  }
+
+  const running = st.phase === 'running';
+  const busy = st.phase === 'starting' || st.phase === 'stopping';
+  const more = iconButton('more_vert', 'Runtime options', () => menu(more, [
+    running && { label: 'Restart', icon: 'restart_alt', onClick: act(() => api.restartExtRuntime(), 'Extension runtime restarted') },
+    { label: 'Check for updates', icon: 'system_update', onClick: act(async () => {
+      const u = await api.extRuntimeUpdate(true);
+      if (!u.update) return snackbar(`Up to date (${u.current})`);
+      if (await confirmDialog({ title: `Update to ${u.latest}?`, message: `Suwayomi-Server ${u.latest} is available (you have ${u.current}). Extensions keep working; the runtime restarts once it’s downloaded.`, confirm: 'Update', icon: 'system_update' })) await api.installExtRuntime();
+    }) },
+    { label: 'Memory limit…', icon: 'memory', onClick: () => memoryDialog(st).then(redraw) },
+    { label: 'View log', icon: 'article', onClick: () => runtimeLog() },
+    '-',
+    { label: 'Remove…', icon: 'delete', onClick: () => removeRuntime().then(redraw) },
+  ]));
+  return [
+    group(h('div.setting-row', icon('extension'),
+      h('div.text',
+        h('div', 'Extension runtime ', h('span.mini-chip', PHASE[st.phase] || st.phase)),
+        h('div.s', st.phase === 'starting'
+          ? 'Starting… the first start can take a minute.'
+          : [`Suwayomi-Server ${st.version || ''}`.trim(), st.java && `Java ${st.java.replace(/^jdk-?/, '')}`, running && 'only reachable from this server'].filter(Boolean).join(' · ')),
+        busy && h('div.progress.indeterminate', { style: { marginTop: '8px' } }, h('span'))),
+      toggleSwitch(st.enabled && st.phase !== 'stopped', async (v) => {
+        await act(() => (v ? api.startExtRuntime() : api.stopExtRuntime()), v ? 'Starting the extension runtime…' : 'Extension runtime stopped')();
+      }, 'Run the extension runtime'),
+      more)),
+    error,
+    running && h('div', { style: { marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+      button('Extensions', { variant: 'tonal', icon: 'extension', onclick: () => mihonDialog() }),
+      button('Install APK', { variant: 'tonal', icon: 'install_mobile', onclick: () => pickApks(redraw) })),
+    !st.enabled && h('p.note', 'Turned off: it won’t start with Flyleaf, and its sources are unavailable until you turn it back on.'),
+  ];
+}
+
+/** Pick one or more extension .apk files and install them. */
+function pickApks(onDone) {
+  const input = h('input', { type: 'file', accept: '.apk,application/vnd.android.package-archive', multiple: true });
+  input.addEventListener('change', async () => {
+    const files = [...input.files];
+    if (!files.length) return;
+    const done = [];
+    const failed = [];
+    for (const [i, file] of files.entries()) {
+      snackbar(files.length > 1 ? `Installing ${i + 1} of ${files.length}: ${file.name}…` : `Installing ${file.name}…`);
+      try {
+        const r = await api.installMihonApk(file);
+        const what = `${r.name} ${r.version || ''}`.trim();
+        done.push(r.already ? (r.newer ? `A newer ${r.name} (${r.version}) is already installed` : `${what} is already installed`) : r.updated ? `Updated ${what}` : `Installed ${what}`);
+      } catch (e) {
+        failed.push({ file, message: e.message });
+      }
+    }
+    if (failed.length) {
+      dialog({
+        title: done.length ? 'Some extensions weren’t installed' : 'Extension not installed',
+        icon: 'error',
+        content: h('div',
+          done.length && h('p', { style: { marginBottom: '8px' } }, `${done.join('. ')}.`),
+          failed.map((f) => h('p', { style: { marginBottom: '8px' } }, h('b', f.file.name), h('br'), f.message))),
+        actions: [{ label: 'Close' }],
+      });
+    } else snackbar(`${done.join('. ')}.`, { duration: 6000 });
+    if (done.length) onDone?.();
+  });
+  input.click();
+}
+
+async function memoryDialog(st) {
+  const limit = field('Memory limit', {
+    value: st.heapMb ?? '',
+    options: [{ value: '', label: 'Automatic (Java decides)' }, ...[512, 1024, 2048, 4096].map((v) => ({ value: v, label: `${v >= 1024 ? `${v / 1024} GB` : `${v} MB`}` }))],
+    support: 'Most setups are fine with 512 MB–1 GB. Changing it restarts the runtime.',
+  });
+  await formDialog({ title: 'Extension runtime memory', icon: 'memory', fields: [limit], onSubmit: () => api.configureExtRuntime({ heapMb: limit.input.value ? Number(limit.input.value) : null }) });
+}
+
+async function runtimeLog() {
+  const pre = h('pre.source-view', 'Loading…');
+  const load = async () => {
+    pre.textContent = (await api.extRuntimeLog().catch((e) => e.message)) || 'Nothing logged yet.';
+    pre.scrollTop = pre.scrollHeight;
+  };
+  load();
+  await dialog({ title: 'Extension runtime log', icon: 'article', className: 'wide', content: pre, actions: [{ label: 'Refresh', onClick: () => {
+    load();
+    return false;
+  } }, { label: 'Close' }] });
+}
+
+async function removeRuntime() {
+  const keep = h('input', { type: 'checkbox', checked: true });
+  const ok = await dialog({
+    title: 'Remove the extension runtime?',
+    icon: 'delete',
+    content: h('div',
+      h('p', { style: { marginBottom: '12px' } }, 'Flyleaf stops it and deletes Suwayomi-Server and Java. Books you already downloaded stay in your libraries.'),
+      h('label.check', keep, 'Keep installed extensions for when I set it up again')),
+    actions: [{ label: 'Cancel', value: false }, { label: 'Remove', value: true, variant: 'text danger' }],
+  });
+  if (!ok) return;
+  try {
+    await api.removeExtRuntime(keep.checked);
+    snackbar('Extension runtime removed');
+  } catch (e) {
+    snackbar(e.message, { duration: 7000 });
+  }
 }
 
 function installedRow(p) {
@@ -198,7 +368,7 @@ async function renderMihon(body) {
     [status, repos] = await Promise.all([api.mihonStatus(), api.mihonRepos()]);
   } catch (e) {
     body.replaceChildren(h('div.form-error', icon('error'), e.message),
-      h('p.body-medium', { style: { marginTop: '12px' } }, 'Check the Suwayomi URL in this plugin’s settings, and that Suwayomi-Server is running.'));
+      h('p.body-medium', { style: { marginTop: '12px' } }, 'If you use Flyleaf’s extension runtime, check that it’s running (Settings → Plugins). Otherwise check the Suwayomi URL in this plugin’s settings, and that Suwayomi-Server is running.'));
     return;
   }
 
@@ -337,7 +507,10 @@ async function renderMihon(body) {
     h('p.label-large', { style: { margin: '16px 0 8px' } }, 'Popular repositories'),
     suggested,
     suggestedNote,
-    h('p.label-large', { style: { margin: '16px 0 8px' } }, 'Extensions'),
+    h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', margin: '16px 0 8px' } },
+      h('p.label-large', { style: { flex: '1' } }, 'Extensions'),
+      button('Install APK', { variant: 'tonal', icon: 'install_mobile', onclick: () => pickApks(loadExtensions) })),
+    h('p.body-small.muted', { style: { margin: '-4px 0 8px' } }, 'Have an extension that’s no longer in any repository, like an old Tachiyomi one? Install its .apk file.'),
     h('div.ext-filters', filter, lang),
     list,
     h('p.body-small.muted', { style: { marginTop: '12px' } }, 'Only use extensions for sources you’re allowed to download from.'),

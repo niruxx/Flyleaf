@@ -180,6 +180,79 @@ async function extensionAction(action, pkgName) {
   return { ok: true };
 }
 
+const MAX_APK = 64 * 1024 * 1024;
+
+async function installedExtensions() {
+  const data = await graphql('{ extensions(condition: { isInstalled: true }) { nodes { pkgName name versionName versionCode } } }');
+  return data.extensions?.nodes || [];
+}
+
+const cleanName = (e) => e.name?.replace(/^Tachiyomi:\s*/, '') || e.pkgName;
+// Extension API versions Suwayomi accepts (its PackageTools LIB_VERSION_MIN/MAX), for explaining refusals.
+const LIB_RANGE = [1.3, 1.6];
+
+/**
+ * Install an extension from an .apk file (e.g. an old Tachiyomi extension that's no longer in
+ * any repository). A newer build of an installed extension updates it.
+ * Returns { name, pkgName, version, updated, already }.
+ */
+async function installApk(buffer, filename) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 1024) throw err('That file is empty or not an APK.');
+  if (buffer.length > MAX_APK) throw err('That file is too large to be an extension (64 MB at most).');
+  let apk;
+  try {
+    apk = require('./apk').readApk(buffer);
+  } catch {
+    throw err('That isn’t an Android app (.apk), or it’s damaged. Choose a Tachiyomi or Mihon extension APK.');
+  }
+  if (apk.kind === 'anime') throw err('That’s an Aniyomi (anime) extension. Flyleaf and Suwayomi only use manga extensions.');
+  if (!apk.kind) throw err(`${apk.pkgName} isn’t a Tachiyomi or Mihon extension.`);
+  const label = `${apk.pkgName} ${apk.versionName || ''}`.trim();
+
+  const { base, headers } = connection();
+  // Suwayomi refuses the same or an older version of an installed extension (with a bare
+  // HTTP 500), so answer that here.
+  const current = (await installedExtensions().catch(() => [])).find((e) => e.pkgName === apk.pkgName);
+  if (current && apk.versionCode <= (current.versionCode ?? Infinity)) {
+    return { name: cleanName(current), pkgName: apk.pkgName, version: current.versionName, already: true, newer: apk.versionCode < current.versionCode };
+  }
+
+  const name = `${apk.pkgName}-v${apk.versionName || apk.versionCode}.apk`.replace(/[^\w.-]+/g, '_');
+  const blob = () => new Blob([buffer], { type: 'application/vnd.android.package-archive' });
+  let res;
+  try {
+    const form = new FormData();
+    form.append('file', blob(), name);
+    res = await fetch(`${base}/api/v1/extension/install`, { method: 'POST', headers, body: form, redirect: 'manual', signal: AbortSignal.timeout(180_000) });
+    // Builds without the REST endpoint: the GraphQL upload (multipart request spec).
+    if (res.status === 404 || res.status === 405) {
+      const gql = new FormData();
+      gql.append('operations', JSON.stringify({
+        query: 'mutation ($file: Upload!) { installExternalExtension(input: { extensionFile: $file }) { extension { pkgName } } }',
+        variables: { file: null },
+      }));
+      gql.append('map', JSON.stringify({ 0: ['variables.file'] }));
+      gql.append('0', blob(), name);
+      res = await fetch(`${base}/api/graphql`, { method: 'POST', headers, body: gql, signal: AbortSignal.timeout(180_000) });
+      const body = await res.json().catch(() => null);
+      if (body?.errors?.length) res = { status: 500, text: async () => body.errors[0].message };
+    }
+  } catch {
+    throw err(`Can't reach Suwayomi at ${base}. Is it running?`, 502);
+  }
+  if (res.status === 401) throw err('Suwayomi rejected the login. Check the plugin’s username and password.', 502);
+  if (res.status >= 400) {
+    if (apk.lib && (apk.lib < LIB_RANGE[0] || apk.lib > LIB_RANGE[1])) {
+      throw err(`${label} was built for extension API ${apk.lib}, and Suwayomi only runs ${LIB_RANGE[0]}–${LIB_RANGE[1]}. ${apk.lib < LIB_RANGE[0] ? 'It’s too old to load; look for a newer build of this extension.' : 'Update the extension runtime (or your Suwayomi) to use it.'}`, 422);
+    }
+    const detail = String(await res.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 300);
+    throw err(`Suwayomi couldn’t install ${label}.${detail && detail !== 'Server Error' ? ` (${detail})` : ' Its log may say why.'}`, 502);
+  }
+  manager.refreshSources(PLUGIN_ID);
+  const now = (await installedExtensions().catch(() => [])).find((e) => e.pkgName === apk.pkgName);
+  return { name: now ? cleanName(now) : apk.pkgName, pkgName: apk.pkgName, version: now?.versionName || apk.versionName, updated: Boolean(current), already: false };
+}
+
 // ---------------------------------------------------------------------------
 // Suggested repositories, from the community list at wotaku.wiki/ext/mihon.
 
@@ -248,4 +321,4 @@ async function suggestedRepos() {
   return result;
 }
 
-module.exports = { PLUGIN_ID, status, repos, setRepos, extensions, extensionAction, suggestedRepos, normalizeRepo, nativeStores, isMihonRepo, sameRepo };
+module.exports = { PLUGIN_ID, status, repos, setRepos, extensions, extensionAction, installApk, suggestedRepos, normalizeRepo, nativeStores, isMihonRepo, sameRepo };

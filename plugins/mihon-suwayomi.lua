@@ -2,15 +2,16 @@
 --
 -- Mihon extensions are Android apps, so Flyleaf can't run them itself. Suwayomi-Server
 -- (https://github.com/Suwayomi/Suwayomi-Server) runs them on a normal computer; this
--- plugin talks to it. Every extension installed there shows up as its own source in
+-- plugin talks to it. Flyleaf's extension runtime (Settings → Plugins) runs one for you
+-- and fills in these settings; otherwise point it at your own. Every extension installed there shows up as its own source in
 -- Content Finder, and chapters are downloaded page by page into CBZ files.
 
 plugin = {
   id = "mihon",
   name = "Mihon extensions",
-  version = "1.1.1",
+  version = "1.1.2",
   author = "Flyleaf",
-  description = "Use Mihon/Tachiyomi extensions as sources, through a Suwayomi-Server you run.",
+  description = "Use Mihon/Tachiyomi extensions as sources, through Flyleaf’s extension runtime or a Suwayomi-Server you run.",
   site = "https://github.com/Suwayomi/Suwayomi-Server",
   kinds = { "manga", "comics" },
   proxy_images = true,

@@ -211,7 +211,38 @@ admin.get('/mihon/extensions', async (req, res) => res.json(await suwayomi.exten
 admin.get('/mihon/repos', async (req, res) => res.json(await suwayomi.repos()));
 admin.put('/mihon/repos', async (req, res) => res.json(await suwayomi.setRepos(req.body?.repos)));
 admin.get('/mihon/suggested-repos', async (req, res) => res.json(await suwayomi.suggestedRepos()));
+// An extension .apk (e.g. an old Tachiyomi extension): raw body, ?name=<file name>.
+admin.post('/mihon/extensions/apk', express.raw({ type: () => true, limit: '64mb' }), async (req, res) => {
+  res.status(201).json(await suwayomi.installApk(req.body, req.query.name));
+});
 admin.post('/mihon/extensions/:pkg/:action', async (req, res) => res.json(await suwayomi.extensionAction(req.params.action, req.params.pkg)));
+
+// The built-in extension runtime (Suwayomi-Server run and managed by Flyleaf).
+const host = require('../plugins/suwayomi-host');
+admin.get('/mihon/runtime', (req, res) => res.json(host.status()));
+admin.post('/mihon/runtime/install', (req, res) => {
+  host.install();
+  res.status(202).json(host.status());
+});
+admin.get('/mihon/runtime/update', async (req, res) => res.json(await host.checkUpdate({ force: req.query.force === '1' })));
+admin.post('/mihon/runtime/start', async (req, res) => {
+  await host.configure({ enabled: true });
+  res.json(host.status());
+});
+admin.post('/mihon/runtime/stop', async (req, res) => {
+  await host.configure({ enabled: false });
+  res.json(host.status());
+});
+admin.post('/mihon/runtime/restart', async (req, res) => {
+  await host.restart();
+  res.json(host.status());
+});
+admin.patch('/mihon/runtime', async (req, res) => res.json(await host.configure({ heapMb: req.body?.heapMb })));
+admin.get('/mihon/runtime/log', async (req, res) => res.type('text/plain').send(await host.logTail()));
+admin.delete('/mihon/runtime', async (req, res) => {
+  await host.uninstall({ keepData: req.query.keepData !== '0' });
+  res.json(host.status());
+});
 
 admin.post('/:id/update', async (req, res) => {
   const m = await manager.update(req.params.id);

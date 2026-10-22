@@ -76,7 +76,7 @@
 ### 🧭 Content Finder & plugins
 - A **Content Finder** tab that searches **Project Gutenberg**, **Standard Ebooks**, the **Internet Archive**, **Archive of Our Own** (fan fiction), **WEBTOON** and any **OPDS catalog**, and downloads straight into a library
 - **Lua plugins**, Mihon/Tachiyomi-style: install from repositories, URLs or files, or [write your own](docs/plugins.md)
-- **Mihon/Tachiyomi extensions** through [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server): every extension becomes a source, and chapters download as CBZ
+- **Mihon/Tachiyomi extensions** through a built-in, Flyleaf-managed [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server) (or your own): every extension becomes a source, chapters download as CBZ, and old Tachiyomi **APKs can be installed from a file**
 
 ### 🔌 REST API & webhooks
 - A full **REST API** with read-only or full-access **API keys**, plus an **OpenAPI 3.1** spec and a built-in endpoint reference
@@ -392,7 +392,15 @@ curl -X POST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json"
 
 ### 🧩 Mihon / Tachiyomi extensions
 
-Mihon extensions are Android apps, so Flyleaf can't run them itself. **[Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server)** can: it runs Mihon extensions on a normal computer. Flyleaf connects to it, and every extension you install appears as a source in Content Finder. Chapters download page by page into CBZ files with ComicInfo.xml, so they group and number correctly.
+Mihon extensions are Android apps, which **[Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server)** can run on a normal computer. Every extension you install appears as a source in Content Finder. Chapters download page by page into CBZ files with ComicInfo.xml, so they group and number correctly.
+
+#### The easy way: Flyleaf's extension runtime
+
+*Settings → Content Finder plugins → Mihon & Tachiyomi extensions → **Set up**.* Flyleaf downloads Suwayomi-Server and a Java 21 runtime ([Eclipse Temurin](https://adoptium.net)) into `data/suwayomi` (about 230 MB to download and 340 MB on disk, checksums verified; it uses around 500 MB of memory while running), runs it in the background on `127.0.0.1` only, starts and stops it with Flyleaf, restarts it if it crashes, and sets up the Mihon extensions plugin for you. Then press **Extensions** to add repositories and install extensions (step 3 below). From the card's ⋮ menu you can check for updates, set a memory limit, view its log, or remove it (optionally keeping your installed extensions). It needs `tar` on the server, which every Linux and macOS install has.
+
+**Old Tachiyomi extensions (APKs):** press **Install APK** (on the card, or in the Extensions dialog) and pick one or more `.apk` files. That's handy for extensions that have disappeared from every repository. Very old extensions built for an extension API Suwayomi no longer supports are refused with an explanation.
+
+#### Or run Suwayomi-Server yourself
 
 **1. Run Suwayomi-Server** next to Flyleaf, for example with Docker:
 

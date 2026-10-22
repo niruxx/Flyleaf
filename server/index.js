@@ -131,6 +131,7 @@ auth.pruneSessions();
 archive.pruneCache().catch(() => {});
 scanner.requestScan(null);
 require('./plugins/manager').seedBuiltins().then(() => require('./plugins/downloads').resume());
+require('./plugins/suwayomi-host').boot();
 if (config.scanInterval > 0) {
   setInterval(() => scanner.requestScan(null), config.scanInterval * 60_000).unref();
 }
@@ -139,6 +140,7 @@ setInterval(auth.pruneSessions, 6 * 3600_000).unref();
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
     log.info('Shutting down');
+    require('./plugins/suwayomi-host').shutdown();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();
   });

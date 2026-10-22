@@ -216,6 +216,16 @@ export const api = {
   mihonSuggestedRepos: () => GET('/api/admin/plugins/mihon/suggested-repos'),
   setMihonRepos: (repos) => PUT('/api/admin/plugins/mihon/repos', { repos }),
   mihonAction: (pkg, action) => POST(`/api/admin/plugins/mihon/extensions/${encodeURIComponent(pkg)}/${action}`),
+  installMihonApk: (file) => request('POST', `/api/admin/plugins/mihon/extensions/apk?name=${encodeURIComponent(file.name)}`, file, { headers: { 'Content-Type': 'application/vnd.android.package-archive' } }),
+  extRuntime: () => GET('/api/admin/plugins/mihon/runtime'),
+  installExtRuntime: () => POST('/api/admin/plugins/mihon/runtime/install'),
+  extRuntimeUpdate: (force) => GET(`/api/admin/plugins/mihon/runtime/update${force ? '?force=1' : ''}`),
+  startExtRuntime: () => POST('/api/admin/plugins/mihon/runtime/start'),
+  stopExtRuntime: () => POST('/api/admin/plugins/mihon/runtime/stop'),
+  restartExtRuntime: () => POST('/api/admin/plugins/mihon/runtime/restart'),
+  configureExtRuntime: (b) => PATCH('/api/admin/plugins/mihon/runtime', b),
+  extRuntimeLog: () => request('GET', '/api/admin/plugins/mihon/runtime/log', undefined, { raw: true }).then((r) => r.text()),
+  removeExtRuntime: (keepData) => DEL(`/api/admin/plugins/mihon/runtime${keepData ? '' : '?keepData=0'}`),
 };
 
 /** Whether the signed-in user has a permission (admins have all). */
