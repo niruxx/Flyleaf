@@ -7,13 +7,15 @@ const config = require('./config');
 
 fs.mkdirSync(config.dataDir, { recursive: true });
 
-const db = new DatabaseSync(path.join(config.dataDir, 'flyleaf.db'));
+const DB_PATH = path.join(config.dataDir, 'flyleaf.db');
+const db = new DatabaseSync(DB_PATH);
 
-db.exec(`
+const PRAGMAS = `
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
   PRAGMA busy_timeout = 5000;
-`);
+`;
+db.exec(PRAGMAS);
 
 const migrations = [
   `
@@ -310,20 +312,81 @@ const migrations = [
   ALTER TABLE users ADD COLUMN avatar TEXT;      -- file name in data/avatars
   ALTER TABLE users ADD COLUMN background TEXT;  -- file name in data/backgrounds
   `,
+
+  // v6: reading goals, when books were finished, ratings & reviews, push notifications.
+  `
+  ALTER TABLE progress ADD COLUMN finished_at INTEGER;
+  UPDATE progress SET finished_at = updated_at WHERE finished = 1;
+  -- Every way of finishing a book (reader, Mark as read, OPDS) goes through these.
+  CREATE TRIGGER progress_finished_insert AFTER INSERT ON progress WHEN NEW.finished = 1 AND NEW.finished_at IS NULL
+  BEGIN
+    UPDATE progress SET finished_at = NEW.updated_at WHERE user_id = NEW.user_id AND book_id = NEW.book_id;
+  END;
+  CREATE TRIGGER progress_finished_update AFTER UPDATE OF finished ON progress WHEN NEW.finished = 1 AND OLD.finished = 0
+  BEGIN
+    UPDATE progress SET finished_at = NEW.updated_at WHERE user_id = NEW.user_id AND book_id = NEW.book_id;
+  END;
+  CREATE INDEX progress_finished ON progress(user_id, finished_at);
+
+  CREATE TABLE reading_goals (
+    user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    year     INTEGER NOT NULL,
+    books    INTEGER NOT NULL,
+    PRIMARY KEY (user_id, year)
+  );
+
+  CREATE TABLE series_reviews (
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    series_id   INTEGER NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+    rating      INTEGER CHECK (rating BETWEEN 1 AND 10),   -- half stars: 1 = ½★ … 10 = 5★
+    body        TEXT,
+    spoiler     INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL,
+    PRIMARY KEY (user_id, series_id)
+  );
+  CREATE INDEX series_reviews_series ON series_reviews(series_id, updated_at DESC);
+
+  -- Files people uploaded, so the admin can review what each user added.
+  CREATE TABLE uploads (
+    id          INTEGER PRIMARY KEY,
+    user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    library_id  INTEGER REFERENCES libraries(id) ON DELETE CASCADE,
+    file        TEXT NOT NULL,                     -- absolute path
+    size        INTEGER,
+    created_at  INTEGER NOT NULL
+  );
+  CREATE INDEX uploads_user ON uploads(user_id);
+  CREATE INDEX uploads_file ON uploads(file);
+
+  CREATE TABLE push_subscriptions (
+    id          INTEGER PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint    TEXT NOT NULL UNIQUE,
+    p256dh      TEXT NOT NULL,
+    auth        TEXT NOT NULL,
+    user_agent  TEXT,
+    created_at  INTEGER NOT NULL,
+    last_error  TEXT
+  );
+  `,
 ];
 
-const version = db.prepare('PRAGMA user_version').get().user_version;
-for (let i = version; i < migrations.length; i++) {
-  db.exec('BEGIN');
-  try {
-    db.exec(migrations[i]);
-    db.exec(`PRAGMA user_version = ${i + 1}`);
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
+function migrate() {
+  const version = db.prepare('PRAGMA user_version').get().user_version;
+  for (let i = version; i < migrations.length; i++) {
+    db.exec('BEGIN');
+    try {
+      db.exec(migrations[i]);
+      db.exec(`PRAGMA user_version = ${i + 1}`);
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
   }
 }
+migrate();
 
 /** Run fn inside a transaction. */
 function tx(fn) {
@@ -349,4 +412,20 @@ function q(sql) {
   return stmt;
 }
 
-module.exports = { db, q, tx };
+/**
+ * Close the database, run `swap(dbPath)` (which may replace the file on disk), then open it
+ * again and bring it up to date. Used to restore a backup without restarting.
+ */
+function reopen(swap) {
+  db.close();
+  stmtCache.clear();
+  try {
+    swap(DB_PATH);
+  } finally {
+    db.open();
+    db.exec(PRAGMAS);
+    migrate();
+  }
+}
+
+module.exports = { db, q, tx, reopen, DB_PATH, SCHEMA_VERSION: migrations.length };

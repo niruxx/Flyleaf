@@ -1,7 +1,7 @@
 // Flyleaf service worker: keeps the app shell available offline and caches
 // covers. Book files, pages and API data always go to the network.
 
-const VERSION = 'flyleaf-v11';
+const VERSION = 'flyleaf-v12';
 const SHELL = [
   '/',
   '/css/m3.css',
@@ -64,5 +64,36 @@ self.addEventListener('fetch', (event) => {
         return res;
       })
       .catch(async () => (await caches.match(req)) || (req.mode === 'navigate' ? caches.match('/') : Response.error())),
+  );
+});
+
+// Push notifications (Settings → Notifications). Payload: { title, body, url, tag }.
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { body: event.data?.text() };
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Flyleaf', {
+      body: data.body || '',
+      tag: data.tag,
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      data: { url: data.url || '/' },
+    }),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = new URL(event.notification.data?.url || '/', self.location.origin).href;
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      const open = list.find((c) => c.url.startsWith(self.location.origin));
+      if (open) return open.navigate(url).then((c) => (c || open).focus());
+      return self.clients.openWindow(url);
+    }),
   );
 });

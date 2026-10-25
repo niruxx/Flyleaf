@@ -14,7 +14,7 @@ const profiles = require('../profiles');
 const { BOOK_SELECT, getBook, getSeries, toBook, seriesBooks, canDeleteBook, canMoveBook, canMoveSeries } = require('../serialize');
 const events = require('../events');
 const log = require('../log').logger('books');
-const { json } = require('../util');
+const { json, likePrefix } = require('../util');
 
 const router = express.Router();
 
@@ -239,6 +239,7 @@ async function deleteBook(row, user) {
     q('DELETE FROM books WHERE id = ?').run(row.id);
     // So a different file later saved at this path doesn't count as the old downloader's.
     q('UPDATE downloads SET file = NULL WHERE file = ?').run(row.path);
+    q("DELETE FROM uploads WHERE file = ? OR file LIKE ? ESCAPE '\\'").run(row.path, `${likePrefix(row.path)}%`);
     if (!row.series_id || q('SELECT 1 FROM books WHERE series_id = ?').get(row.series_id)) return false;
     q('DELETE FROM series WHERE id = ?').run(row.series_id);
     return true;
@@ -345,6 +346,10 @@ async function moveBook(row, target, user, { keepSeries = false } = {}) {
     );
     // Whoever downloaded it can still delete it in its new place.
     q('UPDATE downloads SET file = ? WHERE file = ?').run(dest, row.path);
+    q('UPDATE uploads SET file = ?, library_id = ? WHERE file = ?').run(dest, target.id, row.path);
+    for (const u of q("SELECT id, file FROM uploads WHERE file LIKE ? ESCAPE '\\'").all(`${likePrefix(row.path)}%`)) {
+      q('UPDATE uploads SET file = ?, library_id = ? WHERE id = ?').run(dest + u.file.slice(row.path.length), target.id, u.id);
+    }
     if (keepSeries || !row.series_id || q('SELECT 1 FROM books WHERE series_id = ?').get(row.series_id)) return false;
     q('DELETE FROM series WHERE id = ?').run(row.series_id);
     return true;
@@ -489,4 +494,4 @@ router.get('/books/:id/pages/:n', async (req, res) => {
   await pipeline(page.stream, res).catch(() => {});
 });
 
-module.exports = { router, readable, FILE_MIME, ORIGINAL_MIME, EXT, annotationRow };
+module.exports = { router, readable, deleteBook, FILE_MIME, ORIGINAL_MIME, EXT, annotationRow };

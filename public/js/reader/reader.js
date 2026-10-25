@@ -104,7 +104,9 @@ function createShell(data, tracker) {
     slider.style.setProperty('--fill', `${pct}%`);
   }
 
-  let hideTimer = setTimeout(() => shell.showChrome(false), settings.immersive ? 600 : 2500);
+  // With auto-hide off, the menu stays put until a tap in the middle of the page hides it.
+  const autoHide = () => settings.autoCloseMenu !== false;
+  let hideTimer = autoHide() ? setTimeout(() => shell.showChrome(false), settings.immersive ? 600 : 2500) : null;
 
   const onKey = (e) => {
     if (e.target.closest?.('input, textarea, select, dialog, .sel-toolbar')) return;
@@ -291,7 +293,7 @@ function createShell(data, tracker) {
     },
     /** Engines call this after turning a page. */
     pageTurned() {
-      if (settings.autoCloseMenu && chromeVisible()) shell.showChrome(false);
+      if (autoHide() && chromeVisible()) shell.showChrome(false);
       shell.refreshBookmark();
     },
     refreshBookmark() {

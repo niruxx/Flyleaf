@@ -39,4 +39,7 @@ function all() {
   return Object.fromEntries(Object.keys(DEFAULTS).map((k) => [k, get(k)]));
 }
 
-module.exports = { get, set, all, DEFAULTS };
+/** Forget cached values (after a backup is restored). */
+const clearCache = () => cache.clear();
+
+module.exports = { get, set, all, clearCache, DEFAULTS };

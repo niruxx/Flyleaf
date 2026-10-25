@@ -33,7 +33,7 @@
 ### 📖 Readers built for reading
 - **Manga & comics:** single page, **dual-page spreads**, **webtoon / continuous scroll**, **right-to-left**, fit screen/width/height/original, **page splitting** for double-page scans, custom background colour
 - **Ebooks:** paginated or scrolling, 1–2 columns, themes (Paper, Sepia, Dark, OLED Black), **font family**, size, line spacing, margins, justification & hyphenation
-- **Tap to paginate**, swipe, **immersive mode**, **auto-close menu**, fully **customisable key binds**
+- **Tap to paginate**, swipe, **immersive mode**, **auto-hide menu** (or keep it until you tap the middle of the page), fully **customisable key binds**
 - **Reading profiles** – save a set of reader settings and assign it to libraries or series
 
 ### ✍️ Built-in annotations
@@ -99,6 +99,14 @@
 ---
 
 ## 🆕 What's new
+
+- 🎯 **Reading goals & year in review** – a yearly books goal and a daily minutes goal with progress rings, a year-long reading heat map, your longest streak, and a *Year in review* page with your top series, genres and writers, month-by-month time and a card you can share.
+- ⭐ **Ratings & reviews** – rate series in half stars and write reviews (with spoiler blur) that everyone on your server can read. The admin can remove any review.
+- 💾 **Backup & restore** – *Settings → Backup & restore* downloads the database on its own or together with every book file, and restores either one. A fresh install can start from a backup on its setup page.
+- 🔔 **Push notifications** – finished and failed downloads, new books in your libraries, and (for admins) sign-ups and uploads, on your phone or computer (*Settings → Notifications*, needs HTTPS).
+- 🛡️ **Review what users add** – *Settings → Users* shows how many books each person downloaded or uploaded, per library, and the admin can open the list and delete anything that breaks the rules.
+- 🐳 **Docker image**, **OPDS 2.0** feeds, a `/api/health` check and **Prometheus metrics**.
+- 🔐 **New sign-in and sign-up pages** with an animated background.
 
 - 📜 **WEBTOON downloads** – a WEBTOON source for Content Finder: search Originals and Canvas, download episodes as CBZ, and they open in webtoon (vertical scroll) mode.
 - 🧭 **Discover in Content Finder** – recommendations from outside your library: Flyleaf searches your Content Finder sources for the authors and genres you like and suggests what you don't have yet. Pick which sources it uses in *Settings → Preferences*.
@@ -197,7 +205,18 @@ Options: `--port 8080`, `--user someone`, `--dir /srv/flyleaf`, `--data /srv/fly
 
 </details>
 
-### Option 2 — Run it yourself
+### Option 2 — Docker
+
+```bash
+git clone https://github.com/niruxx/Flyleaf.git
+cd Flyleaf
+# edit docker-compose.yml: point /books at your book folders
+docker compose up -d     # → http://localhost:7878
+```
+
+`/data` holds the database, covers, users' personal folders and the built-in Mihon extension runtime. Add your libraries from `/books/...` in *Settings → Libraries*. The container has a health check on `/api/health`. To update: `git pull && docker compose up -d --build`.
+
+### Option 3 — Run it yourself
 
 Requires **Node.js 22.13 or newer**.
 
@@ -216,6 +235,19 @@ flyleaf update        # installed with install.sh (same as: sudo /opt/flyleaf/up
 ```
 
 `update.sh` pulls the latest code, backs up the database first (the last five backups are kept in the data folder under `backups/`), reinstalls dependencies and restarts the service. If anything fails it rolls back to the previous version. Your database, covers and settings are never touched.
+
+### 💾 Backup & restore
+
+*Settings → Backup & restore* (admin) offers two downloads:
+
+| Backup | What's in it |
+|---|---|
+| **Database only** | Users, reading progress, stats, goals, collections, bookmarks and notes, reviews, settings, plugins, covers, profile pictures and fonts |
+| **Database and books** | All of the above plus every file in every library, including users' personal folders |
+
+To restore, choose the zip and then **Database only** or **Database and books** (when the backup has them). Restoring replaces the whole database, so everyone signs in with the accounts from the backup. Book files go back into each library's folder as it was when the backup was made, overwriting files with the same name; other files in those folders are left alone. On a new server, the first-run setup page has **Restore from a backup instead**.
+
+Library folders are stored as absolute paths. If they live somewhere else on the new server, change each library's folder in *Settings → Libraries* after restoring.
 
 ### 🗑️ Uninstalling
 

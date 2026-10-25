@@ -10,7 +10,7 @@ import { libraryView, wantView, genreView, personView, tagView, searchView, coll
 import { seriesView } from './views/series.js';
 import { collectionsView } from './views/collections.js';
 import { bookmarksView } from './views/bookmarks.js';
-import { statsView } from './views/stats.js';
+import { statsView, yearReviewView } from './views/stats.js';
 import { settingsView } from './views/settings.js';
 import { readerView } from './reader/reader.js';
 
@@ -31,10 +31,12 @@ route('/series/:id', seriesView);
 route('/bookmarks', bookmarksView);
 route('/recommended', recommendedView);
 route('/stats', statsView);
+route('/stats/year/:year?', yearReviewView);
 route('/finder', (...a) => import('./views/finder.js').then((m) => m.finderView(...a)));
 route('/upload', (...a) => import('./views/upload.js').then((m) => m.uploadView(...a)));
 route('/finder/downloads', (...a) => import('./views/finder.js').then((m) => m.downloadsView(...a)));
 route('/settings/:tab?', settingsView);
+route('/admin/users/:id/files', (...a) => import('./views/settings-admin.js').then((m) => m.userFilesView(...a)));
 route('/read/:id', readerView, { bare: true });
 // Old links from v1.
 route('/book/:id', async (view, params) => {

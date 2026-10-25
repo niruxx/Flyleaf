@@ -109,6 +109,68 @@ router.get('/series/:id', (req, res) => {
   res.json({ ...s, books, relations, collections, nextBookId: next?.id ?? null, stats: seriesStats(s.id, req.user) });
 });
 
+// ---------------------------------------------------------------------------
+// Ratings & reviews: everyone who can see a series sees its reviews.
+
+function reviewSummary(seriesId, user) {
+  const rows = q(`SELECT r.*, COALESCE(u.display_name, u.username) AS name, u.avatar FROM series_reviews r
+                  JOIN users u ON u.id = r.user_id WHERE r.series_id = ? ORDER BY r.updated_at DESC`).all(seriesId);
+  const rated = rows.filter((r) => r.rating);
+  const toReview = (r) => ({
+    user: { id: r.user_id, displayName: r.name, avatarUrl: r.avatar ? `/api/users/${r.user_id}/avatar?v=${r.avatar}` : null },
+    rating: r.rating,
+    body: r.body,
+    spoiler: Boolean(r.spoiler),
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    mine: r.user_id === user.id,
+  });
+  return {
+    average: rated.length ? rated.reduce((a, r) => a + r.rating, 0) / rated.length : null,
+    count: rated.length,
+    mine: rows.find((r) => r.user_id === user.id) ? toReview(rows.find((r) => r.user_id === user.id)) : null,
+    reviews: rows.filter((r) => r.body || r.rating).map(toReview),
+  };
+}
+
+router.get('/series/:id/reviews', (req, res) => {
+  const s = visibleSeries(req, res);
+  if (s) res.json(reviewSummary(s.id, req.user));
+});
+
+router.put('/series/:id/review', (req, res) => {
+  const s = visibleSeries(req, res);
+  if (!s) return;
+  const b = req.body || {};
+  const rating = b.rating == null || b.rating === '' ? null : Math.round(Number(b.rating));
+  if (rating != null && !(rating >= 1 && rating <= 10)) return res.status(400).json({ error: 'Ratings go from ½ to 5 stars.' });
+  const body = String(b.body ?? '').trim().slice(0, 5000) || null;
+  if (rating == null && !body) {
+    q('DELETE FROM series_reviews WHERE user_id = ? AND series_id = ?').run(req.user.id, s.id);
+  } else {
+    const now = Date.now();
+    q(`INSERT INTO series_reviews (user_id, series_id, rating, body, spoiler, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (user_id, series_id) DO UPDATE SET rating = excluded.rating, body = excluded.body, spoiler = excluded.spoiler, updated_at = excluded.updated_at`)
+      .run(req.user.id, s.id, rating, body, b.spoiler ? 1 : 0, now, now);
+  }
+  res.json(reviewSummary(s.id, req.user));
+});
+
+router.delete('/series/:id/review', (req, res) => {
+  const s = visibleSeries(req, res);
+  if (!s) return;
+  q('DELETE FROM series_reviews WHERE user_id = ? AND series_id = ?').run(req.user.id, s.id);
+  res.json(reviewSummary(s.id, req.user));
+});
+
+// The admin can remove anyone's review (moderation).
+router.delete('/series/:id/reviews/:userId', requireAdmin, (req, res) => {
+  const s = visibleSeries(req, res);
+  if (!s) return;
+  q('DELETE FROM series_reviews WHERE user_id = ? AND series_id = ?').run(Number(req.params.userId), s.id);
+  res.json(reviewSummary(s.id, req.user));
+});
+
 /** Totals for the series page: files, formats, pages, and your reading time. */
 function seriesStats(id, user) {
   const files = q(`SELECT COUNT(*) AS n, SUM(size) AS size, SUM(page_count) AS pages, MIN(added_at) AS first_added,

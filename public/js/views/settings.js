@@ -19,6 +19,7 @@ const PANELS = [
   { id: 'preferences', label: 'Preferences', icon: 'tune' },
   { id: 'appearance', label: 'Themes', icon: 'palette' },
   { id: 'mylibs', label: 'My libraries', icon: 'folder_special', home: true },
+  { id: 'notifications', label: 'Notifications', icon: 'notifications' },
   { group: 'Reading' },
   { id: 'reading', label: 'Reading profiles', icon: 'chrome_reader_mode' },
   { id: 'keybinds', label: 'Key binds', icon: 'keyboard' },
@@ -34,6 +35,7 @@ const PANELS = [
   { id: 'metadata', label: 'Metadata sources', icon: 'travel_explore', admin: true },
   { id: 'plugins', label: 'Content Finder plugins', icon: 'extension', admin: true },
   { id: 'server', label: 'Server & email', icon: 'dns', admin: true },
+  { id: 'backup', label: 'Backup & restore', icon: 'backup', admin: true },
 ];
 
 export async function settingsView(view, params, stale) {
@@ -64,6 +66,8 @@ export async function settingsView(view, params, stale) {
   if (current === 'api') return (await import('./settings-api.js')).apiPanel(panel, stale);
   if (current === 'mylibs') return (await import('./settings-mylibs.js')).mylibsPanel(panel, stale);
   if (current === 'plugins') return (await import('./settings-plugins.js')).pluginsPanel(panel, stale);
+  if (current === 'notifications') return (await import('./settings-platform.js')).notificationsPanel(panel, stale);
+  if (current === 'backup') return (await import('./settings-platform.js')).backupPanel(panel, stale);
   const admin = await import('./settings-admin.js');
   return admin[`${current}Panel`](panel, stale);
 }

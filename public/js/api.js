@@ -166,12 +166,50 @@ export const api = {
   importMalList: (file) => request('POST', '/api/import/mal-list', file, { headers: { 'Content-Type': 'application/octet-stream' } }),
 
   stats: (days) => GET(`/api/stats${qs({ days, today: localDay() })}`),
+  statsYear: (year) => GET(`/api/stats/year${qs({ year })}`),
+  setReadingGoal: (year, books) => PUT('/api/stats/goal', { year, books }),
+
+  reviews: (seriesId) => GET(`/api/series/${seriesId}/reviews`),
+  saveReview: (seriesId, b) => PUT(`/api/series/${seriesId}/review`, b),
+  deleteReview: (seriesId) => DEL(`/api/series/${seriesId}/review`),
+  removeReview: (seriesId, userId) => DEL(`/api/series/${seriesId}/reviews/${userId}`),
 
   users: () => GET('/api/users'),
   createUser: (b) => POST('/api/users', b),
   updateUser: (id, b) => PATCH(`/api/users/${id}`, b),
   deleteUser: (id) => DEL(`/api/users/${id}`),
   signOutUser: (id) => DEL(`/api/users/${id}/sessions`),
+  userFiles: (id, library) => GET(`/api/users/${id}/files${qs({ library })}`),
+  deleteUserFiles: (id, items) => POST(`/api/users/${id}/files/delete`, { items }),
+
+  push: () => GET('/api/push'),
+  pushSubscribe: (subscription) => POST('/api/push', { subscription }),
+  pushRemove: (b) => POST('/api/push/remove', b),
+  pushTest: () => POST('/api/push/test'),
+
+  health: () => GET('/api/health'),
+  backupEstimate: () => GET('/api/admin/backup/estimate'),
+  backupUrl: (books) => `/api/admin/backup${books ? '?books=1' : ''}`,
+  // Upload a backup zip with progress; `setup` uses the first-run endpoint.
+  uploadBackup: (file, onProgress, { setup = false } = {}) => new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', setup ? '/api/setup/restore' : '/api/admin/restore');
+    xhr.setRequestHeader('X-Flyleaf', '1');
+    xhr.setRequestHeader('Content-Type', 'application/zip');
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
+    xhr.onload = () => {
+      let data = null;
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {}
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(new ApiError(data?.error || `Upload failed (${xhr.status})`, xhr.status));
+    };
+    xhr.onerror = () => reject(new ApiError("Can't reach the Flyleaf server.", 0));
+    xhr.send(file);
+  }),
+  restoreBackup: (id, books, { setup = false } = {}) => POST(`${setup ? '/api/setup/restore' : '/api/admin/restore'}/${id}`, { books }),
+  cancelRestore: (id) => DEL(`/api/admin/restore/${id}`),
 
   adminSettings: () => GET('/api/admin/settings'),
   saveAdminSettings: (b) => PUT('/api/admin/settings', b),

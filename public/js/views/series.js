@@ -258,6 +258,11 @@ export async function seriesView(view, params, stale) {
     ),
   );
 
+  // ----- Ratings & reviews -----
+  const reviews = h('section.section.reviews');
+  page.append(reviews);
+  api.reviews(s.id).then((r) => reviews.isConnected && renderReviews(reviews, s, r)).catch(() => {});
+
   // ----- More like this -----
   // Loaded after the page shows: series sharing genres, tags and creators, best first.
   const more = h('section.section.more-like', { hidden: true });
@@ -271,6 +276,75 @@ export async function seriesView(view, params, stale) {
     more.hidden = false;
   }).catch(() => {});
 }
+
+/** Star i (1–5) for a 1–10 rating: filled, half or empty. */
+const starIcon = (rating, i) => (rating >= i * 2 ? icon('star', 'filled') : rating === i * 2 - 1 ? icon('star_half', 'filled') : icon('star'));
+
+/** Stars for a 1–10 (half-star) rating. */
+function stars(rating) {
+  const out = h('span.stars', { title: `${rating / 2} of 5 stars` });
+  for (let i = 1; i <= 5; i++) out.append(starIcon(rating, i));
+  return out;
+}
+
+/** Tap a star for a whole star, tap it again for half. */
+function starInput(value, onChange) {
+  const wrap = h('span.stars.input', { role: 'radiogroup', 'aria-label': 'Your rating' });
+  const draw = () => wrap.replaceChildren(...[1, 2, 3, 4, 5].map((i) =>
+    h('button', { type: 'button', 'aria-label': `${i} ${i === 1 ? 'star' : 'stars'}`, onclick: () => {
+      value = value === i * 2 ? i * 2 - 1 : value === i * 2 - 1 && i === 1 ? null : i * 2;
+      draw();
+      onChange(value);
+    } }, starIcon(value, i))));
+  draw();
+  return wrap;
+}
+
+function renderReviews(section, s, r) {
+  const mine = r.mine || { rating: null, body: '', spoiler: false };
+  let rating = mine.rating;
+  const text = h('textarea.review-input', { rows: 3, maxlength: 5000, placeholder: 'What did you think? (optional)' });
+  text.value = mine.body || '';
+  const spoiler = h('input', { type: 'checkbox', checked: mine.spoiler });
+  const save = button(r.mine ? 'Update review' : 'Post', { variant: 'tonal', icon: 'rate_review', onclick: async () => {
+    const next = await api.saveReview(s.id, { rating, body: text.value, spoiler: spoiler.checked });
+    snackbar(rating || text.value.trim() ? 'Review saved' : 'Review removed');
+    renderReviews(section, s, next);
+  } });
+  const remove = r.mine && button('Delete', { variant: 'text', icon: 'delete', onclick: async () => {
+    renderReviews(section, s, await api.deleteReview(s.id));
+    snackbar('Review removed');
+  } });
+
+  const others = r.reviews.filter((x) => !x.mine);
+  // The DOM's replaceChildren would print `false`; h() skips it.
+  section.replaceChildren(h('div',
+    h('div.section-head', h('h2', 'Ratings & reviews')),
+    r.count > 0 && h('div.rating-summary',
+      h('span.big', (r.average / 2).toFixed(1)),
+      h('div', stars(Math.round(r.average)), h('div.body-small.muted', `${r.count} ${r.count === 1 ? 'rating' : 'ratings'} on this server`))),
+    h('div.review',
+      h('div.review-head', h('div.who.title-small', r.mine ? 'Your review' : 'Rate this series'), starInput(rating, (v) => (rating = v))),
+      text,
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '8px' } },
+        h('label.check', { style: { flex: '1' } }, spoiler, 'Contains spoilers'),
+        remove, save)),
+    others.length > 0 && h('div.review-list', { style: { marginTop: '12px' } }, others.map((x) => {
+      const body = x.body && h(`p.review-body.body-medium${x.spoiler ? '.spoiler' : ''}`, { title: x.spoiler ? 'Spoiler – tap to reveal' : null, onclick: (e) => e.currentTarget.classList.remove('spoiler') }, x.body);
+      return h('div.review',
+        h('div.review-head',
+          avatarFor(x.user),
+          h('div.who', h('div.title-small', x.user.displayName), h('div.body-small.muted', timeAgo(x.updatedAt))),
+          x.rating && stars(x.rating),
+          isAdmin() && iconButton('delete', 'Remove this review', async () => {
+            renderReviews(section, s, await api.removeReview(s.id, x.user.id));
+            snackbar('Review removed');
+          })),
+        body);
+    }))));
+}
+
+const avatarFor = (u) => h('span.avatar', { style: { width: '32px', height: '32px', fontSize: '14px', flex: 'none', backgroundImage: u.avatarUrl ? `url("${u.avatarUrl}")` : null, backgroundSize: 'cover' } }, u.avatarUrl ? '' : (u.displayName || '?')[0].toUpperCase());
 
 const VOL_LAYOUT = 'flyleaf.volumeLayout';
 function readVolLayout() {

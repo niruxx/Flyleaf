@@ -259,4 +259,130 @@ router.get('/:key/books/:id/pages/:n', async (req, res) => {
   await pipeline(page.stream, res).catch(() => {});
 });
 
+// ---------------------------------------------------------------------------
+// OPDS 2.0 (JSON) at /api/opds/<key>/v2 – the same catalog for newer apps (Thorium, Readest…).
+
+const OPDS2 = 'application/opds+json';
+
+function send2(req, res, { title, navigation, publications, next, page, total }) {
+  const b = req.base;
+  const links = [
+    { rel: 'self', href: req.originalUrl, type: OPDS2 },
+    { rel: 'start', href: `${b}/v2`, type: OPDS2 },
+    { rel: 'search', href: `${b}/v2/search{?query}`, type: OPDS2, templated: true },
+  ];
+  if (next) links.push({ rel: 'next', href: next, type: OPDS2 });
+  const metadata = { title };
+  if (page != null) Object.assign(metadata, { itemsPerPage: PAGE_SIZE, currentPage: page + 1 });
+  if (total != null) metadata.numberOfItems = total;
+  res.set('Cache-Control', 'no-store');
+  res.type(OPDS2).send(JSON.stringify({ metadata, links, ...(navigation ? { navigation } : {}), ...(publications ? { publications } : {}) }));
+}
+
+const nav2 = (title, href) => ({ title, href, type: OPDS2, rel: 'subsection' });
+
+function publication2(req, book, raw) {
+  const ext = book.format === 'folder' ? 'cbz' : path.extname(raw.path).slice(1);
+  const mime = book.format === 'folder' ? 'application/vnd.comicbook+zip' : ORIGINAL_MIME[book.format] || 'application/octet-stream';
+  const p = book.progress;
+  const metadata = {
+    '@type': 'http://schema.org/Book',
+    identifier: `urn:flyleaf:book:${book.id}`,
+    title: book.label || book.title,
+    modified: iso(book.addedAt),
+  };
+  if (book.author) metadata.author = book.author.split(/\s*[,&]\s*/).filter(Boolean).map((name) => ({ name }));
+  if (raw.description) metadata.description = raw.description;
+  if (book.pageCount) metadata.numberOfPages = book.pageCount;
+  if (book.series) metadata.belongsTo = { series: [{ name: book.series, ...(book.volume != null ? { position: book.volume } : {}) }] };
+  if (p) metadata.progression = { percent: p.finished ? 1 : p.percent || 0, modified: iso(p.updatedAt) };
+  const links = [];
+  if (req.user.permissions.download) {
+    links.push({ rel: 'http://opds-spec.org/acquisition', href: `${req.base}/books/${book.id}/download/${encodeURIComponent(path.basename(raw.path, path.extname(raw.path)))}.${ext}`, type: mime });
+  }
+  return {
+    metadata,
+    links,
+    images: book.coverUrl ? [{ href: `${req.base}/books/${book.id}/cover`, type: 'image/jpeg' }] : [],
+  };
+}
+
+function seriesFeed2(req, res, { title, where = [], args = [], sort }) {
+  const page = Math.max(Number(req.query.page) || 0, 0);
+  const { items, hasMore, total } = listSeries(req.user, { where, args, sort, limit: PAGE_SIZE, offset: page * PAGE_SIZE });
+  const u = new URL(req.originalUrl, 'http://x');
+  u.searchParams.set('page', String(page + 1));
+  const prefix = (s) => (req.user.prefs.opdsEmbedProgress ? progressMark(s.progress) : '');
+  send2(req, res, {
+    title,
+    page,
+    total,
+    navigation: items.map((s) => nav2(`${prefix(s)}${s.name}`, `${req.base}/v2/series/${s.id}`)),
+    next: hasMore ? u.pathname + u.search : null,
+  });
+}
+
+router.get('/:key/v2', (req, res) => {
+  const b = `${req.base}/v2`;
+  send2(req, res, {
+    title: 'Flyleaf',
+    navigation: [
+      nav2('Continue reading', `${b}/on-deck`),
+      nav2('Want to read', `${b}/want-to-read`),
+      nav2('Recently added', `${b}/recent`),
+      nav2('Libraries', `${b}/libraries`),
+      nav2('Collections', `${b}/collections`),
+      nav2('All series', `${b}/all`),
+    ],
+  });
+});
+router.get('/:key/v2/all', (req, res) => seriesFeed2(req, res, { title: 'All series' }));
+router.get('/:key/v2/recent', (req, res) => seriesFeed2(req, res, { title: 'Recently added', sort: 'added' }));
+router.get('/:key/v2/want-to-read', (req, res) => seriesFeed2(req, res, { title: 'Want to read', where: ['us.want_to_read = 1'], sort: 'want' }));
+
+router.get('/:key/v2/libraries', (req, res) => {
+  const libs = q('SELECT id, name FROM libraries ORDER BY name COLLATE NOCASE').all().filter((l) => listsLibrary(req.user, l.id));
+  send2(req, res, { title: 'Libraries', navigation: libs.map((l) => nav2(l.name, `${req.base}/v2/libraries/${l.id}`)) });
+});
+router.get('/:key/v2/libraries/:id', (req, res) => {
+  const lib = q('SELECT name FROM libraries WHERE id = ?').get(Number(req.params.id));
+  if (!lib || !listsLibrary(req.user, req.params.id)) return res.status(404).end();
+  seriesFeed2(req, res, { title: lib.name, where: ['s.library_id = ?'], args: [Number(req.params.id)] });
+});
+
+router.get('/:key/v2/collections', (req, res) => {
+  const rows = q('SELECT id, name FROM collections WHERE user_id = ? OR promoted = 1 ORDER BY name COLLATE NOCASE').all(req.user.id);
+  send2(req, res, { title: 'Collections', navigation: rows.map((c) => nav2(c.name, `${req.base}/v2/collections/${c.id}`)) });
+});
+router.get('/:key/v2/collections/:id', (req, res) => {
+  const c = q('SELECT name FROM collections WHERE id = ? AND (user_id = ? OR promoted = 1)').get(Number(req.params.id), req.user.id);
+  if (!c) return res.status(404).end();
+  seriesFeed2(req, res, { title: c.name, where: ['s.id IN (SELECT series_id FROM collection_items WHERE collection_id = ?)'], args: [Number(req.params.id)] });
+});
+
+router.get('/:key/v2/on-deck', (req, res) => {
+  const age = accessFilter(req.user, 's');
+  const rows = q(`${BOOK_SELECT} WHERE b.missing = 0 AND p.finished = 0 AND p.updated_at IS NOT NULL AND ${age.sql}
+                  ORDER BY p.updated_at DESC LIMIT 30`).all(req.user.id, req.user.id, ...age.args);
+  send2(req, res, { title: 'Continue reading', publications: rows.map((r) => publication2(req, toBook(r, false, req.user), r)) });
+});
+
+router.get('/:key/v2/series/:id', (req, res) => {
+  const s = getSeries(req.params.id, req.user);
+  if (!s) return res.status(404).end();
+  const raws = new Map(q('SELECT id, path, description FROM books WHERE series_id = ?').all(s.id).map((r) => [r.id, r]));
+  send2(req, res, { title: s.name, publications: seriesBooks(s.id, req.user).map((b) => publication2(req, b, raws.get(b.id))) });
+});
+
+router.get('/:key/v2/search', (req, res) => {
+  const term = String(req.query.query || req.query.q || '').trim();
+  const like = likeArg(term);
+  seriesFeed2(req, res, {
+    title: `Search: ${term}`,
+    where: [`(s.name LIKE ? ESCAPE '\\' OR s.localized_name LIKE ? ESCAPE '\\' OR b.title LIKE ? ESCAPE '\\'
+             OR EXISTS (SELECT 1 FROM json_each(s.people) j WHERE json_extract(j.value, '$.name') LIKE ? ESCAPE '\\'))`],
+    args: [like, like, like, like],
+  });
+});
+
 module.exports = { router };

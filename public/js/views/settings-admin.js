@@ -3,7 +3,7 @@
 import { api } from '../api.js';
 import { session, navigate } from '../router.js';
 import {
-  h, icon, iconButton, button, field, formError, snackbar, confirmDialog, formDialog, timeAgo, formatDuration, loading, menu, AGE_RATINGS, avatar, copyText,
+  h, icon, iconButton, button, field, formError, snackbar, confirmDialog, formDialog, timeAgo, formatDuration, formatBytes, loading, menu, AGE_RATINGS, avatar, copyText, cover,
 } from '../ui.js';
 import { refreshShell } from '../shell.js';
 import { scanIndicator } from './scan.js';
@@ -265,6 +265,7 @@ export async function usersPanel(panel, stale) {
     const more = !isSelf && u.role !== 'admin' && iconButton('more_vert', 'User options', () =>
       menu(more, [
         { label: 'Edit', icon: 'edit', onClick: () => userDialog(u) },
+        { label: 'Downloads & uploads', icon: 'folder_open', onClick: () => navigate(`/admin/users/${u.id}/files`) },
         { label: 'Reset password', icon: 'key', onClick: () => passwordDialog(u) },
         { label: 'Sign out everywhere', icon: 'logout', onClick: async () => { await api.signOutUser(u.id); snackbar(`${u.displayName} signed out`); } },
         '-',
@@ -283,6 +284,10 @@ export async function usersPanel(panel, stale) {
         h('div.s', `@${u.username}${u.email ? ` · ${u.email}` : ''} · ${u.role === 'admin' ? 'Admin' : 'Guest · read-only'}`),
         h('div.s', `${u.maxAgeRating == null ? 'No age restriction' : `Up to ${age?.label}`} · ${!u.libraryIds ? 'All libraries' : u.libraryIds.length ? `${u.libraryIds.length} shared ${u.libraryIds.length === 1 ? 'library' : 'libraries'}` : 'No shared libraries'} · active ${timeAgo(u.lastSeenAt)} · ${formatDuration(u.secondsRead, { short: true })} read · ${u.finished} finished`),
         u.homeDir && h('div.s', h('span.mono', `📁 ${u.homeDir}`)),
+        !isSelf && (u.downloaded > 0 || u.uploaded > 0) && h('a.contrib-line.s', { href: `#/admin/users/${u.id}/files`, title: 'Review downloads & uploads' },
+          icon('folder_open'),
+          `${u.downloaded} downloaded · ${u.uploaded} uploaded`,
+          u.contributions.length > 0 && ` – ${u.contributions.map((c) => `${c.name}: ${[c.downloads && `${c.downloads} ↓`, c.uploads && `${c.uploads} ↑`].filter(Boolean).join(' ')}`).join(', ')}`),
         u.role !== 'admin' && h('div.perm-chips', PERMISSIONS.filter((p) => u.permissions?.[p.key]).map((p) => h('span.mini-chip', icon(p.icon), p.label))),
       ),
       more,
@@ -293,6 +298,109 @@ export async function usersPanel(panel, stale) {
     group(...rows),
     h('p.note', 'Guests can browse, read, bookmark and keep their own progress, collections and stats – but can’t change libraries, metadata or other users. Share access outside your network by port-forwarding Flyleaf (ideally behind HTTPS).'),
   );
+}
+
+/** #/admin/users/:id/files – review and delete what a user downloaded or uploaded. */
+export async function userFilesView(view, params, stale) {
+  const page = h('div.page', { style: { maxWidth: '1100px' } });
+  view.append(page, loading());
+  let library = params.query.get('library') || '';
+  let data;
+  try {
+    data = await api.userFiles(params.id, library);
+  } catch (e) {
+    view.lastChild.remove();
+    page.append(h('p', e.message));
+    return;
+  }
+  if (stale()) return;
+  view.lastChild.remove();
+
+  const selected = new Set();
+  const list = h('div.list.card');
+  const bulk = button('Delete selected', { variant: 'tonal', icon: 'delete', disabled: true, onclick: () => remove([...selected].map((k) => items.find((i) => i.key === k))) });
+  const count = h('span.label-large.muted');
+  const refresh = () => {
+    bulk.disabled = !selected.size;
+    count.textContent = selected.size ? `${selected.size} selected` : `${items.length} ${items.length === 1 ? 'item' : 'items'}`;
+  };
+  let items = data.items;
+
+  async function remove(targets) {
+    const n = targets.length;
+    if (!(await confirmDialog({
+      title: `Delete ${n === 1 ? `“${targets[0].title}”` : `${n} items`}?`,
+      message: `The ${n === 1 ? 'file is' : 'files are'} deleted from the server, along with everyone’s progress, bookmarks and notes for ${n === 1 ? 'it' : 'them'}.`,
+      confirm: 'Delete',
+      danger: true,
+      icon: 'delete',
+    }))) return;
+    const r = await api.deleteUserFiles(params.id, targets.flatMap((t) => t.refs));
+    snackbar(r.failed.length ? `Deleted ${r.deleted}; ${r.failed.length} failed: ${r.failed[0]}` : `Deleted ${r.deleted} ${r.deleted === 1 ? 'item' : 'items'}`, { duration: r.failed.length ? 8000 : 4000 });
+    const fresh = await api.userFiles(params.id, library);
+    items = fresh.items;
+    data = fresh;
+    selected.clear();
+    draw();
+  }
+
+  function draw() {
+    list.replaceChildren(...(items.length ? items.map((it) => {
+      const check = h('input', { type: 'checkbox', checked: selected.has(it.key), 'aria-label': `Select ${it.title}`, onchange: () => {
+        if (check.checked) selected.add(it.key);
+        else selected.delete(it.key);
+        refresh();
+      } });
+      const sources = [...new Set(it.refs.map((r) => r.source))];
+      const meta = [
+        sources.map((s) => (s === 'download' ? `Downloaded${it.plugin ? ` via ${it.plugin}` : ''}` : 'Uploaded')).join(' + '),
+        it.libraryName + (it.personal ? ' (personal)' : ''),
+        it.size ? formatBytes(it.size) : null,
+        timeAgo(it.at),
+        !it.book && 'not in the library yet',
+      ].filter(Boolean).join(' · ');
+      return h('div.list-item.moderation-row',
+        check,
+        h('div', { style: { width: '40px', flex: 'none' } }, it.book ? cover(it.book, { showProgress: false }) : h('div.file-badge', icon('draft'))),
+        h('div.text',
+          h('div.headline', it.book ? (it.book.series && it.book.series !== it.book.label ? `${it.book.series} · ${it.book.label}` : it.book.title) : it.title),
+          h('div.supporting', meta),
+          h('div.supporting.mono', it.file)),
+        it.book && iconButton('menu_book', 'Open', () => navigate(`/read/${it.book.id}`)),
+        it.book?.seriesId && iconButton('open_in_new', 'Series page', () => navigate(`/series/${it.book.seriesId}`)),
+        iconButton('delete', 'Delete', () => remove([it])),
+      );
+    }) : [h('div.list-item.static.muted', 'Nothing here.')]));
+    refresh();
+  }
+
+  const filter = h('div.chip-set',
+    [{ id: '', name: 'All libraries', n: data.libraries.reduce((a, l) => a + l.downloads + l.uploads, 0) },
+      ...data.libraries.map((l) => ({ id: String(l.id), name: l.name + (l.personal ? ' (personal)' : ''), n: l.downloads + l.uploads, l }))].map((c) =>
+      h('button.chip.state', { type: 'button', 'aria-pressed': String(c.id === library), onclick: async () => {
+        library = c.id;
+        history.replaceState(null, '', `#/admin/users/${params.id}/files${library ? `?library=${library}` : ''}`);
+        const fresh = await api.userFiles(params.id, library);
+        items = fresh.items;
+        selected.clear();
+        for (const b of filter.children) b.setAttribute('aria-pressed', String(b.dataset.id === library));
+        draw();
+      }, dataset: { id: c.id } }, c.name, h('span.chip-count', ` ${c.n}`, c.l ? ` (${[c.l.downloads && `${c.l.downloads} ↓`, c.l.uploads && `${c.l.uploads} ↑`].filter(Boolean).join(' ')})` : ''))));
+
+  page.append(
+    h('div.page-head',
+      iconButton('arrow_back', 'Back to users', () => navigate('/settings/users')),
+      h('h1', `${data.user.displayName}’s downloads & uploads`)),
+    h('p.body-medium.muted', { style: { margin: '0 0 12px' } },
+      'Everything this user added with Content Finder or the Upload tab. Delete anything that breaks your server’s rules – the files are removed from disk.'),
+    data.ownLibraries.length > 0 && h('div.chip-set', { style: { marginBottom: '12px' } },
+      h('span.label-large', { style: { alignSelf: 'center', marginRight: '4px' } }, 'Their libraries:'),
+      data.ownLibraries.map((l) => h('a.chip.state', { href: `#/library/${l.id}` }, icon('folder_special'), l.name))),
+    filter,
+    h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', margin: '16px 0 8px' } }, count, bulk),
+    list,
+  );
+  draw();
 }
 
 const PERMISSIONS = [

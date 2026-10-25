@@ -69,6 +69,11 @@ function likeArg(s) {
   return `%${String(s).replace(/[\\%_]/g, '\\$&')}%`;
 }
 
+/** LIKE-escaped folder prefix, with a trailing separator, for matching the files inside `dir`. */
+function likePrefix(dir) {
+  return `${String(dir)}${require('node:path').sep}`.replace(/[\\%_]/g, '\\$&');
+}
+
 /** Strip HTML to readable plain text. */
 function stripHtml(s) {
   if (!s) return null;
@@ -110,7 +115,7 @@ function similarity(a, b) {
   return (2 * overlap) / (a.length - 1 + (b.length - 1)) || 0;
 }
 
-module.exports = { json, AGE_RATINGS, parseAgeRating, accessFilter, canSeeLibrary, listsLibrary, canWriteLibrary, likeArg, stripHtml, similarity };
+module.exports = { json, AGE_RATINGS, parseAgeRating, accessFilter, canSeeLibrary, listsLibrary, canWriteLibrary, likeArg, likePrefix, stripHtml, similarity };
 
 const LINK_SOURCES = [
   [/myanimelist\.net/i, 'MyAnimeList'],

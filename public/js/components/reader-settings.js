@@ -133,7 +133,7 @@ export function readerSettingsForm(settings, onChange, { show = 'all', fonts = [
     h('div.sheet-section', h('h3', 'Behaviour'),
       toggle('Tap to paginate', 'Tap the left/right edges to turn pages', settings.tapToPaginate, set('tapToPaginate')),
       toggle('Swipe to paginate', 'Swipe sideways to turn pages', settings.swipeToPaginate, set('swipeToPaginate')),
-      toggle('Auto-close menu', 'Hide the reader menu when you turn a page', settings.autoCloseMenu, set('autoCloseMenu')),
+      toggle('Auto-hide menu', 'Hide the reader menu after a moment and when you turn a page. When off, tap the middle of the page to show or hide it', settings.autoCloseMenu, set('autoCloseMenu')),
       toggle('Immersive mode', 'Hide all chrome and page numbers while reading', settings.immersive, set('immersive')),
     ),
   );

@@ -61,6 +61,10 @@ const PREF_DEFAULTS = {
   background: null,
   // Content Finder suggestions on Home: { enabled, sources: [source ids] (empty = pick automatically), nsfw }.
   finderRecs: { enabled: true, sources: [], nsfw: false },
+  // Minutes a day to aim for on the stats page (0 = no daily goal).
+  dailyGoalMinutes: 0,
+  // Which push notifications to send: your downloads, new books in your libraries, and (admins) sign-ups & uploads.
+  notify: { downloads: true, newBooks: false, admin: true },
 };
 
 /** What a user may do beyond reading. Admins always have everything. */

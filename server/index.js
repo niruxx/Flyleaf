@@ -43,14 +43,21 @@ api.use((req, res, next) => {
 api.get('/openapi.json', (req, res) => res.json(require('./openapi').build(`${req.protocol}://${req.get('host')}/api`)));
 
 const authRoutes = require('./routes/auth');
+const backupRoutes = require('./routes/backup');
+const healthRoutes = require('./routes/health');
 api.use(authRoutes.router);
+api.use(healthRoutes.health);
+api.use('/setup/restore', backupRoutes.setup);
 api.use(auth.requireUser);
+api.use(healthRoutes.metrics);
 api.use('/me', authRoutes.me);
 api.use('/me', require('./routes/my-libraries').router);
 api.use(require('./routes/profile').router);
 api.use('/users', authRoutes.users);
+api.use('/users', require('./routes/moderation').router);
 const finder = require('./routes/finder');
 api.use('/admin/plugins', finder.admin);
+api.use('/admin', backupRoutes.admin);
 api.use('/admin', require('./routes/admin').router);
 api.use('/finder', finder.router);
 api.use('/uploads', require('./routes/uploads').router);
@@ -59,6 +66,7 @@ api.use(require('./routes/series').router);
 api.use(require('./routes/books').router);
 api.use(require('./routes/reading').router);
 api.use(require('./routes/personal').router);
+api.use(require('./routes/notifications').router);
 
 api.use((req, res) => res.status(404).json({ error: 'Not found.' }));
 api.use((err, req, res, next) => {
@@ -132,6 +140,7 @@ archive.pruneCache().catch(() => {});
 scanner.requestScan(null);
 require('./plugins/manager').seedBuiltins().then(() => require('./plugins/downloads').resume());
 require('./plugins/suwayomi-host').boot();
+require('./push').wire();
 if (config.scanInterval > 0) {
   setInterval(() => scanner.requestScan(null), config.scanInterval * 60_000).unref();
 }

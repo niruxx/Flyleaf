@@ -99,20 +99,22 @@ mostly UI work.
 
 ## 📊 Stats & social
 
-- **Reading goals**: books or pages per year, with a progress ring on the stats page
-- **Year in review**: a shareable summary card for the year
-- **Streaks** and a reading-time heat map
-- **Ratings and reviews** per series, visible to other users on the server (Kavita)
+- ✅ **Reading goals**: a yearly books goal and a daily minutes goal, with progress rings
+- ✅ **Year in review**, with a shareable summary card
+- ✅ **Streaks** (current and longest) and a reading-time heat map
+- ✅ **Ratings and reviews** per series, visible to other users on the server
+- **Pages-per-year goal** as well as books
 
 ---
 
 ## 🛠️ Platform
 
-- **Official Docker image** and a `docker-compose.yml` with Suwayomi alongside. Every other
-  server in this list ships one, and it's the expected install method for self-hosters
-- **OPDS 2.0** (JSON) feeds next to OPDS 1.2, for newer reading apps
-- **Translations (i18n)**: get the UI strings ready for community translations
-- **Web push notifications** for new chapters, finished downloads and invites
-- **Backup and restore from the UI**: download a backup with the database and settings,
-  restore it during setup (today it's only `update.sh` making automatic backups)
-- **Health and metrics endpoint** (`/api/health`, Prometheus) for people who monitor their servers
+- ✅ **Docker image** and `docker-compose.yml` (the built-in Mihon runtime runs inside the container)
+- ✅ **OPDS 2.0** (JSON) feeds at `/api/opds/<key>/v2`, next to OPDS 1.2
+- ✅ **Web push notifications** for finished/failed downloads, new books, sign-ups and uploads
+  (new-chapter notifications come with *Follow series* above)
+- ✅ **Backup and restore from the UI**: database only, or database and books, also on the setup page
+- ✅ **Health and metrics endpoints** (`/api/health`, Prometheus at `/api/metrics`)
+- **Translations (i18n)**: move the UI strings into message files so the community can translate them
+- **Publish the Docker image** to a registry (GitHub Container Registry) from CI, for `docker pull`
+- **Scheduled backups**: keep the last N backups automatically, optionally on another disk

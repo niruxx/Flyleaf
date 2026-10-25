@@ -1,0 +1,25 @@
+# docker compose up -d   →   http://localhost:7878
+#
+# /data holds the database, covers, users' personal folders and the built-in Mihon
+# extension runtime. Mount your books anywhere under /books and add them as libraries
+# in Settings → Libraries (e.g. /books/Manga).
+
+services:
+  flyleaf:
+    build: .
+    image: flyleaf:latest
+    container_name: flyleaf
+    restart: unless-stopped
+    ports:
+      - "7878:7878"
+    environment:
+      TZ: Etc/UTC
+      # Behind a reverse proxy (Caddy, nginx, Traefik…) with HTTPS:
+      # TRUST_PROXY: "true"
+      # SECURE_COOKIES: "true"
+      # SCAN_INTERVAL_MINUTES: "60"
+    volumes:
+      - ./data:/data
+      - /path/to/your/books:/books
+    # The container runs as uid 1000. If your folders belong to someone else, set it here:
+    # user: "1000:1000"

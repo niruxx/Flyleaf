@@ -107,28 +107,179 @@ router.get('/stats', (req, res) => {
     })
     .filter(Boolean);
 
-  // Streak: consecutive days with reading, ending today (or yesterday, so a streak isn't "lost" before you've read today).
-  const allDays = new Set(q('SELECT DISTINCT day FROM reading_log WHERE user_id = ? AND seconds > 0').all(uid).map((r) => r.day));
-  let streak = 0;
-  const cursor = new Date(`${today}T00:00:00Z`);
-  if (!allDays.has(today)) cursor.setUTCDate(cursor.getUTCDate() - 1);
-  while (allDays.has(cursor.toISOString().slice(0, 10))) {
-    streak++;
-    cursor.setUTCDate(cursor.getUTCDate() - 1);
-  }
+  const allDays = readingDays(uid);
+  const year = Number(today.slice(0, 4));
+  const goal = q('SELECT books FROM reading_goals WHERE user_id = ? AND year = ?').get(uid, year);
+  const todaySeconds = q('SELECT COALESCE(SUM(seconds), 0) AS s FROM reading_log WHERE user_id = ? AND day = ?').get(uid, today).s;
+
+  // A year of days for the heat map, starting on a Sunday so the columns line up as weeks.
+  const heatStart = new Date(`${today}T00:00:00Z`);
+  heatStart.setUTCDate(heatStart.getUTCDate() - 364);
+  heatStart.setUTCDate(heatStart.getUTCDate() - heatStart.getUTCDay());
+  const heatStartDay = heatStart.toISOString().slice(0, 10);
+  const heatmap = q(`SELECT day, SUM(seconds) AS seconds FROM reading_log WHERE user_id = ? AND day >= ? AND day <= ?
+                     GROUP BY day ORDER BY day`).all(uid, heatStartDay, today);
 
   res.json({
+    longestStreak: longestStreak(allDays),
+    goal: { year, books: goal?.books ?? null, finished: finishedInYear(uid, year) },
+    dailyGoalMinutes: Number(req.user.prefs.dailyGoalMinutes) || 0,
+    todaySeconds,
+    heatmap,
+    heatStartDay,
     totalSeconds: totals.seconds,
     activeDays: totals.days,
     booksTouched: totals.books,
     finished,
     inProgress,
-    streak,
+    streak: currentStreak(allDays, today),
     daily,
     startDay,
     today,
     byKind,
     topBooks,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Streaks and goals
+
+const nextDay = (day, by = 1) => {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + by);
+  return d.toISOString().slice(0, 10);
+};
+
+/** Days (YYYY-MM-DD) with any reading, as a Set. */
+const readingDays = (uid, from = '0000', to = '9999') =>
+  new Set(q('SELECT DISTINCT day FROM reading_log WHERE user_id = ? AND seconds > 0 AND day >= ? AND day <= ?').all(uid, from, to).map((r) => r.day));
+
+/** Consecutive days with reading ending today (or yesterday, so a streak isn't "lost" before you've read today). */
+function currentStreak(days, today) {
+  let streak = 0;
+  let cursor = days.has(today) ? today : nextDay(today, -1);
+  while (days.has(cursor)) {
+    streak++;
+    cursor = nextDay(cursor, -1);
+  }
+  return streak;
+}
+
+/** The longest run of consecutive reading days, with when it started. */
+function longestStreak(days) {
+  let best = { days: 0, start: null, end: null };
+  for (const day of days) {
+    if (days.has(nextDay(day, -1))) continue; // not the start of a run
+    let end = day;
+    let n = 1;
+    while (days.has(nextDay(end))) {
+      end = nextDay(end);
+      n++;
+    }
+    if (n > best.days) best = { days: n, start: day, end };
+  }
+  return best;
+}
+
+const yearRange = (year) => [Date.UTC(year, 0, 1) - 14 * 3600_000, Date.UTC(year + 1, 0, 1) + 14 * 3600_000];
+
+/** Books finished during a calendar year (finish times are stored in ms; widened for time zones). */
+function finishedInYear(uid, year) {
+  const [from, to] = yearRange(year);
+  return q('SELECT COUNT(*) AS n FROM progress WHERE user_id = ? AND finished = 1 AND finished_at >= ? AND finished_at < ?').get(uid, from, to).n;
+}
+
+router.put('/stats/goal', (req, res) => {
+  const year = Number(req.body?.year) || new Date().getFullYear();
+  if (year < 2000 || year > 2200) return res.status(400).json({ error: 'Pick a year.' });
+  const books = req.body?.books == null || req.body.books === '' ? null : Math.round(Number(req.body.books));
+  if (books == null || books <= 0) {
+    q('DELETE FROM reading_goals WHERE user_id = ? AND year = ?').run(req.user.id, year);
+  } else {
+    if (!Number.isFinite(books) || books > 10000) return res.status(400).json({ error: 'Pick a goal between 1 and 10,000 books.' });
+    q(`INSERT INTO reading_goals (user_id, year, books) VALUES (?, ?, ?)
+       ON CONFLICT (user_id, year) DO UPDATE SET books = excluded.books`).run(req.user.id, year, books);
+  }
+  res.json({ year, books, finished: finishedInYear(req.user.id, year) });
+});
+
+// ---------------------------------------------------------------------------
+// Year in review
+
+router.get('/stats/year', (req, res) => {
+  const uid = req.user.id;
+  const year = Number(req.query.year) || new Date().getFullYear();
+  if (year < 2000 || year > 2200) return res.status(400).json({ error: 'Pick a year.' });
+  const from = `${year}-01-01`;
+  const to = `${year}-12-31`;
+  const [fromMs, toMs] = yearRange(year);
+
+  const totals = q(`SELECT COALESCE(SUM(seconds), 0) AS seconds, COUNT(DISTINCT day) AS days, COUNT(DISTINCT book_id) AS books
+                    FROM reading_log WHERE user_id = ? AND day BETWEEN ? AND ?`).get(uid, from, to);
+  const days = readingDays(uid, from, to);
+
+  const byMonth = Array(12).fill(0);
+  const byWeekday = Array(7).fill(0);
+  let busiest = null;
+  for (const r of q('SELECT day, SUM(seconds) AS seconds FROM reading_log WHERE user_id = ? AND day BETWEEN ? AND ? GROUP BY day').all(uid, from, to)) {
+    byMonth[Number(r.day.slice(5, 7)) - 1] += r.seconds;
+    byWeekday[new Date(`${r.day}T00:00:00Z`).getUTCDay()] += r.seconds;
+    if (!busiest || r.seconds > busiest.seconds) busiest = r;
+  }
+
+  const finishedRows = q(`SELECT book_id, finished_at FROM progress WHERE user_id = ? AND finished = 1 AND finished_at >= ? AND finished_at < ?
+                          ORDER BY finished_at`).all(uid, fromMs, toMs);
+  const finishedBooks = finishedRows
+    .map((r) => {
+      const row = getBook(r.book_id, req.user);
+      return row ? { ...toBook(row, false, req.user), finishedAt: r.finished_at } : null;
+    })
+    .filter(Boolean);
+  const pages = finishedBooks.reduce((a, b) => a + (b.pageCount || 0), 0);
+
+  // Series, genres and creators, weighted by time spent reading them this year.
+  const perSeries = q(`SELECT b.series_id AS id, SUM(r.seconds) AS seconds FROM reading_log r JOIN books b ON b.id = r.book_id
+                       WHERE r.user_id = ? AND r.day BETWEEN ? AND ? AND b.series_id IS NOT NULL
+                       GROUP BY b.series_id ORDER BY seconds DESC`).all(uid, from, to);
+  const { getSeries } = require('../serialize');
+  const genres = new Map();
+  const people = new Map();
+  const topSeries = [];
+  for (const row of perSeries) {
+    const s = getSeries(row.id, req.user);
+    if (!s) continue;
+    if (topSeries.length < 6) topSeries.push({ series: s, seconds: row.seconds });
+    for (const g of s.genres || []) genres.set(g, (genres.get(g) || 0) + row.seconds);
+    for (const p of (s.people || []).filter((x) => /writer|author|story|creator/i.test(x.role))) people.set(p.name, (people.get(p.name) || 0) + row.seconds);
+  }
+  const top = (m, n) => [...m].sort((a, b) => b[1] - a[1]).slice(0, n).map(([name, seconds]) => ({ name, seconds }));
+
+  const byKind = q(`SELECT l.kind, SUM(r.seconds) AS seconds FROM reading_log r
+                    JOIN books b ON b.id = r.book_id JOIN libraries l ON l.id = b.library_id
+                    WHERE r.user_id = ? AND r.day BETWEEN ? AND ? GROUP BY l.kind ORDER BY seconds DESC`).all(uid, from, to);
+  const highlights = q("SELECT COUNT(*) AS n FROM annotations WHERE user_id = ? AND kind = 'highlight' AND created_at >= ? AND created_at < ?").get(uid, fromMs, toMs).n;
+  const goal = q('SELECT books FROM reading_goals WHERE user_id = ? AND year = ?').get(uid, year);
+  const years = q("SELECT DISTINCT substr(day, 1, 4) AS y FROM reading_log WHERE user_id = ? ORDER BY y DESC").all(uid).map((r) => Number(r.y));
+
+  res.json({
+    year,
+    years,
+    totalSeconds: totals.seconds,
+    activeDays: totals.days,
+    booksOpened: totals.books,
+    finished: finishedBooks.length,
+    finishedBooks,
+    pages,
+    longestStreak: longestStreak(days),
+    busiestDay: busiest,
+    byMonth,
+    byWeekday,
+    byKind,
+    topSeries,
+    topGenres: top(genres, 5),
+    topCreators: top(people, 5),
+    highlights,
+    goal: goal?.books ?? null,
   });
 });
 

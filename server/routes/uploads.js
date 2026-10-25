@@ -124,6 +124,7 @@ router.put('/file', async (req, res) => {
     throw err(['EROFS', 'EACCES', 'EPERM', 'ENOSPC'].includes(e.code) ? (e.code === 'ENOSPC' ? 'The server is out of disk space.' : fsMessage(e, dir)) : e.message);
   }
   const rel = path.relative(lib.path, dest).split(path.sep).join('/');
+  q('INSERT INTO uploads (user_id, library_id, file, size, created_at) VALUES (?, ?, ?, ?, ?)').run(req.user.id, lib.id, dest, received, Date.now());
   log.file(`${req.user.username} uploaded ${rel} to "${lib.name}"`);
   res.status(201).json({ path: rel, name: path.basename(dest), size: received, renamed: path.basename(dest) !== fileName });
 });

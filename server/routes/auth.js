@@ -182,8 +182,19 @@ users.get('/', (req, res) => {
   const rows = q(`
     SELECT u.*,
       (SELECT COALESCE(SUM(seconds), 0) FROM reading_log r WHERE r.user_id = u.id) AS seconds_read,
-      (SELECT COUNT(*) FROM progress p WHERE p.user_id = u.id AND p.finished = 1) AS finished
+      (SELECT COUNT(*) FROM progress p WHERE p.user_id = u.id AND p.finished = 1) AS finished,
+      (SELECT COUNT(*) FROM downloads d WHERE d.user_id = u.id AND d.status = 'done' AND d.file IS NOT NULL) AS downloaded,
+      (SELECT COUNT(*) FROM uploads x WHERE x.user_id = u.id) AS uploaded
     FROM users u ORDER BY u.role, u.username`).all();
+  // Per library, for the Users list: what each user downloaded or uploaded there.
+  const perLibrary = new Map();
+  for (const r of q(`SELECT user_id, library_id, l.name, SUM(dl) AS downloads, SUM(ul) AS uploads FROM (
+                       SELECT user_id, library_id, 1 AS dl, 0 AS ul FROM downloads WHERE status = 'done' AND file IS NOT NULL
+                       UNION ALL SELECT user_id, library_id, 0, 1 FROM uploads)
+                     JOIN libraries l ON l.id = library_id GROUP BY user_id, library_id ORDER BY l.name COLLATE NOCASE`).all()) {
+    if (!perLibrary.has(r.user_id)) perLibrary.set(r.user_id, []);
+    perLibrary.get(r.user_id).push({ id: r.library_id, name: r.name, downloads: r.downloads, uploads: r.uploads });
+  }
   res.json(
     rows.map((u) => ({
       ...publicUser(auth.toUser(u)),
@@ -192,6 +203,9 @@ users.get('/', (req, res) => {
       lastSeenAt: u.last_seen_at,
       secondsRead: u.seconds_read,
       finished: u.finished,
+      downloaded: u.downloaded,
+      uploaded: u.uploaded,
+      contributions: perLibrary.get(u.id) || [],
     })),
   );
 });
