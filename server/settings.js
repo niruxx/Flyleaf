@@ -11,6 +11,8 @@ const DEFAULTS = {
   publicUrl: '',
   opdsEnabled: true,
   smtp: { host: '', port: 587, secure: false, user: '', pass: '', from: '' },
+  // Public sign-up: sharedLibraries 'all' | 'none'; permissions as auth.PERMISSION_DEFAULTS (null = defaults).
+  registration: { enabled: false, inviteCode: '', sharedLibraries: 'all', permissions: null },
 };
 
 const cache = new Map();

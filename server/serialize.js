@@ -51,6 +51,7 @@ function toBook(row, detail = false, user = null) {
     blur: shouldBlur(row.us_blur, row.s_age_rating, user),
     version: row.mtime,
     canDelete: canDeleteBook(user, row),
+    canMove: canMoveBook(user, row),
     progress:
       row.p_updated_at != null
         ? { percent: row.p_percent, page: row.p_page, finished: Boolean(row.p_finished), updatedAt: row.p_updated_at }
@@ -91,6 +92,32 @@ function canDeleteBook(user, row) {
   if (user.role === 'admin') return true;
   if (!user.permissions?.deleteBooks) return false;
   return (user.ownLibraryIds || []).includes(row.library_id) || Boolean(row.path && downloadedFiles(user).has(row.path));
+}
+
+/**
+ * Whether the user may move this book to another library. Admins: always. Others: from their
+ * own libraries (when they have another to move to), or a book they downloaded into a shared
+ * library (which takes it out of that library, so it needs the delete permission too).
+ */
+function canMoveBook(user, row) {
+  if (!user || !row) return false;
+  if (user.role === 'admin') return true;
+  const own = user.ownLibraryIds || [];
+  if (own.includes(row.library_id)) return own.length > 1;
+  return own.length > 0 && Boolean(user.permissions?.deleteBooks && row.path && downloadedFiles(user).has(row.path));
+}
+
+/** Whether the user may move a whole series: every book in it must be theirs to move. */
+function canMoveSeries(user, row) {
+  if (!user || !row) return false;
+  if (user.role === 'admin') return true;
+  const own = user.ownLibraryIds || [];
+  if (own.includes(row.library_id)) return own.length > 1;
+  if (!own.length || !user.permissions?.deleteBooks) return false;
+  const files = downloadedFiles(user);
+  if (!files.size) return false;
+  const paths = q('SELECT path FROM books WHERE series_id = ?').all(row.id);
+  return paths.length > 0 && paths.every((b) => files.has(b.path));
 }
 
 /** Whether the user may delete a whole series: every book in it must be theirs to delete. */
@@ -226,6 +253,7 @@ function toSeries(row, user, detail = false) {
     userStatus: row.user_status || null,
     blur: shouldBlur(row.user_blur, row.age_rating, user),
     canDelete: canDeleteSeries(user, row),
+    canMove: canMoveSeries(user, row),
   };
   if (detail) {
     Object.assign(s, {
@@ -278,6 +306,8 @@ module.exports = {
   getBook,
   canDeleteBook,
   canDeleteSeries,
+  canMoveBook,
+  canMoveSeries,
   bookSort,
   listSeries,
   toSeries,

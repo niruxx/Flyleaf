@@ -65,13 +65,16 @@ export function stagger(el) {
 // ---------------------------------------------------------------------------
 // Ripples
 
+const CLIP = globalThis.CSS?.supports?.('overflow', 'clip') ? 'clip' : 'hidden';
+
 document.addEventListener(
   'pointerdown',
   (e) => {
     const target = e.target.closest('.btn, .icon-btn, .chip, .list-item, .fab, .menu button, .segmented button, .tabs button, .pill, .nav-item, .setting-row.state');
     if (!target || target.disabled || document.documentElement.classList.contains('no-motion')) return;
     if (getComputedStyle(target).position === 'static') target.style.position = 'relative';
-    target.style.overflow = 'hidden';
+    // clip, not hidden: hidden would let a flex item shrink below its label (squashed tabs).
+    target.style.overflow = CLIP;
     target.style.isolation = 'isolate';
     const rect = target.getBoundingClientRect();
     const size = Math.max(rect.width, rect.height) * 2;

@@ -3,7 +3,7 @@ import { route, render, session, navigate } from './router.js';
 import { syncThemeColor } from './ui.js';
 import { initShell, afterSignIn } from './shell.js';
 import { initMotion } from './motion.js';
-import { setupView, loginView } from './views/auth.js';
+import { setupView, loginView, registerView } from './views/auth.js';
 import { welcomeView } from './views/welcome.js';
 import { homeView, recommendedView } from './views/home.js';
 import { libraryView, wantView, genreView, personView, tagView, searchView, collectionView } from './views/browse.js';
@@ -16,6 +16,7 @@ import { readerView } from './reader/reader.js';
 
 route('/setup', setupView, { bare: true, auth: false });
 route('/login', loginView, { bare: true, auth: false });
+route('/register', registerView, { bare: true, auth: false });
 route('/welcome', welcomeView, { bare: true });
 route('/', homeView);
 route('/library/:id?', libraryView);
@@ -61,10 +62,10 @@ async function boot() {
   const hash = location.hash.replace(/^#/, '');
   if (status.needsSetup) {
     history.replaceState(null, '', '#/setup');
-  } else if (!status.user && hash !== '/login') {
+  } else if (!status.user && hash !== '/login' && !(hash === '/register' && status.registration)) {
     sessionStorage.setItem('flyleaf.after-login', hash || '/');
     history.replaceState(null, '', '#/login');
-  } else if (status.user && (hash === '/login' || hash === '/setup')) {
+  } else if (status.user && (hash === '/login' || hash === '/setup' || hash === '/register')) {
     history.replaceState(null, '', '#/');
   }
   if (session.user) afterSignIn();

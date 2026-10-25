@@ -21,6 +21,7 @@ function tabs(names, onSelect) {
   names.forEach(([id, label, ic], i) =>
     bar.append(h('button', { type: 'button', role: 'tab', 'aria-selected': String(i === 0), onclick: (e) => {
       for (const b of bar.children) b.setAttribute('aria-selected', String(b === e.currentTarget));
+      e.currentTarget.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
       onSelect(id);
     } }, ic && icon(ic), label)),
   );
@@ -175,8 +176,8 @@ export async function editSeries(seriesId) {
 
   await dialog({
     title: 'Edit metadata',
-    className: 'fullscreen-compact',
-    content: h('div', { style: { width: 'min(640px, 100%)' } }, tabBar, err, body, lockNote),
+    className: 'wide fullscreen-compact',
+    content: h('div', tabBar, err, body, lockNote),
     actions: [
       { label: 'Cancel' },
       {

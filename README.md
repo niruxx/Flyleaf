@@ -62,9 +62,11 @@
 
 ### 🌐 Share & sync
 - **Admin + read-only guest accounts** – share over the internet with port forwarding
+- **Optional sign-up page** for a publicly hosted Flyleaf: people create their own account (optionally with an invite code) and get their own Books, Comics and Manga libraries
 - Per-user **progress, resume, reading time & stats** and **reading lists**
 - Per-user **age limits**, **library access** and **permissions** (downloads, uploads, Content Finder, deleting books, API keys)
 - **Delete books** from the ⋮ menu: users can delete books in their own libraries and ones they downloaded, never other books in shared libraries
+- **Move books and series** to another of your libraries from the ⋮ menu (*Move to library…*): the files move on disk, and reading progress, bookmarks, notes, collections and Want to read come along
 - **Personal folders**: every new user gets their own folder (`data/content/<username>`) with ready-made **Books, Comics and Manga** libraries, which their downloads and uploads go into
 - **OPDS 1.2 + OPDS-PSE** for Panels, Chunky, KOReader, Moon+ … with progress sync
 - **Send to Kindle / Kobo** by email, download single books or whole series
@@ -533,7 +535,7 @@ You can switch a library between these at any time; nothing on disk changes. Lib
 
 #### 📁 Personal folders & private libraries
 
-Every user you create gets a **personal folder** with three libraries already set up, so they can download and upload straight away:
+Every user you create, and everyone who signs up, gets a **personal folder** with three libraries already set up, so they can download and upload straight away:
 
 ```
 data/content/alex/
@@ -545,6 +547,8 @@ data/content/alex/
 1. **Admin:** *Settings → Users → Add guest*. Leave **Personal folder** empty for `data/content/<username>`, or type an absolute path (e.g. `/srv/flyleaf/alex`) or press *Browse the server*; the Books, Comics and Manga libraries are created inside whichever you pick. For an existing user, set or change it under *Edit*. Flyleaf creates the folder if it doesn't exist.
 2. **The user** gets **My libraries** in the menu and in Settings. There they create libraries inside their folder (picking or creating a sub-folder, a type and a folder structure), and can rename, rescan or remove them. Removing one keeps its files.
 3. **The admin** can also give someone a library directly: in *Settings → Libraries → Add library*, choose **Who it's for → (user) – their personal library**.
+
+**Letting people sign up.** On a publicly hosted Flyleaf you can let people make their own accounts: *Settings → Server & email → Sign-up → Let people create their own accounts*. The sign-in page then shows *Create an account* (the link is `<your address>/#/register`). Set an **invite code** so only people you give it to can join (*Generate* makes one); choose whether new accounts see the shared libraries or only their own; and pick what they may do (the same permissions as in *Settings → Users*). Each new account gets `data/content/<username>` with Books, Comics and Manga libraries, and is signed in straight away. Sign-ups are limited to 5 an hour per address, and you can edit or remove any account later in *Settings → Users*.
 
 What a personal folder changes for that user:
 

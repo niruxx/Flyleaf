@@ -344,6 +344,8 @@ function assignSeries(lib) {
   const existing = new Map(q('SELECT id, key FROM series WHERE library_id = ?').all(lib.id).map((s) => [s.key, s.id]));
   const now = Date.now();
   const touched = new Set();
+  const created = new Set();
+  const regrouped = new Map(); // old series id → the series its books went to
   tx(() => {
     for (const book of books) {
       const s = seriesFor(lib, book);
@@ -352,12 +354,25 @@ function assignSeries(lib) {
       if (!sid) {
         sid = Number(q('INSERT INTO series (library_id, key, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(lib.id, key, s.name, now, now).lastInsertRowid);
         existing.set(key, sid);
+        created.add(sid);
       }
       touched.add(sid);
+      if (book.series_id && book.series_id !== sid) {
+        if (!regrouped.has(book.series_id)) regrouped.set(book.series_id, new Set());
+        regrouped.get(book.series_id).add(sid);
+      }
       const index = s.volume ?? s.chapter;
       q('UPDATE books SET series_id = ?, series = ?, series_index = ?, volume = ?, chapter = ?, special = ? WHERE id = ?').run(
         sid, s.name, index, s.volume, s.chapter, s.special, book.id,
       );
+    }
+    // A series whose books all regrouped into one other series (a move between libraries, a
+    // change of library type, a rename) hands over what readers and the admin added to it,
+    // wherever it was, then goes.
+    for (const [from, to] of regrouped) {
+      if (q('SELECT 1 FROM books WHERE series_id = ?').get(from)) continue;
+      if (to.size === 1) carryOverSeries(from, [...to][0], created.has([...to][0]));
+      q('DELETE FROM series WHERE id = ?').run(from);
     }
     q(`DELETE FROM series WHERE library_id = ? AND id NOT IN (SELECT DISTINCT series_id FROM books WHERE series_id IS NOT NULL)`).run(lib.id);
   });
@@ -365,6 +380,21 @@ function assignSeries(lib) {
 }
 
 /** Fill series metadata from the books' embedded metadata (only fields not edited or scraped). */
+/**
+ * Copy a series' reader data (Want to read, status, tags, reader settings, collections) onto
+ * the series that replaced it; a series created just now also takes its edited metadata.
+ */
+function carryOverSeries(from, to, fresh) {
+  q(`INSERT OR IGNORE INTO user_series (user_id, series_id, want_to_read, want_added_at, status, blur, user_tags, reader_settings, updated_at)
+     SELECT user_id, ?, want_to_read, want_added_at, status, blur, user_tags, reader_settings, updated_at FROM user_series WHERE series_id = ?`).run(to, from);
+  q('INSERT OR IGNORE INTO collection_items (collection_id, series_id, added_at) SELECT collection_id, ?, added_at FROM collection_items WHERE series_id = ?').run(to, from);
+  if (!fresh) return;
+  const old = q('SELECT * FROM series WHERE id = ?').get(from);
+  if (!old) return;
+  const cols = ['localized_name', 'sort_name', 'summary', 'status', 'publisher', 'year', 'age_rating', 'language', 'genres', 'tags', 'people', 'links', 'provider_ids', 'locked', 'metadata_source', 'metadata_at'];
+  q(`UPDATE series SET ${cols.map((c) => `${c} = ?`).join(', ')} WHERE id = ?`).run(...cols.map((c) => old[c]), to);
+}
+
 function seedSeriesFromFiles(seriesId) {
   const s = q('SELECT * FROM series WHERE id = ?').get(seriesId);
   if (!s) return;

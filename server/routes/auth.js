@@ -4,6 +4,7 @@ const express = require('express');
 const { q } = require('../db');
 const auth = require('../auth');
 const config = require('../config');
+const settings = require('../settings');
 
 const router = express.Router();
 
@@ -29,7 +30,57 @@ const validEmail = (e) => e == null || e === '' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.
 
 router.get('/status', (req, res) => {
   // Your own background is only ever sent to you.
-  res.json({ needsSetup: userCount() === 0, user: req.user ? { ...publicUser(req.user), backgroundUrl: req.user.backgroundUrl } : null });
+  const reg = settings.get('registration') || {};
+  res.json({
+    needsSetup: userCount() === 0,
+    // Whether the sign-in page offers "Create an account" (and asks for an invite code).
+    registration: reg.enabled ? { inviteRequired: Boolean(reg.inviteCode) } : null,
+    user: req.user ? { ...publicUser(req.user), backgroundUrl: req.user.backgroundUrl } : null,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sign-up (when the admin turns it on in Settings → Server & email)
+
+const registration = () => ({ ...settings.DEFAULTS.registration, ...(settings.get('registration') || {}) });
+
+// At most 5 sign-ups (or wrong invite codes) per address per hour.
+const signups = new Map();
+function signupAllowed(ip) {
+  const now = Date.now();
+  const recent = (signups.get(ip) || []).filter((t) => now - t < 3600_000);
+  signups.set(ip, recent);
+  return recent.length < 5;
+}
+const noteSignup = (ip) => signups.get(ip)?.push(Date.now()) ?? signups.set(ip, [Date.now()]);
+
+function sameCode(a, b) {
+  const x = Buffer.from(String(a));
+  const y = Buffer.from(String(b));
+  return x.length === y.length && require('node:crypto').timingSafeEqual(x, y);
+}
+
+router.post('/register', async (req, res) => {
+  const reg = registration();
+  if (!reg.enabled || userCount() === 0) return res.status(403).json({ error: 'Sign-up is closed. Ask the admin for an account.' });
+  if (!signupAllowed(req.ip)) return res.status(429).json({ error: 'Too many sign-ups from this address. Try again later.' });
+  const { username, password, displayName, inviteCode } = req.body || {};
+  const err = auth.validateUsername(username) || auth.validatePassword(password);
+  if (err) return res.status(400).json({ error: err });
+  if (reg.inviteCode && !sameCode(String(inviteCode || '').trim(), reg.inviteCode)) {
+    noteSignup(req.ip);
+    return res.status(403).json({ error: 'That invite code isn’t right.' });
+  }
+  if (q('SELECT 1 FROM users WHERE username = ?').get(username)) return res.status(409).json({ error: 'That username is taken.' });
+  noteSignup(req.ip);
+  const { id } = await createGuest({ username, password, displayName }, {
+    library_ids: reg.sharedLibraries === 'none' ? '[]' : null,
+    permissions: { ...auth.PERMISSION_DEFAULTS, ...(reg.permissions || {}) },
+  });
+  require('../events').emit('user.created', { userId: id, username, registered: true });
+  auth.createSession(res, id, req.get('user-agent'));
+  const u = auth.toUser(q('SELECT * FROM users WHERE id = ?').get(id));
+  res.status(201).json({ user: { ...publicUser(u), backgroundUrl: u.backgroundUrl } });
 });
 
 // First-run: create the admin account. Only possible while no users exist.
@@ -205,6 +256,39 @@ function applyAccess(id, fields) {
   }
 }
 
+/**
+ * Create a guest account, with a personal folder holding Books, Comics and Manga libraries:
+ * the folder the admin chose, or <data>/content/<username>. `access` is from ageFields().
+ */
+async function createGuest({ username, password, displayName, email }, access = {}) {
+  const { lastInsertRowid } = q(
+    `INSERT INTO users (username, display_name, email, password_hash, role, created_at, max_age_rating, age_include_unknown, prefs)
+     VALUES (?, ?, ?, ?, 'guest', ?, ?, ?, '{"onboarded":false}')`,
+  ).run(
+    username,
+    String(displayName || '').trim().slice(0, 64) || null,
+    email || null,
+    auth.hashPassword(password),
+    Date.now(),
+    access.max_age_rating ?? null,
+    access.age_include_unknown ?? 1,
+  );
+  const id = Number(lastInsertRowid);
+  let home = access.home_dir ?? null;
+  if (!home) {
+    home = require('node:path').join(config.contentDir, username);
+    try {
+      require('node:fs').mkdirSync(home, { recursive: true });
+    } catch (e) {
+      require('../log').logger('users').warn(`Couldn't create ${home} for ${username}: ${e.message}`);
+      home = null;
+    }
+  }
+  applyAccess(id, { library_ids: access.library_ids ?? null, home_dir: home, permissions: access.permissions ?? {} });
+  const libraries = home ? await require('./my-libraries').createDefaultLibraries(id, home) : [];
+  return { id, homeDir: home, libraries: libraries.length };
+}
+
 users.post('/', async (req, res) => {
   const { username, password, displayName, email } = req.body || {};
   const err = auth.validateUsername(username) || auth.validatePassword(password);
@@ -219,35 +303,9 @@ users.post('/', async (req, res) => {
   } catch (e) {
     return res.status(400).json({ error: e.message });
   }
-  const { lastInsertRowid } = q(
-    `INSERT INTO users (username, display_name, email, password_hash, role, created_at, max_age_rating, age_include_unknown, prefs)
-     VALUES (?, ?, ?, ?, 'guest', ?, ?, ?, '{"onboarded":false}')`,
-  ).run(
-    username,
-    String(displayName || '').trim().slice(0, 64) || null,
-    email || null,
-    auth.hashPassword(password),
-    Date.now(),
-    age.max_age_rating ?? null,
-    age.age_include_unknown ?? 1,
-  );
-  const id = Number(lastInsertRowid);
-  // Everyone gets a personal folder with Books, Comics and Manga libraries: the one the admin
-  // chose, or <data>/content/<username>.
-  let home = age.home_dir ?? null;
-  if (!home) {
-    home = require('node:path').join(config.contentDir, username);
-    try {
-      require('node:fs').mkdirSync(home, { recursive: true });
-    } catch (e) {
-      require('../log').logger('users').warn(`Couldn't create ${home} for ${username}: ${e.message}`);
-      home = null;
-    }
-  }
-  applyAccess(id, { library_ids: age.library_ids ?? null, home_dir: home, permissions: age.permissions ?? {} });
-  const libraries = home ? await require('./my-libraries').createDefaultLibraries(id, home) : [];
-  require('../events').emit('user.created', { userId: id, username });
-  res.status(201).json({ id, homeDir: home, libraries: libraries.length });
+  const created = await createGuest({ username, password, displayName, email }, age);
+  require('../events').emit('user.created', { userId: created.id, username });
+  res.status(201).json(created);
 });
 
 users.patch('/:id', (req, res) => {

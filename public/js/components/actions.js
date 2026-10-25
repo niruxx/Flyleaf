@@ -186,6 +186,61 @@ export async function deleteSeries(s, { onChange } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Moving to another library
+
+const KIND_ICON = { books: 'menu_book', manga: 'auto_stories', comics: 'photo_library' };
+
+/** "Manga · shared": the type when the name doesn't already say it, and (for the admin) whose it is. */
+function libraryNote(l) {
+  const kind = `${l.kind[0].toUpperCase()}${l.kind.slice(1)}`;
+  return [l.name.toLowerCase() !== l.kind ? kind : null, isAdmin() ? (l.own ? 'your library' : 'shared') : null].filter(Boolean).join(' · ');
+}
+
+/** Pick a library to move a book or a whole series into; the files move on disk. */
+export async function moveTo({ book, series }, { onChange } = {}) {
+  let targets;
+  try {
+    targets = await api.moveTargets(book ? { book: book.id } : { series: series.id });
+  } catch (e) {
+    return snackbar(e.message, { duration: 6000 });
+  }
+  const name = book ? book.label || book.title : series.name;
+  if (!targets.length) return snackbar('You don’t have another library to move it to.', { duration: 6000 });
+  const pick = await dialog({
+    title: `Move “${name}”`,
+    icon: 'drive_file_move',
+    content: h('div',
+      h('p', { style: { marginBottom: '8px' } }, book
+        ? 'Move this file to another library. Your progress, bookmarks and notes come along.'
+        : `Move all ${series.count > 1 ? `${series.count} books` : 'of this series'} to another library. Your progress, bookmarks and notes come along.`),
+      h('div.list', { style: { margin: '0 -24px' } }, targets.map((l) =>
+        h('button.list-item.state', { type: 'button', onclick: (e) => e.currentTarget.closest('dialog').dispatchEvent(new CustomEvent('pick', { detail: l })) },
+          icon(KIND_ICON[l.kind] || 'folder'),
+          h('div.text', h('div.headline', l.name), libraryNote(l) && h('div.supporting', libraryNote(l))),
+          icon('chevron_right')))),
+    ),
+    actions: [{ label: 'Cancel' }],
+    onOpen: (dlg, close) => dlg.addEventListener('pick', (e) => close(e.detail)),
+  });
+  if (!pick) return;
+  snackbar(`Moving to ${pick.name}…`);
+  try {
+    const r = book ? await api.moveBook(book.id, pick.id) : await api.moveSeries(series.id, pick.id);
+    snackbar(`Moved to ${pick.name}`, { action: 'Open', onAction: () => navigate(`/library/${pick.id}`) });
+    // Don't leave the user on a series page that no longer exists here.
+    const [, view, id] = location.hash.split(/[/?]/);
+    const seriesId = book ? book.seriesId : series.id;
+    // A moved series may regroup under a new identity once its new library is scanned.
+    const gone = book ? r.seriesRemoved : true;
+    if (gone && view === 'series' && id === String(seriesId)) navigate(`/library/${pick.id}`);
+    else onChange?.();
+    refreshShell();
+  } catch (e) {
+    snackbar(e.message, { duration: 7000 });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Action menus
 
 /** ⋮ actions for a series card or the series page. `onChange` refreshes the caller. */
@@ -222,7 +277,9 @@ export function seriesActions(anchor, s, { onChange, at } = {}) {
       { label: 'Fetch metadata', icon: 'travel_explore', onClick: () => import('./editors.js').then((m) => m.fetchMetadata(s).then(changed)) },
     );
   }
-  if (s.canDelete) items.push('-', { label: 'Delete', icon: 'delete', onClick: () => deleteSeries(s, { onChange }) });
+  if (s.canMove || s.canDelete) items.push('-');
+  if (s.canMove) items.push({ label: 'Move to library…', icon: 'drive_file_move', onClick: () => moveTo({ series: s }, { onChange }) });
+  if (s.canDelete) items.push({ label: 'Delete', icon: 'delete', onClick: () => deleteSeries(s, { onChange }) });
   return actions(anchor, items, { title: s.name, at });
 }
 
@@ -246,7 +303,9 @@ export function bookActions(anchor, b, { onChange, series, at } = {}) {
     );
   }
   // The server decides: admins may delete anything, others only their own libraries' books and their downloads.
-  if (b.canDelete) items.push('-', { label: 'Delete', icon: 'delete', onClick: () => deleteBook(b, { onChange }) });
+  if (b.canMove || b.canDelete) items.push('-');
+  if (b.canMove) items.push({ label: 'Move to library…', icon: 'drive_file_move', onClick: () => moveTo({ book: b }, { onChange }) });
+  if (b.canDelete) items.push({ label: 'Delete', icon: 'delete', onClick: () => deleteBook(b, { onChange }) });
   return actions(anchor, items, { title: b.label || b.title, at });
 }
 

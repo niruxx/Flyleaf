@@ -62,6 +62,7 @@ export const api = {
   status: () => GET('/api/status'),
   setup: (b) => POST('/api/setup', b),
   login: (b) => POST('/api/login', b),
+  register: (b) => POST('/api/register', b),
   logout: () => POST('/api/logout'),
 
   me: () => GET('/api/me'),
@@ -117,6 +118,9 @@ export const api = {
   reader: (id) => GET(`/api/books/${id}/reader`),
   updateBook: (id, b) => PATCH(`/api/books/${id}`, b),
   deleteBook: (id) => DEL(`/api/books/${id}`),
+  moveTargets: ({ book, series }) => GET(`/api/move-targets?${book ? `book=${book}` : `series=${series}`}`),
+  moveBook: (id, libraryId) => POST(`/api/books/${id}/move`, { libraryId }),
+  moveSeries: (id, libraryId) => POST(`/api/series/${id}/move`, { libraryId }),
   deleteSeries: (id) => DEL(`/api/series/${id}`),
   refreshBook: (id) => POST(`/api/books/${id}/refresh`),
   setCover: (id, blob) => request('PUT', `/api/books/${id}/cover`, blob),

@@ -95,6 +95,64 @@ export function loginView(view) {
     pass,
     submit,
   );
-  view.append(shell('Flyleaf', 'Sign in to your library.', form));
+  // "Create an account" only when the admin has turned sign-up on.
+  const signup = h('div.auth-alt');
+  api.status().then((st) => {
+    if (st.registration) signup.append(h('span.muted', 'New here? '), h('a', { href: '#/register' }, 'Create an account'));
+  }).catch(() => {});
+  view.append(shell('Flyleaf', 'Sign in to your library.', h('div', form, signup)));
+  user.input.focus();
+}
+
+export async function registerView(view) {
+  const st = await api.status().catch(() => null);
+  if (!st?.registration) {
+    view.append(shell('Flyleaf', 'Sign-up is closed. Ask the admin for an account.', h('div', button('Back to sign in', { variant: 'tonal', icon: 'arrow_back', onclick: () => navigate('/login', { replace: true }) }))));
+    return;
+  }
+  const name = field('Your name', { autocomplete: 'name', support: 'Shown in the app. Optional.' });
+  const user = field('Username', { autocomplete: 'username', required: true, autocapitalize: 'none', autocorrect: 'off', spellcheck: 'false', support: '3–32 letters, numbers, . - _' });
+  const pass = field('Password', { type: 'password', autocomplete: 'new-password', required: true, support: 'At least 8 characters.' });
+  const pass2 = field('Confirm password', { type: 'password', autocomplete: 'new-password', required: true });
+  const invite = st.registration.inviteRequired && field('Invite code', { required: true, autocomplete: 'off', autocapitalize: 'none', support: 'You got this from whoever runs this Flyleaf.' });
+  const err = h('div');
+  const submit = button('Create account', { type: 'submit', icon: 'person_add' });
+  const form = h(
+    'form',
+    {
+      onsubmit: async (e) => {
+        e.preventDefault();
+        err.replaceChildren();
+        if (pass.input.value !== pass2.input.value) {
+          err.append(formError("Passwords don't match."));
+          return;
+        }
+        submit.disabled = true;
+        try {
+          const { user: u } = await api.register({
+            username: user.input.value.trim(),
+            password: pass.input.value,
+            displayName: name.input.value,
+            inviteCode: invite ? invite.input.value.trim() : undefined,
+          });
+          session.user = u;
+          afterSignIn();
+          navigate('/welcome', { replace: true });
+        } catch (e2) {
+          err.append(formError(e2.message));
+          submit.disabled = false;
+        }
+      },
+    },
+    err,
+    name,
+    user,
+    pass,
+    pass2,
+    invite,
+    submit,
+  );
+  view.append(shell('Create your account', 'You get your own Books, Comics and Manga libraries, plus your own progress, bookmarks and collections.',
+    h('div', form, h('div.auth-alt', h('span.muted', 'Already have an account? '), h('a', { href: '#/login' }, 'Sign in')))));
   user.input.focus();
 }

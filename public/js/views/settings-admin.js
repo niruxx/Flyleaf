@@ -3,7 +3,7 @@
 import { api } from '../api.js';
 import { session, navigate } from '../router.js';
 import {
-  h, icon, iconButton, button, field, formError, snackbar, confirmDialog, formDialog, timeAgo, formatDuration, loading, menu, AGE_RATINGS, avatar,
+  h, icon, iconButton, button, field, formError, snackbar, confirmDialog, formDialog, timeAgo, formatDuration, loading, menu, AGE_RATINGS, avatar, copyText,
 } from '../ui.js';
 import { refreshShell } from '../shell.js';
 import { scanIndicator } from './scan.js';
@@ -484,7 +484,64 @@ export async function serverPanel(panel, stale) {
         } }),
       ),
     )),
+    h('div.sub-head', 'Sign-up'),
+    registrationGroup(s),
     h('p.note', 'Run as a service with install.sh, and see the README for HTTPS reverse-proxy examples. Logs live in data/logs/flyleaf.log.'),
   );
+}
+
+/** Let people create their own accounts (for a publicly hosted Flyleaf). */
+function registrationGroup(s) {
+  const reg = { enabled: false, inviteCode: '', sharedLibraries: 'all', permissions: null, ...(s.registration || {}) };
+  const enabled = h('input', { type: 'checkbox', checked: reg.enabled });
+  const invite = field('Invite code', { value: reg.inviteCode || '', autocomplete: 'off', support: 'Optional, but recommended on a public server: only people you give the code to can sign up. Leave empty to let anyone sign up.' });
+  const generate = button('Generate', { variant: 'text', icon: 'casino', onclick: () => {
+    const bytes = crypto.getRandomValues(new Uint8Array(6));
+    invite.input.value = [...bytes].map((b) => 'abcdefghjkmnpqrstuvwxyz23456789'[b % 31]).join('');
+    invite.input.dispatchEvent(new Event('input'));
+  } });
+  const shared = field('Shared libraries for new accounts', {
+    value: reg.sharedLibraries,
+    options: [{ value: 'all', label: 'All shared libraries' }, { value: 'none', label: 'None – only their own Books, Comics and Manga' }],
+  });
+  const perms = { download: true, contentFinder: false, apiAccess: true, upload: false, deleteBooks: true, ...(reg.permissions || {}) };
+  const permRows = PERMISSIONS.map((p) => {
+    const input = h('input', { type: 'checkbox', checked: perms[p.key] });
+    input.dataset.key = p.key;
+    return h('label.perm-row', icon(p.icon), h('div', h('div.body-large', p.label), h('div.body-small.muted', p.sub)), input);
+  });
+  const base = (s.publicUrl || location.origin).replace(/\/+$/, '');
+  const link = `${base}/#/register`;
+  const details = h('div', { hidden: !reg.enabled },
+    invite, h('div', { style: { margin: '-4px 0 8px' } }, generate),
+    shared,
+    h('p.label-large', { style: { margin: '12px 0 4px' } }, 'What new accounts can do'),
+    h('div.perm-list', permRows),
+    h('p.body-small.muted', { style: { marginTop: '8px' } }, 'You can change any account later in Settings → Users.'),
+    h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '12px' } },
+      h('span.body-medium', 'Sign-up link: ', h('span.mono', link)),
+      button('Copy', { variant: 'text', icon: 'content_copy', onclick: () => copyText(link) })),
+  );
+  enabled.addEventListener('change', () => (details.hidden = !enabled.checked));
+  const err = h('div');
+  return group(h('div.setting-row.stack', err,
+    h('label.check', enabled, h('span', h('strong', 'Let people create their own accounts'), h('br'),
+      h('span.body-small.muted', 'Adds “Create an account” to the sign-in page. Each new account gets its own folder (content/<username>) with Books, Comics and Manga libraries.'))),
+    details,
+    h('div', button('Save sign-up settings', { icon: 'save', onclick: async () => {
+      err.replaceChildren();
+      try {
+        await api.saveAdminSettings({ registration: {
+          enabled: enabled.checked,
+          inviteCode: invite.input.value,
+          sharedLibraries: shared.input.value,
+          permissions: Object.fromEntries(permRows.map((r) => r.querySelector('input')).map((i) => [i.dataset.key, i.checked])),
+        } });
+        snackbar(enabled.checked ? 'Sign-up is on' : 'Sign-up is off');
+      } catch (e) {
+        err.append(formError(e.message));
+      }
+    } })),
+  ));
 }
 

@@ -11,7 +11,7 @@ const scanner = require('../scanner');
 const covers = require('../covers');
 const formats = require('../formats');
 const profiles = require('../profiles');
-const { BOOK_SELECT, getBook, getSeries, toBook, seriesBooks, canDeleteBook } = require('../serialize');
+const { BOOK_SELECT, getBook, getSeries, toBook, seriesBooks, canDeleteBook, canMoveBook, canMoveSeries } = require('../serialize');
 const events = require('../events');
 const log = require('../log').logger('books');
 const { json } = require('../util');
@@ -268,6 +268,141 @@ router.delete('/series/:id', async (req, res) => {
   if (!rows.length || !rows.every((r) => canDeleteBook(req.user, r))) return res.status(403).json({ error: DELETE_DENIED });
   for (const row of rows) await deleteBook(row, req.user);
   res.json({ ok: true, deleted: rows.length });
+});
+
+// ---------------------------------------------------------------------------
+// Moving books between libraries (the files move on disk)
+
+/** Libraries the user may move things into: their own, or any library for the admin. */
+function moveTargets(user) {
+  if (user.role === 'admin') return q('SELECT id, name, kind, mode, path, owner_id FROM libraries WHERE owner_id IS NULL OR owner_id = ? ORDER BY name COLLATE NOCASE').all(user.id);
+  return q('SELECT id, name, kind, mode, path, owner_id FROM libraries WHERE owner_id = ? ORDER BY name COLLATE NOCASE').all(user.id);
+}
+
+/** `p`, or "name (2).ext", "name (3).ext"… if something is already there. */
+async function freePath(p, isDir) {
+  const lower = p.toLowerCase();
+  const ext = isDir ? '' : lower.endsWith('.kepub.epub') ? '.kepub.epub' : path.extname(p);
+  const base = ext ? p.slice(0, -ext.length) : p;
+  for (let i = 1; i < 1000; i++) {
+    const candidate = i === 1 ? p : `${base} (${i})${ext}`;
+    if (!(await fsp.stat(candidate).catch(() => null))) return candidate;
+  }
+  throw Object.assign(new Error('Too many files with that name in the target library.'), { status: 409, expose: true });
+}
+
+const fsErr = (e, dir) => Object.assign(new Error(require('../plugins/downloads').friendlyFsError(e, dir)), { status: 500, expose: true });
+
+/**
+ * Move one book's file into `target` and point its row there. Progress, bookmarks and notes
+ * stay (they belong to the book). `keepSeries` leaves series_id alone (a whole series moving).
+ */
+async function moveBook(row, target, user, { keepSeries = false } = {}) {
+  const src = q('SELECT path, kind FROM libraries WHERE id = ?').get(row.library_id);
+  const srcRoot = path.resolve(src.path);
+  const file = path.resolve(row.path);
+  if (!file.startsWith(srcRoot + path.sep)) throw Object.assign(new Error('That file is outside its library folder.'), { status: 400, expose: true });
+  const isDir = row.format === 'folder';
+  let rel = path.relative(srcRoot, file);
+  // Folder-per-series libraries need the file inside a series folder, not loose at the top.
+  if (target.mode === 'komga' && !rel.includes(path.sep)) {
+    const { segment } = require('../plugins/downloads');
+    rel = path.join(segment(row.series_name || row.series || row.title), rel);
+  }
+  const root = path.resolve(target.path);
+  const dest = await freePath(path.join(root, rel), isDir);
+  if (!dest.startsWith(root + path.sep)) throw Object.assign(new Error('Refusing to write outside the target library.'), { status: 400, expose: true });
+  try {
+    await fsp.mkdir(path.dirname(dest), { recursive: true });
+  } catch (e) {
+    throw fsErr(e, path.dirname(dest));
+  }
+  try {
+    await fsp.rename(file, dest);
+  } catch (e) {
+    if (e.code !== 'EXDEV') throw fsErr(e, path.dirname(dest));
+    // Another disk: copy (keeping timestamps, so the scanner sees the same file), then remove.
+    try {
+      await fsp.cp(file, dest, { recursive: isDir, errorOnExist: true, force: false, preserveTimestamps: true });
+    } catch (e2) {
+      await fsp.rm(dest, { recursive: true, force: true }).catch(() => {});
+      throw fsErr(e2, path.dirname(dest));
+    }
+    await fsp.rm(file, { recursive: isDir, force: true });
+  }
+  // Tidy up folders the move left empty, never the library folder itself.
+  for (let dir = path.dirname(file); dir.startsWith(srcRoot + path.sep); dir = path.dirname(dir)) {
+    try {
+      await fsp.rmdir(dir);
+    } catch {
+      break;
+    }
+  }
+  const seriesRemoved = tx(() => {
+    q(`UPDATE books SET library_id = ?, path = ?, rel_path = ?, missing = 0, updated_at = ?,
+       needs_meta = CASE WHEN ? THEN 1 ELSE needs_meta END ${keepSeries ? '' : ', series_id = NULL'} WHERE id = ?`).run(
+      target.id, dest, path.relative(root, dest), Date.now(), src.kind !== target.kind ? 1 : 0, row.id,
+    );
+    // Whoever downloaded it can still delete it in its new place.
+    q('UPDATE downloads SET file = ? WHERE file = ?').run(dest, row.path);
+    if (keepSeries || !row.series_id || q('SELECT 1 FROM books WHERE series_id = ?').get(row.series_id)) return false;
+    q('DELETE FROM series WHERE id = ?').run(row.series_id);
+    return true;
+  });
+  if (seriesRemoved) await covers.removeSeriesCover(row.series_id);
+  log.info(`${user.username} moved "${row.title}" to ${target.name} (${dest})`);
+  return seriesRemoved;
+}
+
+function pickTarget(req, currentLibraryId) {
+  const target = moveTargets(req.user).find((l) => l.id === Number(req.body?.libraryId));
+  if (!target) throw Object.assign(new Error('Choose one of your libraries to move it to.'), { status: 400, expose: true });
+  if (target.id === currentLibraryId) throw Object.assign(new Error('It’s already in that library.'), { status: 400, expose: true });
+  return target;
+}
+
+/** Where a book or series can go: ?book=<id> or ?series=<id>. */
+router.get('/move-targets', (req, res) => {
+  const current = req.query.book
+    ? getBook(req.query.book, req.user)?.library_id
+    : req.query.series ? getSeries(req.query.series, req.user)?.libraryId : null;
+  res.json(moveTargets(req.user).filter((l) => l.id !== current).map((l) => ({ id: l.id, name: l.name, kind: l.kind, own: l.owner_id === req.user.id })));
+});
+
+router.post('/books/:id/move', async (req, res) => {
+  const row = getBook(req.params.id, req.user);
+  if (!row) return res.status(404).json({ error: 'Book not found.' });
+  if (!canMoveBook(req.user, row)) return res.status(403).json({ error: 'You can only move books in your own libraries or ones you downloaded.' });
+  const target = pickTarget(req, row.library_id);
+  const seriesRemoved = await moveBook(row, target, req.user);
+  scanner.requestScan(target.id);
+  scanner.requestScan(row.library_id);
+  res.json({ ok: true, library: { id: target.id, name: target.name }, seriesRemoved });
+});
+
+/** Move a whole series. Its metadata, collections and Want to read come along when it can keep its identity. */
+router.post('/series/:id/move', async (req, res) => {
+  const s = getSeries(req.params.id, req.user);
+  if (!s) return res.status(404).json({ error: 'Series not found.' });
+  const srow = q('SELECT * FROM series WHERE id = ?').get(s.id);
+  if (!canMoveSeries(req.user, srow)) return res.status(403).json({ error: 'You can only move series in your own libraries or ones you downloaded.' });
+  const target = pickTarget(req, srow.library_id);
+  const rows = q(`${BOOK_SELECT} WHERE b.series_id = ?`).all(req.user.id, req.user.id, s.id);
+  // Take the series row along, unless the target already has a series with that key (then the
+  // books join that one; the scanner hands this series' reader data over to it).
+  const clash = q('SELECT 1 FROM series WHERE library_id = ? AND key = ?').get(target.id, srow.key);
+  let moved = 0;
+  try {
+    for (const row of rows) {
+      await moveBook(row, target, req.user, { keepSeries: true });
+      moved++;
+    }
+  } finally {
+    if (!clash && moved === rows.length) q('UPDATE series SET library_id = ?, updated_at = ? WHERE id = ?').run(target.id, Date.now(), s.id);
+    scanner.requestScan(target.id);
+    scanner.requestScan(srow.library_id);
+  }
+  res.json({ ok: true, moved, library: { id: target.id, name: target.name }, seriesId: clash ? null : s.id });
 });
 
 const rawImage = express.raw({ type: ['image/*', 'application/octet-stream'], limit: '25mb' });

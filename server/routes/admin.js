@@ -23,6 +23,19 @@ router.put('/settings', (req, res) => {
     settings.set('publicUrl', url);
   }
   if (b.opdsEnabled !== undefined) settings.set('opdsEnabled', Boolean(b.opdsEnabled));
+  if (b.registration) {
+    const cur = { ...settings.DEFAULTS.registration, ...(settings.get('registration') || {}) };
+    const r = b.registration;
+    const code = r.inviteCode === undefined ? cur.inviteCode : String(r.inviteCode).trim().slice(0, 100);
+    const perms = {};
+    for (const k of Object.keys(require('../auth').PERMISSION_DEFAULTS)) if (r.permissions?.[k] !== undefined) perms[k] = Boolean(r.permissions[k]);
+    settings.set('registration', {
+      enabled: r.enabled === undefined ? cur.enabled : Boolean(r.enabled),
+      inviteCode: code,
+      sharedLibraries: r.sharedLibraries === 'none' ? 'none' : r.sharedLibraries === 'all' ? 'all' : cur.sharedLibraries,
+      permissions: r.permissions ? { ...(cur.permissions || {}), ...perms } : cur.permissions,
+    });
+  }
   if (b.smtp) {
     const cur = settings.get('smtp') || {};
     const next = {

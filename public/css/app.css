@@ -843,6 +843,8 @@ a.chip {
 }
 .tabs button {
   position: relative;
+  /* Tabs keep their full label; the bar scrolls instead. */
+  flex-shrink: 0;
   height: 48px;
   padding: 0 16px;
   border: none;
@@ -859,6 +861,10 @@ a.chip {
 }
 .tabs button .icon {
   font-size: 20px;
+}
+/* A little tighter in dialogs, so the metadata editor's six tabs fit side by side. */
+dialog .tabs button {
+  padding: 0 14px;
 }
 .tabs button[aria-selected='true'] {
   color: var(--md-primary);
@@ -1775,6 +1781,15 @@ a.chip {
     radial-gradient(1200px 600px at 10% -10%, color-mix(in srgb, var(--md-primary-container) 70%, transparent), transparent 60%),
     radial-gradient(900px 500px at 110% 110%, color-mix(in srgb, var(--md-tertiary-container) 70%, transparent), transparent 60%),
     var(--md-surface);
+}
+/* "New here? Create an account" under the sign-in form, and the way back. */
+.auth-alt {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 14px;
+}
+.auth-alt:empty {
+  display: none;
 }
 .auth-card {
   width: 100%;
