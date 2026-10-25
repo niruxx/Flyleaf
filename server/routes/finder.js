@@ -7,7 +7,7 @@
 const express = require('express');
 const { q } = require('../db');
 const { requirePermission, requireAdmin } = require('../auth');
-const { canWriteLibrary } = require('../util');
+const { canWriteLibrary, json } = require('../util');
 const manager = require('../plugins/manager');
 const downloads = require('../plugins/downloads');
 
@@ -151,10 +151,30 @@ router.get('/downloads/list', (req, res) => {
   const rows = q(`SELECT d.*, u.username, l.name AS library_name FROM downloads d
                   LEFT JOIN users u ON u.id = d.user_id LEFT JOIN libraries l ON l.id = d.library_id
                   ${mine} ORDER BY d.id DESC LIMIT 100`).all(...(mine ? [req.user.id] : []));
-  res.json(rows.map((d) => ({
-    id: d.id, plugin: d.plugin_id, title: d.title, status: d.status, received: d.received, total: d.total,
-    error: d.error, library: d.library_name, username: d.username, createdAt: d.created_at, finishedAt: d.finished_at,
-  })));
+  res.json(rows.map((d) => {
+    // Which chapter/volume this was, so a failed one can be told apart from its siblings.
+    const item = json(d.item, {});
+    return {
+      id: d.id, plugin: d.plugin_id, title: d.title, status: d.status, received: d.received, total: d.total,
+      error: d.error, library: d.library_name, username: d.username, createdAt: d.created_at, finishedAt: d.finished_at,
+      fileTitle: item.fileTitle || null, volume: item.volume ?? null, chapter: item.chapter ?? null,
+    };
+  }));
+});
+
+router.post('/downloads/:id/retry', (req, res) => {
+  const d = q('SELECT * FROM downloads WHERE id = ?').get(Number(req.params.id));
+  if (!d || (req.user.role !== 'admin' && d.user_id !== req.user.id)) return res.status(404).json({ error: 'Download not found.' });
+  if (d.status !== 'failed') return res.status(409).json({ error: 'Only failed downloads can be retried.' });
+  res.json({ retried: downloads.retry([d.id]) });
+});
+
+/** Retry every failed download (yours; the admin's covers everyone's), except ones you cancelled. */
+router.post('/downloads/retry', (req, res) => {
+  const mine = req.user.role === 'admin' ? '' : 'AND user_id = ?';
+  const ids = q(`SELECT id FROM downloads WHERE status = 'failed' AND COALESCE(error, '') != 'Cancelled' ${mine} ORDER BY id`)
+    .all(...(mine ? [req.user.id] : [])).map((r) => r.id);
+  res.json({ retried: downloads.retry(ids) });
 });
 
 router.delete('/downloads/:id', (req, res) => {
@@ -215,6 +235,10 @@ admin.get('/mihon/suggested-repos', async (req, res) => res.json(await suwayomi.
 admin.post('/mihon/extensions/apk', express.raw({ type: () => true, limit: '64mb' }), async (req, res) => {
   res.status(201).json(await suwayomi.installApk(req.body, req.query.name));
 });
+// Install/update many extensions at once: { action: 'install' | 'update', pkgNames: [...] }.
+admin.get('/mihon/bulk', (req, res) => res.json(suwayomi.bulkStatus()));
+admin.post('/mihon/bulk', (req, res) => res.status(202).json(suwayomi.bulkAction(req.body?.action, req.body?.pkgNames)));
+admin.delete('/mihon/bulk', (req, res) => res.json(suwayomi.cancelBulk()));
 admin.post('/mihon/extensions/:pkg/:action', async (req, res) => res.json(await suwayomi.extensionAction(req.params.action, req.params.pkg)));
 
 // The built-in extension runtime (Suwayomi-Server run and managed by Flyleaf).

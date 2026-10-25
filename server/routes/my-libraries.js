@@ -100,20 +100,22 @@ router.get('/libraries', (req, res) => {
   res.json({ home: req.user.homeDir, libraries: rows.map((l) => libraryRow(l, req.user)) });
 });
 
-router.post('/libraries', async (req, res) => {
+/**
+ * Create a library owned by `userId` at `dir` (inside their personal folder), creating the
+ * folder if needed. Libraries can't overlap: the same file would belong to two libraries.
+ */
+async function createOwnLibrary(userId, dir, body) {
   let fields;
   try {
-    fields = validateLibrary({ mode: req.body?.kind === 'books' ? 'books' : 'komga', ...(req.body || {}) });
+    fields = validateLibrary({ mode: body?.kind === 'books' ? 'books' : 'komga', ...(body || {}) });
   } catch (e) {
     throw err(e.message);
   }
-  const dir = inHome(req.user, req.body?.path);
   try {
     await fsp.mkdir(dir, { recursive: true });
   } catch (e) {
     throw err(fsError(e, dir));
   }
-  // Libraries can't overlap: the same file would belong to two libraries.
   const others = q('SELECT path FROM libraries').all().map((l) => l.path);
   for (const p of others) {
     if (p === dir) throw err('That folder is already a library.', 409);
@@ -121,9 +123,34 @@ router.post('/libraries', async (req, res) => {
   }
   const { lastInsertRowid } = q(
     'INSERT INTO libraries (name, path, kind, mode, auto_metadata, cover_policy, sources, owner_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run(fields.name, dir, fields.kind, fields.mode, fields.auto_metadata, fields.cover_policy, fields.sources, req.user.id, Date.now());
+  ).run(fields.name, dir, fields.kind, fields.mode, fields.auto_metadata, fields.cover_policy, fields.sources, userId, Date.now());
   scanner.requestScan(Number(lastInsertRowid));
-  res.status(201).json({ id: Number(lastInsertRowid), path: `~/${relOf(req.user, dir)}`.replace(/\/$/, '') });
+  return Number(lastInsertRowid);
+}
+
+const DEFAULT_LIBRARIES = [
+  { name: 'Books', kind: 'books' },
+  { name: 'Comics', kind: 'comics' },
+  { name: 'Manga', kind: 'manga' },
+];
+
+/** A new user's starter libraries: Books, Comics and Manga folders in their personal folder. */
+async function createDefaultLibraries(userId, homeDir) {
+  const made = [];
+  for (const lib of DEFAULT_LIBRARIES) {
+    try {
+      made.push(await createOwnLibrary(userId, path.join(homeDir, lib.name), lib));
+    } catch (e) {
+      require('../log').logger('users').warn(`Couldn't create the ${lib.name} library in ${homeDir}: ${e.message}`);
+    }
+  }
+  return made;
+}
+
+router.post('/libraries', async (req, res) => {
+  const dir = inHome(req.user, req.body?.path);
+  const id = await createOwnLibrary(req.user.id, dir, req.body);
+  res.status(201).json({ id, path: `~/${relOf(req.user, dir)}`.replace(/\/$/, '') });
 });
 
 router.patch('/libraries/:id', (req, res) => {
@@ -154,4 +181,4 @@ router.delete('/libraries/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = { router };
+module.exports = { router, createDefaultLibraries };

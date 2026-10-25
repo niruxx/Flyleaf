@@ -189,6 +189,8 @@ export const api = {
   finderDownload: (plugin, b) => POST(`/api/finder/${encodeURIComponent(plugin)}/download`, b),
   downloads: () => GET('/api/finder/downloads/list'),
   cancelDownload: (id) => DEL(`/api/finder/downloads/${id}`),
+  retryDownload: (id) => POST(`/api/finder/downloads/${id}/retry`),
+  retryFailedDownloads: () => POST('/api/finder/downloads/retry'),
   clearDownloads: () => DEL('/api/finder/downloads'),
 
   plugins: () => GET('/api/admin/plugins'),
@@ -216,6 +218,9 @@ export const api = {
   mihonSuggestedRepos: () => GET('/api/admin/plugins/mihon/suggested-repos'),
   setMihonRepos: (repos) => PUT('/api/admin/plugins/mihon/repos', { repos }),
   mihonAction: (pkg, action) => POST(`/api/admin/plugins/mihon/extensions/${encodeURIComponent(pkg)}/${action}`),
+  mihonBulk: () => GET('/api/admin/plugins/mihon/bulk'),
+  startMihonBulk: (action, pkgNames) => POST('/api/admin/plugins/mihon/bulk', { action, pkgNames }),
+  cancelMihonBulk: () => DEL('/api/admin/plugins/mihon/bulk'),
   installMihonApk: (file) => request('POST', `/api/admin/plugins/mihon/extensions/apk?name=${encodeURIComponent(file.name)}`, file, { headers: { 'Content-Type': 'application/vnd.android.package-archive' } }),
   extRuntime: () => GET('/api/admin/plugins/mihon/runtime'),
   installExtRuntime: () => POST('/api/admin/plugins/mihon/runtime/install'),

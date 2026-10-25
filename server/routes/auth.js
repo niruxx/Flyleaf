@@ -3,6 +3,7 @@
 const express = require('express');
 const { q } = require('../db');
 const auth = require('../auth');
+const config = require('../config');
 
 const router = express.Router();
 
@@ -204,7 +205,7 @@ function applyAccess(id, fields) {
   }
 }
 
-users.post('/', (req, res) => {
+users.post('/', async (req, res) => {
   const { username, password, displayName, email } = req.body || {};
   const err = auth.validateUsername(username) || auth.validatePassword(password);
   if (err) return res.status(400).json({ error: err });
@@ -230,9 +231,23 @@ users.post('/', (req, res) => {
     age.max_age_rating ?? null,
     age.age_include_unknown ?? 1,
   );
-  applyAccess(Number(lastInsertRowid), { library_ids: age.library_ids ?? null, home_dir: age.home_dir ?? null, permissions: age.permissions ?? {} });
-  require('../events').emit('user.created', { userId: Number(lastInsertRowid), username });
-  res.status(201).json({ id: Number(lastInsertRowid) });
+  const id = Number(lastInsertRowid);
+  // Everyone gets a personal folder with Books, Comics and Manga libraries: the one the admin
+  // chose, or <data>/content/<username>.
+  let home = age.home_dir ?? null;
+  if (!home) {
+    home = require('node:path').join(config.contentDir, username);
+    try {
+      require('node:fs').mkdirSync(home, { recursive: true });
+    } catch (e) {
+      require('../log').logger('users').warn(`Couldn't create ${home} for ${username}: ${e.message}`);
+      home = null;
+    }
+  }
+  applyAccess(id, { library_ids: age.library_ids ?? null, home_dir: home, permissions: age.permissions ?? {} });
+  const libraries = home ? await require('./my-libraries').createDefaultLibraries(id, home) : [];
+  require('../events').emit('user.created', { userId: id, username });
+  res.status(201).json({ id, homeDir: home, libraries: libraries.length });
 });
 
 users.patch('/:id', (req, res) => {

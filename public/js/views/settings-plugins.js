@@ -440,10 +440,84 @@ async function renderMihon(body) {
   const list = h('div.settings-group.ext-list', loading());
   let all = [];
 
+  let shown = [];
   function draw() {
     const term = filter.value.trim().toLowerCase();
-    const shown = all.filter((e) => (!term || e.name.toLowerCase().includes(term) || e.pkgName.includes(term)) && (!lang.value || e.lang === lang.value));
+    shown = all.filter((e) => (!term || e.name.toLowerCase().includes(term) || e.pkgName.includes(term)) && (!lang.value || e.lang === lang.value));
     list.replaceChildren(...(shown.length ? shown.slice(0, 300).map(extRow) : [h('div.setting-row', icon('search_off'), h('div.text', 'No extensions match.'))]));
+    if (!bulkState?.running) drawBulk();
+  }
+
+  // Install or update everything in the list at once (runs on the server; closing this is fine).
+  const bulkBar = h('div.ext-bulk');
+  let bulkState = null;
+  let bulkTimer = null;
+  let seenFinish = null;
+  async function pollBulk() {
+    clearTimeout(bulkTimer);
+    if (!bulkBar.isConnected && bulkState) return;
+    try {
+      bulkState = await api.mihonBulk();
+    } catch {
+      return;
+    }
+    drawBulk();
+    if (bulkState.running) bulkTimer = setTimeout(pollBulk, 2000);
+    else if (bulkState.finishedAt && bulkState.finishedAt !== seenFinish) {
+      if (seenFinish !== null || Date.now() - bulkState.finishedAt < 10_000) {
+        const ok = bulkState.done - bulkState.failedCount;
+        snackbar(`${bulkState.action === 'update' ? 'Updated' : 'Installed'} ${ok} ${ok === 1 ? 'extension' : 'extensions'}${bulkState.failedCount ? `, ${bulkState.failedCount} failed` : ''}${bulkState.cancelled ? ' (stopped)' : ''}`, { duration: 6000 });
+        loadExtensions();
+      }
+      seenFinish = bulkState.finishedAt;
+    }
+  }
+  function drawBulk() {
+    const st = bulkState;
+    if (st?.running) {
+      const pct = st.total ? Math.round((st.done / st.total) * 100) : 0;
+      bulkBar.replaceChildren(h('div.settings-group', { style: { marginBottom: '8px' } }, h('div.setting-row', icon(st.action === 'update' ? 'system_update' : 'download'),
+        h('div.text',
+          h('div', `${st.action === 'update' ? 'Updating' : 'Installing'} ${st.done.toLocaleString()} of ${st.total.toLocaleString()} extensions${st.cancelled ? ' – stopping…' : ''}`),
+          h('div.s', st.failedCount ? `${st.failedCount} failed so far · you can close this window` : 'Runs in the background, so you can close this window.'),
+          h('div.progress', { style: { marginTop: '8px' } }, h('span', { style: { width: `${pct}%` } }))),
+        !st.cancelled && button('Stop', { variant: 'text', onclick: async () => {
+          bulkState = await api.cancelMihonBulk();
+          drawBulk();
+        } }))));
+      return;
+    }
+    const toInstall = shown.filter((e) => !e.installed && !e.obsolete);
+    const toUpdate = all.filter((e) => e.installed && e.hasUpdate);
+    const filtered = Boolean(filter.value.trim() || lang.value);
+    const start = (action, items) => async () => {
+      const n = items.length;
+      const what = action === 'update' ? `Update ${n} ${n === 1 ? 'extension' : 'extensions'}?` : `Install ${n.toLocaleString()} ${n === 1 ? 'extension' : 'extensions'}?`;
+      const message = action === 'update'
+        ? 'Every extension with an update is updated, two at a time, in the background.'
+        : `This installs every extension${filtered ? ' that matches your filter' : ' in the list'}, two at a time, in the background. Each one becomes a Content Finder source. ${n > 100 ? 'That many takes a while (and uses more memory); a language filter keeps the list manageable. ' : ''}Only use sources you’re allowed to download from.`;
+      if (!(await confirmDialog({ title: what, message, confirm: action === 'update' ? 'Update all' : 'Install all', icon: action === 'update' ? 'system_update' : 'download' }))) return;
+      try {
+        bulkState = await api.startMihonBulk(action, items.map((e) => e.pkgName));
+        drawBulk();
+        pollBulk();
+      } catch (e) {
+        snackbar(e.message, { duration: 7000 });
+      }
+    };
+    const failedNote = st?.failedCount && !st.running
+      ? button(`${st.failedCount} failed last time`, { variant: 'text', icon: 'error', onclick: () => dialog({
+        title: 'Extensions that didn’t install',
+        icon: 'error',
+        className: 'wide',
+        content: h('div', st.failed.map((f) => h('p', { style: { marginBottom: '8px' } }, h('b', all.find((e) => e.pkgName === f.pkgName)?.name || f.pkgName), h('br'), h('span.body-small.muted', f.error)))),
+        actions: [{ label: 'Close' }],
+      }) })
+      : null;
+    bulkBar.replaceChildren(h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', margin: '0 0 8px' } },
+      button(toInstall.length ? `Install all (${toInstall.length.toLocaleString()})` : 'Install all', { variant: 'tonal', icon: 'download', disabled: !toInstall.length, onclick: start('install', toInstall) }),
+      toUpdate.length > 0 && button(`Update all (${toUpdate.length})`, { variant: 'tonal', icon: 'system_update', onclick: start('update', toUpdate) }),
+      failedNote));
   }
 
   function extRow(e) {
@@ -512,8 +586,10 @@ async function renderMihon(body) {
       button('Install APK', { variant: 'tonal', icon: 'install_mobile', onclick: () => pickApks(loadExtensions) })),
     h('p.body-small.muted', { style: { margin: '-4px 0 8px' } }, 'Have an extension that’s no longer in any repository, like an old Tachiyomi one? Install its .apk file.'),
     h('div.ext-filters', filter, lang),
+    bulkBar,
     list,
     h('p.body-small.muted', { style: { marginTop: '12px' } }, 'Only use extensions for sources you’re allowed to download from.'),
   );
   loadExtensions();
+  pollBulk();
 }

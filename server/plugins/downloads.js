@@ -340,10 +340,21 @@ function cancel(id) {
   return true;
 }
 
+/** Queue failed downloads again (sources fail now and then). Returns how many were queued. */
+function retry(ids) {
+  let n = 0;
+  for (const id of ids) {
+    n += Number(q(`UPDATE downloads SET status = 'queued', error = NULL, received = 0, total = NULL, file = NULL, finished_at = NULL
+                   WHERE id = ? AND status = 'failed'`).run(id).changes);
+  }
+  if (n) setImmediate(pump);
+  return n;
+}
+
 /** Re-queue downloads interrupted by a restart. */
 function resume() {
   q("UPDATE downloads SET status = 'queued', received = 0 WHERE status = 'downloading'").run();
   pump();
 }
 
-module.exports = { enqueue, cancel, resume, pump, friendlyFsError, segment, uniquePath };
+module.exports = { enqueue, cancel, retry, resume, pump, friendlyFsError, segment, uniquePath };

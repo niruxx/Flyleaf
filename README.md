@@ -65,7 +65,7 @@
 - Per-user **progress, resume, reading time & stats** and **reading lists**
 - Per-user **age limits**, **library access** and **permissions** (downloads, uploads, Content Finder, deleting books, API keys)
 - **Delete books** from the ⋮ menu: users can delete books in their own libraries and ones they downloaded, never other books in shared libraries
-- **Personal folders**: give a user their own folder on the server, with **private libraries** that their downloads and uploads go into
+- **Personal folders**: every new user gets their own folder (`data/content/<username>`) with ready-made **Books, Comics and Manga** libraries, which their downloads and uploads go into
 - **OPDS 1.2 + OPDS-PSE** for Panels, Chunky, KOReader, Moon+ … with progress sync
 - **Send to Kindle / Kobo** by email, download single books or whole series
 
@@ -365,7 +365,7 @@ curl -X POST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json"
 
 ### 🧭 Content Finder
 
-**Content Finder** (left menu) searches the sources installed as plugins and downloads what you pick into one of your libraries. Flyleaf then rescans that library so the book appears straight away.
+**Content Finder** (left menu) searches the sources installed as plugins and downloads what you pick into one of your libraries. Flyleaf then rescans that library so the book appears straight away. If a download fails (sources do drop out now and then), it's listed first on the **Downloads** page with the chapter or file it was for: press **Retry** on it, or **Retry failed** to grab every failed one again.
 
 - **Built in:**
   - Project Gutenberg, Standard Ebooks and the **Internet Archive**, installed automatically.
@@ -430,7 +430,7 @@ java -Dsuwayomi.tachidesk.config.server.kcefEnabled=false \
 - the languages to show (`en`, `en,ja`…);
 - whether to show NSFW sources.
 
-**3. Add extensions:** press **Extensions**. Under **Popular repositories**, Flyleaf lists the Mihon repositories from the community list at [wotaku.wiki/ext/mihon](https://wotaku.wiki/ext/mihon), plus [Yūzōnō](https://yuzono.github.io/extensions); press **Add** next to one (Keiyoushi is the big one, with 1,400+ extensions). You can also paste any repository yourself: an `index.pb` or `index.min.json` URL, or a `mihon://` / `tachiyomi://` “add repo” link from a repository's website. Then install the extensions you want; each one appears in Content Finder straight away. Only add repositories you trust, for sources you're allowed to download from.
+**3. Add extensions:** press **Extensions**. Under **Popular repositories**, Flyleaf lists the Mihon repositories from the community list at [wotaku.wiki/ext/mihon](https://wotaku.wiki/ext/mihon), plus [Yūzōnō](https://yuzono.github.io/extensions); press **Add** next to one (Keiyoushi is the big one, with 1,400+ extensions). You can also paste any repository yourself: an `index.pb` or `index.min.json` URL, or a `mihon://` / `tachiyomi://` “add repo” link from a repository's website. Then install the extensions you want, or press **Install all** to install everything the list shows (filter by name or language first to narrow it down; **Update all** appears when updates are waiting). Bulk installs run in the background two at a time, so you can close the dialog; it shows progress, can be stopped, and lists any that failed. Each extension appears in Content Finder straight away. Only add repositories you trust, for sources you're allowed to download from.
 
 **Newer `index.pb` repositories need Suwayomi v2.3 or newer.** Mihon's newer repository format is a compressed `index.pb` file. Keiyoushi, Yūzōnō and FelipeGFA use it, and Keiyoushi's old `index.min.json` is now an empty “Outdated App” stub. Suwayomi v2.3+ reads `index.pb` itself (and follows Keiyoushi's old link to its new index). Older Suwayomi versions only accept GitHub `index.min.json` URLs and reject everything else, so:
 
@@ -533,9 +533,16 @@ You can switch a library between these at any time; nothing on disk changes. Lib
 
 #### 📁 Personal folders & private libraries
 
-Give a user a **personal folder** when they should have their own space instead of (or as well as) the shared libraries:
+Every user you create gets a **personal folder** with three libraries already set up, so they can download and upload straight away:
 
-1. **Admin:** *Settings → Users → Edit* (or *Add guest*) → **Personal folder**. Type an absolute path, e.g. `/srv/flyleaf/alex`, or press *Browse the server*. Flyleaf creates the folder if it doesn't exist.
+```
+data/content/alex/
+├── Books/    (Regular books library)
+├── Comics/   (Komga-style, a folder per series)
+└── Manga/    (Komga-style, a folder per series)
+```
+
+1. **Admin:** *Settings → Users → Add guest*. Leave **Personal folder** empty for `data/content/<username>`, or type an absolute path (e.g. `/srv/flyleaf/alex`) or press *Browse the server*; the Books, Comics and Manga libraries are created inside whichever you pick. For an existing user, set or change it under *Edit*. Flyleaf creates the folder if it doesn't exist.
 2. **The user** gets **My libraries** in the menu and in Settings. There they create libraries inside their folder (picking or creating a sub-folder, a type and a folder structure), and can rename, rescan or remove them. Removing one keeps its files.
 3. **The admin** can also give someone a library directly: in *Settings → Libraries → Add library*, choose **Who it's for → (user) – their personal library**.
 

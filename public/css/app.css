@@ -3164,6 +3164,17 @@ span.plugin-icon {
   flex-direction: column;
   gap: 4px;
 }
+.download-row {
+  min-width: 0;
+}
+/* Error messages can hold long file paths. */
+.download-row > .text > * {
+  overflow-wrap: anywhere;
+}
+/* Keep "Downloads" whole; the buttons wrap onto their own line instead. */
+.downloads-head h1 {
+  flex: 1 0 auto;
+}
 .download-row > .icon {
   color: var(--md-primary);
 }

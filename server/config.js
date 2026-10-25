@@ -17,6 +17,8 @@ module.exports = {
   host: process.env.HOST || '0.0.0.0',
   dataDir,
   coverDir: path.join(dataDir, 'covers'),
+  // New users' personal folders: content/<username>/{Books,Comics,Manga}.
+  contentDir: path.join(dataDir, 'content'),
   cacheDir: path.join(dataDir, 'cache'),
   // Set when running behind a reverse proxy (Caddy, nginx, Cloudflare tunnel...)
   trustProxy: bool(process.env.TRUST_PROXY),

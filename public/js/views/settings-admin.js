@@ -331,7 +331,9 @@ export async function userDialog(user, { onSaved } = {}) {
   // Personal folder: their own libraries live here, and their downloads/uploads go only here.
   const homeField = field('Personal folder', {
     value: user?.homeDir || '',
-    support: 'Optional. An absolute folder on the server, e.g. /srv/flyleaf/alex. Created if it doesn’t exist.',
+    support: user
+      ? 'Optional. An absolute folder on the server, e.g. /srv/flyleaf/alex. Created if it doesn’t exist.'
+      : 'Leave empty to use Flyleaf’s data folder (content/<username>), or enter an absolute folder on the server. Books, Comics and Manga libraries are created in it.',
     autocomplete: 'off',
   });
   const homeBrowser = h('div.home-browser', { hidden: true });
@@ -385,9 +387,13 @@ export async function userDialog(user, { onSaved } = {}) {
         homeDir: homeField.input.value.trim() || null,
         permissions: Object.fromEntries(permRows.map((r) => r.querySelector('input')).map((i) => [i.dataset.key, i.checked])),
       };
-      if (user) await api.updateUser(user.id, body);
-      else await api.createUser({ ...body, password: password.input.value });
-      snackbar(user ? 'Saved' : 'Guest created');
+      if (user) {
+        await api.updateUser(user.id, body);
+        snackbar('Saved');
+      } else {
+        const r = await api.createUser({ ...body, password: password.input.value });
+        snackbar(r.libraries ? `Guest created, with ${r.libraries === 3 ? 'Books, Comics and Manga libraries' : `${r.libraries} libraries`} in ${r.homeDir}` : 'Guest created', { duration: 6000 });
+      }
       if (onSaved) onSaved();
       else reload('users');
     },

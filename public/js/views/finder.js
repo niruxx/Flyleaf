@@ -3,7 +3,7 @@
 
 import { api, can } from '../api.js';
 import { session, isAdmin, navigate, onLeave } from '../router.js';
-import { h, icon, iconButton, button, cover, dialog, snackbar, loading, skeleton, emptyState, stagger, field, formatBytes, timeAgo, libraryOptions } from '../ui.js';
+import { h, icon, iconButton, button, cover, dialog, snackbar, loading, skeleton, emptyState, stagger, field, formatBytes, timeAgo, libraryOptions, setButtonLabel } from '../ui.js';
 
 const KIND_LABEL = { books: 'Books', manga: 'Manga', comics: 'Comics' };
 const LAST_SOURCE = 'flyleaf.finder.source';
@@ -301,7 +301,18 @@ export async function downloadsView(view, params, stale) {
     await api.clearDownloads();
     refresh();
   } });
-  view.append(h('div.page', h('div.page-head.enter', iconButton('arrow_back', 'Back', () => navigate('/finder')), h('h1', 'Downloads'), clear), list));
+  const retryAll = button('Retry failed', { variant: 'tonal', icon: 'refresh', hidden: true, onclick: async () => {
+    retryAll.disabled = true;
+    try {
+      const r = await api.retryFailedDownloads();
+      snackbar(r.retried ? `Retrying ${r.retried} ${r.retried === 1 ? 'download' : 'downloads'}` : 'Nothing to retry');
+    } catch (e) {
+      snackbar(e.message, { duration: 6000 });
+    }
+    retryAll.disabled = false;
+    refresh();
+  } });
+  view.append(h('div.page', h('div.page-head.downloads-head.enter', iconButton('arrow_back', 'Back', () => navigate('/finder')), h('h1', 'Downloads'), retryAll, clear), list));
 
   let timer;
   onLeave(() => clearTimeout(timer));
@@ -315,14 +326,23 @@ export async function downloadsView(view, params, stale) {
       return;
     }
     if (stale()) return;
+    // Failures first, so a missing chapter is easy to spot and grab again.
+    const failed = (d) => d.status === 'failed' && d.error !== 'Cancelled';
+    rows.sort((a, b) => Number(failed(b)) - Number(failed(a)));
+    const failedCount = rows.filter(failed).length;
+    retryAll.hidden = !failedCount;
+    setButtonLabel(retryAll, `Retry failed (${failedCount})`);
     list.replaceChildren(...(rows.length
       ? rows.map((d) => {
         const active = d.status === 'queued' || d.status === 'downloading';
+        // Name the chapter/volume when the title is just the series.
+        const part = d.fileTitle || (d.chapter != null ? `Chapter ${d.chapter}` : d.volume != null ? `Volume ${d.volume}` : null);
+        const title = part && !d.title.includes(part) ? `${d.title} – ${part}` : d.title;
         const pct = d.total ? Math.min(100, (d.received / d.total) * 100) : null;
         return h(`div.download-row.${d.status}`,
           icon({ queued: 'schedule', downloading: 'downloading', done: 'check_circle', failed: 'error' }[d.status]),
           h('div.text',
-            h('div.body-large', d.title),
+            h('div.body-large', title),
             h('div.body-small.muted', [
               d.status === 'downloading' ? `${formatBytes(d.received)}${d.total ? ` of ${formatBytes(d.total)}` : ''}` : null,
               d.status === 'queued' ? 'Waiting…' : null,
@@ -333,6 +353,15 @@ export async function downloadsView(view, params, stale) {
             ].filter(Boolean).join(' · ')),
             active && h('div.progress', pct == null ? { class: 'indeterminate' } : null, h('span', { style: { width: `${pct ?? 30}%` } })),
           ),
+          d.status === 'failed' && iconButton('refresh', 'Retry', async () => {
+            try {
+              await api.retryDownload(d.id);
+              snackbar(`Retrying “${title}”`);
+            } catch (e) {
+              snackbar(e.message, { duration: 6000 });
+            }
+            refresh();
+          }),
           iconButton(active ? 'close' : 'delete', active ? 'Cancel' : 'Remove', async () => {
             await api.cancelDownload(d.id);
             refresh();

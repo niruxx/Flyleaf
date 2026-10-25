@@ -180,6 +180,49 @@ async function extensionAction(action, pkgName) {
   return { ok: true };
 }
 
+// Installing or updating many extensions at once, in the background (a big repository
+// has 1,000+). Two at a time, so Suwayomi isn't flooded.
+const bulk = { running: false, action: null, total: 0, done: 0, failed: [], current: [], cancelled: false, startedAt: null, finishedAt: null };
+
+function bulkStatus() {
+  const { running, action, total, done, failed, current, cancelled, startedAt, finishedAt } = bulk;
+  return { running, action, total, done, failed: failed.slice(0, 200), failedCount: failed.length, current, cancelled, startedAt, finishedAt };
+}
+
+function bulkAction(action, pkgNames) {
+  if (!['install', 'update'].includes(action)) throw err('Unknown action.');
+  if (bulk.running) throw err('Extensions are already being installed. Wait for that to finish, or stop it.', 409);
+  const list = [...new Set((Array.isArray(pkgNames) ? pkgNames : []).map(String))].filter((p) => PKG_RE.test(p)).slice(0, 5000);
+  if (!list.length) throw err('No extensions to install.');
+  connection(); // fail now if the plugin isn't set up
+  Object.assign(bulk, { running: true, action, total: list.length, done: 0, failed: [], current: [], cancelled: false, startedAt: Date.now(), finishedAt: null });
+  const queue = [...list];
+  const worker = async () => {
+    while (queue.length && !bulk.cancelled) {
+      const pkg = queue.shift();
+      bulk.current.push(pkg);
+      try {
+        await call(`/api/v1/extension/${action}/${encodeURIComponent(pkg)}`, { timeout: 180_000 });
+      } catch (e) {
+        bulk.failed.push({ pkgName: pkg, error: /HTTP 404/.test(e.message) ? 'It’s no longer in any of your repositories.' : e.message });
+      }
+      bulk.current = bulk.current.filter((p) => p !== pkg);
+      bulk.done++;
+    }
+  };
+  Promise.all([worker(), worker()]).finally(() => {
+    bulk.running = false;
+    bulk.finishedAt = Date.now();
+    manager.refreshSources(PLUGIN_ID);
+  });
+  return bulkStatus();
+}
+
+function cancelBulk() {
+  if (bulk.running) bulk.cancelled = true;
+  return bulkStatus();
+}
+
 const MAX_APK = 64 * 1024 * 1024;
 
 async function installedExtensions() {
@@ -321,4 +364,4 @@ async function suggestedRepos() {
   return result;
 }
 
-module.exports = { PLUGIN_ID, status, repos, setRepos, extensions, extensionAction, installApk, suggestedRepos, normalizeRepo, nativeStores, isMihonRepo, sameRepo };
+module.exports = { PLUGIN_ID, status, repos, setRepos, extensions, extensionAction, installApk, bulkAction, bulkStatus, cancelBulk, suggestedRepos, normalizeRepo, nativeStores, isMihonRepo, sameRepo };
