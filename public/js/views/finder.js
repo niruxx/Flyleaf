@@ -298,7 +298,11 @@ export async function finderView(view, params, stale) {
 
 export async function downloadsView(view, params, stale) {
   const body = h('div.downloads', loading());
-  view.append(h('div.page', h('div.page-head.downloads-head.enter', iconButton('arrow_back', 'Back', () => navigate('/finder')), h('h1', 'Downloads')), body));
+  // The admin sees everyone's downloads, one tab per person. Everyone else only gets their own
+  // from the server, so they get no tabs.
+  const tabs = h('div.download-tabs', { role: 'tablist', hidden: true });
+  view.append(h('div.page', h('div.page-head.downloads-head.enter', iconButton('arrow_back', 'Back', () => navigate('/finder')), h('h1', 'Downloads')), tabs, body));
+  let tab = isAdmin() ? params.query.get('user') || 'all' : 'all';
 
   let timer;
   onLeave(() => clearTimeout(timer));
@@ -336,7 +340,8 @@ export async function downloadsView(view, params, stale) {
           failed(d) ? `${d.error}${d.finishedAt ? ` · ${timeAgo(d.finishedAt)}` : ''}` : null,
           cancelled ? `Cancelled${d.finishedAt ? ` · ${timeAgo(d.finishedAt)}` : ''}` : null,
           d.plugin,
-          isAdmin() && d.username ? `by ${d.username}` : null,
+          // In a person's own tab the name would just repeat the tab.
+          isAdmin() && tab === 'all' && d.userName ? `by ${d.userName}` : null,
         ].filter(Boolean).join(' · ')),
         busy && h('div.progress', pct == null ? { class: 'indeterminate' } : null, h('span', { style: { width: `${pct ?? 30}%` } })),
       ),
@@ -358,6 +363,37 @@ export async function downloadsView(view, params, stale) {
       rows.length ? h('div.downloads-list', rows.map(row)) : empty && h('p.note', empty));
   }
 
+  /** One tab per person who has downloads, named after them, plus “All users”. */
+  function drawTabs(all) {
+    const people = new Map();
+    for (const d of all) {
+      const key = String(d.userId ?? 'none');
+      const p = people.get(key) || { key, name: d.userId == null ? 'Deleted users' : d.userName || d.username || 'Unknown', count: 0, attention: 0 };
+      p.count++;
+      if (active(d) || failed(d)) p.attention++;
+      people.set(key, p);
+    }
+    const me = String(session.user.id);
+    const list = [...people.values()].sort((a, b) => (a.key === me ? -1 : b.key === me ? 1 : a.name.localeCompare(b.name)));
+    if (tab !== 'all' && !people.has(tab)) tab = 'all';
+    const tabButton = (key, label, count, attention) => h('button.download-tab.state', {
+      type: 'button',
+      role: 'tab',
+      'aria-selected': String(tab === key),
+      onclick: () => {
+        if (tab === key) return;
+        tab = key;
+        history.replaceState(null, '', `#/finder/downloads${key === 'all' ? '' : `?user=${encodeURIComponent(key)}`}`);
+        refresh();
+      },
+    }, key === 'all' ? icon('groups') : icon('person'), h('span', label), h('span.count', String(count)), attention > 0 && h('span.dot', { title: `${attention} in progress or failed` }));
+    tabs.replaceChildren(
+      tabButton('all', 'All users', all.length, all.filter((d) => active(d) || failed(d)).length),
+      ...list.map((p) => tabButton(p.key, p.key === me ? `${p.name} (you)` : p.name, p.count, p.attention)),
+    );
+    tabs.hidden = false;
+  }
+
   async function refresh() {
     clearTimeout(timer);
     let rows;
@@ -369,6 +405,12 @@ export async function downloadsView(view, params, stale) {
     }
     if (stale()) return;
     import('../shell.js').then((m) => m.refreshDownloadsBadge());
+    if (isAdmin() && rows.length) {
+      drawTabs(rows);
+      if (tab !== 'all') rows = rows.filter((d) => String(d.userId ?? 'none') === tab);
+    }
+    // Retry all / Clear act on the open tab only.
+    const who = isAdmin() && tab !== 'all' && tab !== 'none' ? tab : undefined;
     if (!rows.length) {
       body.replaceChildren(emptyState('download_done', 'No downloads', 'Books you download from Content Finder appear here.', button('Find books', { icon: 'travel_explore', onclick: () => navigate('/finder') })));
       return;
@@ -382,18 +424,18 @@ export async function downloadsView(view, params, stale) {
         empty: 'Nothing has failed.',
         actions: failures.length ? [
           button('Retry all', { variant: 'tonal', icon: 'refresh', onclick: run(async () => {
-            const r = await api.retryFailedDownloads();
+            const r = await api.retryFailedDownloads(who);
             snackbar(r.retried ? `Retrying ${r.retried} ${r.retried === 1 ? 'download' : 'downloads'}` : 'Nothing to retry');
           }) }),
           button('Clear', { variant: 'text', icon: 'clear_all', onclick: run(async () => {
             if (!(await confirmDialog({ title: 'Clear failed downloads?', message: 'They’re removed from this list and won’t be retried. You can always download them again from Content Finder.', confirm: 'Clear', danger: true }))) return;
-            await api.clearDownloads('failed');
+            await api.clearDownloads('failed', who);
           }) }),
         ] : [],
       }),
       section('History', history, {
         empty: 'Finished downloads appear here.',
-        actions: history.length ? [button('Clear history', { variant: 'text', icon: 'clear_all', onclick: run(() => api.clearDownloads('history')) })] : [],
+        actions: history.length ? [button('Clear history', { variant: 'text', icon: 'clear_all', onclick: run(() => api.clearDownloads('history', who)) })] : [],
       }),
     ].filter(Boolean));
     if (inProgress.length) timer = setTimeout(refresh, 1500);

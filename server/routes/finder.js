@@ -149,21 +149,34 @@ router.post('/:plugin/download', async (req, res) => {
 // A download "needs attention" when it failed on its own (not when you cancelled it).
 const NEEDS_ATTENTION = "(d.status = 'failed' AND COALESCE(d.error, '') != 'Cancelled')";
 
+/**
+ * Which downloads a request may act on: everyone else only ever sees their own. The admin sees
+ * everyone's, or one person's with ?user=<id> (the per-user tabs on the Downloads page).
+ */
+function scope(req, alias = '') {
+  const col = `${alias}user_id`;
+  if (req.user.role !== 'admin') return { sql: `AND ${col} = ?`, args: [req.user.id] };
+  if (req.query.user) return { sql: `AND ${col} = ?`, args: [Number(req.query.user)] };
+  return { sql: '', args: [] };
+}
+
 router.get('/downloads/list', (req, res) => {
-  const mine = req.user.role === 'admin' ? '' : 'AND d.user_id = ?';
-  const args = mine ? [req.user.id] : [];
-  const select = `SELECT d.*, u.username, l.name AS library_name FROM downloads d
+  const { sql: mine, args } = scope(req, 'd.');
+  const select = `SELECT d.*, u.username, COALESCE(u.display_name, u.username) AS user_name, l.name AS library_name FROM downloads d
                   LEFT JOIN users u ON u.id = d.user_id LEFT JOIN libraries l ON l.id = d.library_id`;
   // Everything in progress or failed, however old, so nothing that needs a retry drops off;
-  // finished and cancelled ones (the history) only the latest 100.
+  // finished and cancelled ones (the history) only the latest 100 per person.
   const current = q(`${select} WHERE (d.status IN ('queued', 'downloading') OR ${NEEDS_ATTENTION}) ${mine} ORDER BY d.id DESC LIMIT 1000`).all(...args);
-  const history = q(`${select} WHERE (d.status = 'done' OR (d.status = 'failed' AND d.error = 'Cancelled')) ${mine} ORDER BY d.id DESC LIMIT 100`).all(...args);
+  const history = q(`SELECT * FROM (
+                       SELECT x.*, ROW_NUMBER() OVER (PARTITION BY x.user_id ORDER BY x.id DESC) AS n FROM (${select}
+                       WHERE (d.status = 'done' OR (d.status = 'failed' AND d.error = 'Cancelled')) ${mine}) x
+                     ) WHERE n <= 100 ORDER BY id DESC`).all(...args);
   res.json([...current, ...history].map((d) => {
     // Which chapter/volume this was, so a failed one can be told apart from its siblings.
     const item = json(d.item, {});
     return {
       id: d.id, plugin: d.plugin_id, title: d.title, status: d.status, received: d.received, total: d.total,
-      error: d.error, library: d.library_name, username: d.username, createdAt: d.created_at, finishedAt: d.finished_at,
+      error: d.error, library: d.library_name, userId: d.user_id, username: d.username, userName: d.user_name, createdAt: d.created_at, finishedAt: d.finished_at,
       fileTitle: item.fileTitle || null, volume: item.volume ?? null, chapter: item.chapter ?? null,
     };
   }));
@@ -186,9 +199,9 @@ router.post('/downloads/:id/retry', (req, res) => {
 
 /** Retry every failed download (yours; the admin's covers everyone's), except ones you cancelled. */
 router.post('/downloads/retry', (req, res) => {
-  const mine = req.user.role === 'admin' ? '' : 'AND user_id = ?';
+  const { sql: mine, args } = scope(req);
   const ids = q(`SELECT id FROM downloads WHERE status = 'failed' AND COALESCE(error, '') != 'Cancelled' ${mine} ORDER BY id`)
-    .all(...(mine ? [req.user.id] : [])).map((r) => r.id);
+    .all(...args).map((r) => r.id);
   res.json({ retried: downloads.retry(ids) });
 });
 
@@ -202,11 +215,11 @@ router.delete('/downloads/:id', (req, res) => {
 
 // ?what=history (default): finished and cancelled; ?what=failed: failed ones you've given up on.
 router.delete('/downloads', (req, res) => {
-  const mine = req.user.role === 'admin' ? '' : 'AND user_id = ?';
+  const { sql: mine, args } = scope(req);
   const which = req.query.what === 'failed'
     ? "status = 'failed' AND COALESCE(error, '') != 'Cancelled'"
     : "(status = 'done' OR (status = 'failed' AND error = 'Cancelled'))";
-  const { changes } = q(`DELETE FROM downloads WHERE ${which} ${mine}`).run(...(mine ? [req.user.id] : []));
+  const { changes } = q(`DELETE FROM downloads WHERE ${which} ${mine}`).run(...args);
   res.json({ removed: Number(changes) });
 });
 

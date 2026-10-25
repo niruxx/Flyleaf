@@ -54,15 +54,6 @@ function shell(title, subtitle, form, { aside = {} } = {}) {
   const root = h('div.auth', backdrop(), h('div.auth-layout',
     showcase({ eyebrow: greeting(), title: 'Your library, everywhere.', text: 'Every book, manga and comic you own, beautifully organised and ready to read on any screen.', ...aside }),
     card));
-  // Cards tilt a little towards the pointer on desktop.
-  root.addEventListener('pointermove', (e) => {
-    if (e.pointerType !== 'mouse') return;
-    const r = card.getBoundingClientRect();
-    const x = (e.clientX - (r.left + r.width / 2)) / innerWidth;
-    const y = (e.clientY - (r.top + r.height / 2)) / innerHeight;
-    root.style.setProperty('--tx', x.toFixed(3));
-    root.style.setProperty('--ty', y.toFixed(3));
-  });
   return root;
 }
 

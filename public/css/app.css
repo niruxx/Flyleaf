@@ -2166,8 +2166,6 @@ dialog .tabs button {
 /* ===================================================================== */
 
 .auth {
-  --tx: 0;
-  --ty: 0;
   position: relative;
   min-height: 100dvh;
   overflow: hidden;
@@ -2414,8 +2412,6 @@ dialog .tabs button {
   box-shadow: 0 24px 60px -20px rgb(0 0 0 / 0.35), var(--elev-1);
   --field-bg: var(--md-surface-container-low);
   animation: rise 650ms var(--ease-emphasized-decel) 120ms backwards;
-  transform: perspective(1200px) rotateY(calc(var(--tx) * 6deg)) rotateX(calc(var(--ty) * -6deg));
-  transition: transform 400ms var(--ease-standard);
 }
 /* A slowly turning glow around the card's edge. */
 .auth-card::before {
@@ -3966,6 +3962,69 @@ span.plugin-icon {
 /* Keep "Downloads" whole; the buttons wrap onto their own line instead. */
 .downloads-head h1 {
   flex: 1 0 auto;
+}
+/* Admin: one tab per person. Scrolls sideways on phones. */
+.download-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 0 16px;
+  border-bottom: 1px solid var(--md-outline-variant);
+}
+.download-tabs[hidden] {
+  display: none;
+}
+.download-tab {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border: none;
+  background: none;
+  color: var(--md-on-surface-variant);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: var(--shape-sm) var(--shape-sm) 0 0;
+}
+.download-tab .icon {
+  font-size: 20px;
+}
+.download-tab .count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: var(--shape-full);
+  background: var(--md-surface-container-highest);
+  font-size: 12px;
+  line-height: 20px;
+  text-align: center;
+}
+.download-tab .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--md-error);
+}
+.download-tab[aria-selected='true'] {
+  color: var(--md-primary);
+}
+.download-tab[aria-selected='true'] .count {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+}
+.download-tab[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--md-primary);
 }
 .download-row > .icon {
   color: var(--md-primary);

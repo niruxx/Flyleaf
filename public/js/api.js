@@ -232,8 +232,9 @@ export const api = {
   downloads: () => GET('/api/finder/downloads/list'),
   cancelDownload: (id) => DEL(`/api/finder/downloads/${id}`),
   retryDownload: (id) => POST(`/api/finder/downloads/${id}/retry`),
-  retryFailedDownloads: () => POST('/api/finder/downloads/retry'),
-  clearDownloads: (what = 'history') => DEL(`/api/finder/downloads?what=${what}`),
+  // `user` (admin only): just that person's downloads.
+  retryFailedDownloads: (user) => POST(`/api/finder/downloads/retry${qs({ user })}`),
+  clearDownloads: (what = 'history', user) => DEL(`/api/finder/downloads${qs({ what, user })}`),
   downloadsSummary: () => GET('/api/finder/downloads/summary'),
 
   plugins: () => GET('/api/admin/plugins'),
