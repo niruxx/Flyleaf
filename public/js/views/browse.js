@@ -3,7 +3,7 @@
 
 import { api } from '../api.js';
 import { onLeave, isAdmin, navigate, render } from '../router.js';
-import { h, icon, iconButton, button, emptyState, menu, store, snackbar, stagger, pageHeader, confirmDialog, formDialog, field, STATUS_LABEL, USER_STATUS, skeleton } from '../ui.js';
+import { h, icon, iconButton, button, emptyState, menu, store, snackbar, stagger, pageBanner, confirmDialog, formDialog, field, STATUS_LABEL, USER_STATUS, skeleton } from '../ui.js';
 import { seriesCard } from '../components/cards.js';
 import { refreshShell } from '../shell.js';
 import { scanIndicator } from './scan.js';
@@ -131,8 +131,18 @@ function browse(kind) {
     };
     const persist = () => kind !== 'search' && store.set(prefKey, JSON.stringify({ sort: state.sort }));
 
-    page.append(pageHeader(title, ...headActions));
-    if (sub) page.append(h('p.muted.enter', { style: { marginTop: '-14px', marginBottom: '16px' } }, sub));
+    const BANNER = {
+      library: params.id ? ['local_library', 'Library'] : ['collections_bookmark', 'Everything you can read'],
+      want: ['bookmark_heart', 'Saved for later'],
+      genre: ['category', 'Genre'],
+      person: ['person', 'Writer / artist'],
+      tag: ['sell', 'Your tag'],
+      search: ['search', 'Search'],
+      collection: ['collections_bookmark', 'Collection'],
+    }[kind];
+    // The eyebrow already names genres, people and tags, so their detail line is the count.
+    const banner = pageBanner({ icon: BANNER[0], eyebrow: BANNER[1], title, sub: ['genre', 'person', 'tag'].includes(kind) ? null : sub, actions: headActions });
+    page.append(banner);
 
     // Toolbar
     const readRow = h('div.chip-row', READ_FILTERS.map((f) =>
@@ -248,6 +258,11 @@ function browse(kind) {
       if (id !== reqId || stale()) return;
       results.replaceChildren();
       count.textContent = data.items.length ? `${data.items.length}${data.hasMore ? '+' : ''} series` : '';
+      if (!state.offset && !banner.dataset.art) {
+        banner.dataset.art = '1';
+        banner.setArt(data.items.filter((s) => !s.blur).map((s) => s.coverUrl));
+        if (['genre', 'person', 'tag', 'search'].includes(kind) || (kind === 'library' && !params.id)) banner.setSub(data.items.length ? `${data.items.length}${data.hasMore ? '+' : ''} series` : 'Nothing yet');
+      }
       if (!data.items.length) return results.append(noResults());
       results.append(stagger(h('div.grid', data.items.map((s) => seriesCard(s, { onChange: () => load(true) })))));
       hasMore = data.hasMore;

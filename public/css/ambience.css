@@ -1,0 +1,663 @@
+/* Flyleaf – ambience: the sign-in page's look carried through the app.
+   Loaded after app.css: a drifting colour backdrop, frosted-glass chrome and cards,
+   icon-badged headings, the Home dashboard and page banners. */
+
+/* ===================================================================== */
+/* Backdrop                                                               */
+/* ===================================================================== */
+
+/* Drifting colour and a dot grid behind everything. A personal background replaces it. */
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+body.bare .ambient,
+html.has-bg .ambient {
+  display: none;
+}
+.ambient .blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  opacity: 0.38;
+  will-change: transform;
+}
+.ambient .b1 {
+  width: 55vmax;
+  height: 55vmax;
+  left: -18vmax;
+  top: -22vmax;
+  background: radial-gradient(circle, var(--md-primary-container), transparent 65%);
+  animation: blob-a 28s ease-in-out infinite alternate;
+}
+.ambient .b2 {
+  width: 50vmax;
+  height: 50vmax;
+  right: -20vmax;
+  bottom: -26vmax;
+  background: radial-gradient(circle, var(--md-tertiary-container), transparent 65%);
+  animation: blob-b 32s ease-in-out infinite alternate;
+}
+.ambient .b3 {
+  width: 34vmax;
+  height: 34vmax;
+  left: 45%;
+  top: 30%;
+  background: radial-gradient(circle, var(--md-secondary-container), transparent 65%);
+  opacity: 0.25;
+  animation: blob-c 36s ease-in-out infinite alternate;
+}
+.ambient .dots {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(color-mix(in srgb, var(--md-on-surface) 10%, transparent) 1px, transparent 1.5px);
+  background-size: 24px 24px;
+  mask-image: linear-gradient(180deg, #000, transparent 70%);
+  opacity: 0.55;
+}
+
+/* ===================================================================== */
+/* Chrome and surfaces                                                    */
+/* ===================================================================== */
+
+/* Frosted glass, so the colour shows through. */
+.app-bar,
+.drawer,
+.bottom-nav {
+  background: color-mix(in srgb, var(--md-surface) 70%, transparent);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+}
+body.scrolled .app-bar {
+  background: color-mix(in srgb, var(--md-surface-container) 78%, transparent);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--md-outline-variant) 60%, transparent);
+}
+@media (min-width: 1024px) {
+  .drawer {
+    border-right: 1px solid color-mix(in srgb, var(--md-outline-variant) 40%, transparent);
+  }
+}
+.app-search .search-bar {
+  background: color-mix(in srgb, var(--md-surface-container-high) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--md-outline-variant) 45%, transparent);
+}
+.brand .logo {
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--md-primary) 35%, transparent);
+}
+.nav-item[aria-current='page']::after {
+  background: linear-gradient(90deg, var(--md-secondary-container), color-mix(in srgb, var(--md-secondary-container) 55%, var(--md-tertiary-container)));
+}
+
+/* Glassy cards with a hairline edge. */
+.resume-card,
+.list.card,
+.chart-card,
+.stat,
+.goal-card,
+.review,
+.yr-top-item {
+  background: color-mix(in srgb, var(--md-surface-container) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--md-outline-variant) 45%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+/* Settings cards stay solid: text fields' floating labels sit on the card's own colour. */
+.settings-group {
+  border: 1px solid color-mix(in srgb, var(--md-outline-variant) 45%, transparent);
+}
+.stat {
+  transition: transform var(--dur-medium) var(--ease-standard);
+}
+@media (hover: hover) {
+  .stat:hover {
+    transform: translateY(-2px);
+  }
+}
+
+/* Headings: a gradient on page titles, icon badges on sections. */
+.page-head h1 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.page-head h1,
+.hero h1,
+.page-banner h1 {
+  background: linear-gradient(110deg, var(--md-on-surface) 25%, var(--md-primary) 65%, var(--md-tertiary));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.section-head h2.with-icon {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sec-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--md-primary-container), var(--md-tertiary-container));
+  color: var(--md-on-primary-container);
+}
+.sec-icon .icon {
+  font-size: 20px;
+}
+.sec-count {
+  padding: 0 10px;
+  border-radius: var(--shape-full);
+  background: color-mix(in srgb, var(--md-surface-container-highest) 80%, transparent);
+  color: var(--md-on-surface-variant);
+  font-size: 13px;
+  line-height: 24px;
+  font-weight: 500;
+}
+
+/* Covers glow in their colour on hover, with a sheen sweeping across. */
+.tile .cover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: linear-gradient(115deg, transparent 35%, rgb(255 255 255 / 0.22) 50%, transparent 65%);
+  transform: translateX(-120%);
+  transition: transform 650ms var(--ease-standard);
+  pointer-events: none;
+}
+@media (hover: hover) {
+  .tile:hover .cover {
+    box-shadow: 0 14px 30px -10px color-mix(in srgb, var(--md-primary) 55%, rgb(0 0 0 / 0.5));
+  }
+  .tile:hover .cover::after {
+    transform: translateX(120%);
+  }
+}
+
+/* Continue reading: the cover, blurred, tints its card. */
+.resume-card {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.resume-card::before {
+  content: '';
+  position: absolute;
+  inset: -40px;
+  z-index: -1;
+  background: var(--art, none) center / cover;
+  filter: blur(36px) saturate(1.5);
+  opacity: 0.35;
+  transition: opacity var(--dur-medium);
+}
+@media (hover: hover) {
+  .resume-card:hover::before {
+    opacity: 0.55;
+  }
+}
+
+/* Shared drift for the glows inside heroes and banners. */
+@keyframes glow-drift {
+  to { transform: translate(6%, -4%) rotate(8deg); }
+}
+@keyframes fan-in {
+  from { translate: 0 40px; opacity: 0; }
+}
+
+/* ===================================================================== */
+/* Home                                                                   */
+/* ===================================================================== */
+
+.home-hero {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+  align-items: center;
+  padding: 32px 28px;
+  min-height: 260px;
+  isolation: isolate;
+  border: 1px solid color-mix(in srgb, var(--md-outline-variant) 45%, transparent);
+  background:
+    radial-gradient(700px 360px at 0% 0%, color-mix(in srgb, var(--md-primary-container) 85%, transparent), transparent 70%),
+    radial-gradient(700px 360px at 100% 100%, color-mix(in srgb, var(--md-tertiary-container) 85%, transparent), transparent 70%),
+    color-mix(in srgb, var(--md-surface-container-low) 80%, transparent);
+}
+@media (min-width: 900px) {
+  .home-hero {
+    grid-template-columns: 1fr 380px;
+  }
+}
+.hero-glow {
+  position: absolute;
+  inset: -50%;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--md-primary) 22%, transparent), transparent 40%),
+    radial-gradient(circle at 70% 65%, color-mix(in srgb, var(--md-tertiary) 22%, transparent), transparent 38%);
+  animation: glow-drift 16s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+.hero-text {
+  min-width: 0;
+}
+.hero-eyebrow {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--md-primary);
+  margin-bottom: 6px;
+}
+.home-hero h1 {
+  font-size: clamp(30px, 4.4vw, 48px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+.home-hero .stats-row .chip {
+  background: color-mix(in srgb, var(--md-surface) 55%, transparent);
+  backdrop-filter: blur(8px);
+}
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 20px;
+}
+.hero-actions .btn {
+  max-width: 100%;
+}
+.hero-actions .btn.filled {
+  box-shadow: 0 8px 22px -8px color-mix(in srgb, var(--md-primary) 70%, transparent);
+}
+/* A fan of covers on the right of the hero. */
+.hero-fan {
+  position: relative;
+  height: 230px;
+  display: none;
+}
+@media (min-width: 900px) {
+  .hero-fan {
+    display: block;
+  }
+}
+.fan-cover {
+  --spread: calc(var(--i) - (var(--n) - 1) / 2);
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 108px;
+  aspect-ratio: 2 / 3;
+  margin-left: -54px;
+  border-radius: var(--shape-md);
+  background: var(--md-surface-container-highest) center / cover;
+  box-shadow: 0 18px 36px -14px rgb(0 0 0 / 0.55);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  transform-origin: 50% 120%;
+  transform: translateX(calc(var(--spread) * 44px)) rotate(calc(var(--spread) * 7deg));
+  z-index: calc(10 - var(--i));
+  animation: fan-in 900ms var(--ease-emphasized-decel) backwards;
+  animation-delay: calc(150ms + var(--i) * 80ms);
+  transition: transform 450ms var(--ease-emphasized-decel), box-shadow 450ms;
+}
+.fan-cover:hover {
+  z-index: 20;
+  transform: translateX(calc(var(--spread) * 44px)) rotate(calc(var(--spread) * 7deg)) translateY(-16px) scale(1.06);
+  box-shadow: 0 24px 44px -14px color-mix(in srgb, var(--md-primary) 60%, rgb(0 0 0 / 0.6));
+}
+
+/* At a glance */
+.glance {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-top: 16px;
+}
+.glance[hidden] {
+  display: none;
+}
+@media (min-width: 840px) {
+  .glance {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+.glance-tile {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  border-radius: var(--shape-lg);
+  color: inherit;
+  text-decoration: none;
+  background: color-mix(in srgb, var(--md-surface-container) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--md-outline-variant) 45%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  animation: fade-up 520ms var(--ease-emphasized-decel) backwards;
+  transition: transform var(--dur-medium) var(--ease-standard), border-color var(--dur-medium);
+}
+.glance-tile:nth-child(2) { animation-delay: 60ms; }
+.glance-tile:nth-child(3) { animation-delay: 120ms; }
+.glance-tile:nth-child(4) { animation-delay: 180ms; }
+@media (hover: hover) {
+  .glance-tile:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--md-primary) 45%, transparent);
+  }
+}
+.glance-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  margin-bottom: 6px;
+}
+.glance-value {
+  font-size: 24px;
+  line-height: 30px;
+  font-weight: 600;
+}
+.glance-label {
+  font-size: 13px;
+  color: var(--md-on-surface-variant);
+}
+.flames {
+  display: flex;
+  gap: 1px;
+  color: #ff8a3d;
+}
+.flames .icon {
+  font-size: 16px;
+  animation: flicker 1.6s ease-in-out infinite alternate;
+}
+.flames .icon:nth-child(2n) {
+  animation-delay: -0.6s;
+}
+@keyframes flicker {
+  to { transform: translateY(-1px) scale(1.12); opacity: 0.8; }
+}
+.spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 32px;
+  width: 84px;
+}
+.spark span {
+  flex: 1;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--md-primary) 55%, transparent);
+  transform-origin: bottom;
+  animation: grow 700ms var(--ease-emphasized-decel) backwards;
+}
+.spark span.today {
+  background: var(--md-tertiary);
+}
+.mini-ring {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: conic-gradient(var(--md-primary) calc(var(--p) * 360deg), var(--md-surface-container-highest) 0);
+  -webkit-mask: radial-gradient(circle, transparent 54%, #000 56%);
+  mask: radial-gradient(circle, transparent 54%, #000 56%);
+}
+
+/* Genre cloud: each genre keeps its own colour. */
+.genre-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.genre-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--shape-full);
+  font-size: calc(13px * var(--w));
+  font-weight: 500;
+  text-decoration: none;
+  color: var(--md-on-surface);
+  background: color-mix(in oklch, oklch(0.7 0.13 var(--h)) 22%, var(--md-surface-container));
+  border: 1px solid color-mix(in oklch, oklch(0.7 0.13 var(--h)) 40%, transparent);
+  animation: fade-up 500ms var(--ease-emphasized-decel) backwards;
+  animation-delay: calc(var(--i) * 25ms);
+  transition: transform var(--dur-short) var(--ease-standard), background var(--dur-short);
+}
+.genre-pill:hover {
+  transform: translateY(-2px);
+  background: color-mix(in oklch, oklch(0.7 0.13 var(--h)) 38%, var(--md-surface-container));
+}
+.genre-pill .n {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* Library cards with a mosaic of covers */
+.lib-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.lib-card {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 200px;
+  border-radius: var(--shape-xl);
+  color: inherit;
+  text-decoration: none;
+  background: linear-gradient(135deg, var(--md-primary-container), var(--md-tertiary-container));
+  border: 1px solid color-mix(in srgb, var(--md-outline-variant) 45%, transparent);
+  transition: transform var(--dur-medium) var(--ease-standard), box-shadow var(--dur-medium);
+}
+@media (hover: hover) {
+  .lib-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 16px 34px -14px color-mix(in srgb, var(--md-primary) 55%, rgb(0 0 0 / 0.5));
+  }
+  .lib-card:hover .lib-mosaic span {
+    transform: rotate(calc((var(--i) - 1.5) * 4deg)) translateY(-6px);
+  }
+}
+.lib-mosaic {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 16px 18px;
+}
+.lib-mosaic span {
+  width: 72px;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--shape-sm);
+  background: center / cover;
+  box-shadow: 0 8px 18px -8px rgb(0 0 0 / 0.6);
+  transform: rotate(calc((var(--i) - 1.5) * 3deg));
+  transition: transform 450ms var(--ease-emphasized-decel);
+}
+/* Fade the covers out behind the name so it stays readable. */
+.lib-card.has-art::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(0deg, color-mix(in srgb, var(--md-surface-container) 96%, transparent) 32%, transparent 75%);
+}
+.lib-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.lib-text {
+  flex: 1;
+  min-width: 0;
+}
+.lib-text .body-small {
+  color: var(--md-on-surface-variant);
+}
+.lib-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 14px;
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+}
+
+/* Explore shortcuts at the bottom of Home */
+.explore-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+.explore-tile {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border-radius: var(--shape-lg);
+  color: inherit;
+  text-decoration: none;
+  background: color-mix(in srgb, var(--md-surface-container) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--md-outline-variant) 45%, transparent);
+  transition: transform var(--dur-medium) var(--ease-standard), background var(--dur-medium);
+}
+.explore-tile .body-small {
+  color: var(--md-on-surface-variant);
+  margin-top: 2px;
+}
+@media (hover: hover) {
+  .explore-tile:hover {
+    transform: translateY(-3px);
+    background: var(--md-surface-container);
+  }
+}
+
+/* ===================================================================== */
+/* Page banners (library, genres, collections, search…)                   */
+/* ===================================================================== */
+
+.page-banner {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  min-height: 132px;
+  margin: 8px 0 20px;
+  padding: 22px 24px;
+  border-radius: var(--shape-xl);
+  border: 1px solid color-mix(in srgb, var(--md-outline-variant) 45%, transparent);
+  background:
+    radial-gradient(520px 260px at 0% 0%, color-mix(in srgb, var(--md-primary-container) 80%, transparent), transparent 70%),
+    radial-gradient(520px 260px at 100% 100%, color-mix(in srgb, var(--md-tertiary-container) 70%, transparent), transparent 70%),
+    color-mix(in srgb, var(--md-surface-container-low) 80%, transparent);
+}
+.banner-glow {
+  position: absolute;
+  inset: -60%;
+  z-index: -1;
+  background: radial-gradient(circle at 40% 40%, color-mix(in srgb, var(--md-primary) 16%, transparent), transparent 40%);
+  animation: glow-drift 18s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+.banner-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.banner-icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  flex: none;
+  border-radius: 18px;
+  background: linear-gradient(135deg, var(--md-primary), var(--md-tertiary));
+  color: var(--md-on-primary);
+  box-shadow: 0 8px 22px -8px color-mix(in srgb, var(--md-primary) 70%, transparent);
+}
+.banner-icon .icon {
+  font-size: 30px;
+}
+.banner-text {
+  min-width: 0;
+}
+.banner-eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--md-primary);
+}
+.page-banner h1 {
+  font-size: clamp(26px, 3.4vw, 36px);
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+.banner-sub {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--md-on-surface-variant);
+}
+.banner-sub[hidden] {
+  display: none;
+}
+.banner-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+/* Covers fanned out on the right, fading into the banner. */
+.banner-art {
+  position: relative;
+  width: 260px;
+  height: 120px;
+  flex: none;
+  display: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 35%);
+  mask-image: linear-gradient(90deg, transparent, #000 35%);
+}
+@media (min-width: 900px) {
+  .banner-art:not(:empty) {
+    display: block;
+  }
+}
+.banner-art .fan {
+  position: absolute;
+  bottom: -26px;
+  right: calc(var(--i) * 46px);
+  width: 82px;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--shape-sm);
+  background: center / cover;
+  box-shadow: 0 10px 24px -10px rgb(0 0 0 / 0.6);
+  transform: rotate(calc((var(--i) - 2) * -6deg));
+  z-index: calc(10 - var(--i));
+  animation: fan-in 800ms var(--ease-emphasized-decel) backwards;
+  animation-delay: calc(100ms + var(--i) * 70ms);
+}

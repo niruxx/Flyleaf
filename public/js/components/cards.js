@@ -52,7 +52,8 @@ export function resumeCard(book) {
   const p = book.progress;
   const pct = Math.round((p?.percent || 0) * 100);
   const where = book.engine === 'pages' && book.pageCount && p?.page != null ? `Page ${p.page + 1} of ${book.pageCount}` : `${pct}%`;
-  return h('a.resume-card', { href: `#/series/${book.seriesId}` },
+  // The cover, blurred, tints the card behind the text.
+  return h('a.resume-card', { href: `#/series/${book.seriesId}`, style: book.coverUrl && !book.blur ? { '--art': `url("${book.coverUrl}")` } : null },
     cover({ ...book, title: book.label }, { showProgress: false }),
     h('div.info',
       h('div.t', book.series || book.title),

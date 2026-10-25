@@ -34,11 +34,17 @@
 
     <link rel="stylesheet" href="/css/m3.css" />
     <link rel="stylesheet" href="/css/app.css" />
+    <link rel="stylesheet" href="/css/ambience.css" />
     <link rel="stylesheet" href="/css/motion.css" />
     <link rel="stylesheet" href="/css/reader.css" />
     <script type="module" src="/js/main.js"></script>
   </head>
   <body class="bare">
+    <!-- Soft drifting colour and a dot grid behind the app (hidden when you set your own background). -->
+    <div class="ambient" aria-hidden="true">
+      <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
+      <div class="dots"></div>
+    </div>
     <header class="app-bar">
       <div class="start">
         <button class="icon-btn state menu-toggle" type="button" aria-label="Open navigation" title="Menu">

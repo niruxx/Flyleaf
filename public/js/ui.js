@@ -579,6 +579,36 @@ export function pageHeader(title, ...actions) {
 }
 
 /**
+ * A page's title as a banner: icon badge, small eyebrow, gradient title, a line of detail and,
+ * on wide screens, a fan of covers on the right. `banner.setArt(urls)` fills the covers in
+ * once they're known; `banner.setSub(text)` updates the detail line.
+ */
+export function pageBanner({ icon: ic, eyebrow, title, sub, actions = [] }) {
+  const subEl = h('p.banner-sub', sub || '');
+  const art = h('div.banner-art', { 'aria-hidden': 'true' });
+  const el = h('section.page-banner.enter',
+    h('div.banner-glow'),
+    h('div.banner-main',
+      ic && h('span.banner-icon', icon(ic)),
+      h('div.banner-text',
+        eyebrow && h('div.banner-eyebrow', eyebrow),
+        h('h1', title),
+        subEl)),
+    actions.filter(Boolean).length > 0 && h('div.banner-actions', actions.filter(Boolean)),
+    art);
+  subEl.hidden = !sub;
+  el.setSub = (text) => {
+    subEl.textContent = text || '';
+    subEl.hidden = !text;
+  };
+  el.setArt = (urls) => {
+    art.replaceChildren(...urls.filter(Boolean).slice(0, 5).map((url, i) =>
+      h('span.fan', { style: { '--i': String(i), backgroundImage: `url("${url}")` } })));
+  };
+  return el;
+}
+
+/**
  * Library picker options, grouped: your own libraries, the shared ones, then (admin only)
  * each user's personal libraries.
  */
