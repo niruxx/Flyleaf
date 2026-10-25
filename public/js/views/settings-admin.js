@@ -281,7 +281,7 @@ export async function usersPanel(panel, stale) {
       h('div.text',
         h('div', `${u.displayName}${isSelf ? ' (you)' : ''}`),
         h('div.s', `@${u.username}${u.email ? ` · ${u.email}` : ''} · ${u.role === 'admin' ? 'Admin' : 'Guest · read-only'}`),
-        h('div.s', `${u.maxAgeRating == null ? 'No age restriction' : `Up to ${age?.label}`} · ${u.libraryIds ? `${u.libraryIds.length} ${u.libraryIds.length === 1 ? 'library' : 'libraries'}` : 'All libraries'} · active ${timeAgo(u.lastSeenAt)} · ${formatDuration(u.secondsRead, { short: true })} read · ${u.finished} finished`),
+        h('div.s', `${u.maxAgeRating == null ? 'No age restriction' : `Up to ${age?.label}`} · ${!u.libraryIds ? 'All libraries' : u.libraryIds.length ? `${u.libraryIds.length} shared ${u.libraryIds.length === 1 ? 'library' : 'libraries'}` : 'No shared libraries'} · active ${timeAgo(u.lastSeenAt)} · ${formatDuration(u.secondsRead, { short: true })} read · ${u.finished} finished`),
         u.homeDir && h('div.s', h('span.mono', `📁 ${u.homeDir}`)),
         u.role !== 'admin' && h('div.perm-chips', PERMISSIONS.filter((p) => u.permissions?.[p.key]).map((p) => h('span.mini-chip', icon(p.icon), p.label))),
       ),
@@ -360,9 +360,11 @@ export async function userDialog(user, { onSaved } = {}) {
       username, display, email, password,
       h('p.label-large', { style: { margin: '16px 0 4px' } }, 'Content'),
       age, h('label.check', unknown, 'Include series with no age rating'),
-      libs.length > 0 && h('div', { style: { marginTop: '8px' } },
-        h('label.check', allLibs, h('strong', 'All libraries, including ones added later')),
-        h('div.check-grid', { style: { paddingLeft: '28px' } }, libChecks)),
+      h('div', { style: { marginTop: '8px' } },
+        h('label.check', allLibs, h('strong', 'All shared libraries, including ones added later')),
+        libs.length > 0
+          ? h('div.check-grid', { style: { paddingLeft: '28px' } }, libChecks)
+          : h('p.body-small.muted', { style: { paddingLeft: '28px' } }, 'There are no shared libraries yet. Their personal libraries are always available to them.')),
       h('p.label-large', { style: { margin: '16px 0 4px' } }, 'Personal folder'),
       h('p.body-small.muted', { style: { marginBottom: '8px' } },
         'Give this user a folder of their own. They can create their own libraries inside it (nobody else sees them), and their Content Finder downloads and uploads go only into those libraries. The shared libraries above stay read-only for them.'),
@@ -375,8 +377,8 @@ export async function userDialog(user, { onSaved } = {}) {
     ],
     submit: user ? 'Save' : 'Create',
     onSubmit: async () => {
+      // An empty list is fine: no shared libraries, just their own personal ones.
       const libraryIds = allLibs.checked ? null : libChecks.map((c) => c.querySelector('input')).filter((i) => i.checked).map((i) => Number(i.dataset.id));
-      if (libraryIds && !libraryIds.length) throw new Error('Pick at least one library, or allow all libraries.');
       const body = {
         username: username.input.value.trim(),
         displayName: display.input.value,
