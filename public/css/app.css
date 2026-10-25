@@ -211,6 +211,17 @@ body.scrolled .app-bar {
   font-size: 12px;
   color: var(--md-on-surface-variant);
 }
+/* Failed downloads waiting for a retry. */
+.nav-item .count.alert {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: var(--shape-full);
+  background: var(--md-error);
+  color: var(--md-on-error);
+  font-weight: 500;
+  line-height: 20px;
+  text-align: center;
+}
 .nav-item::after {
   content: '';
   position: absolute;
@@ -3170,6 +3181,41 @@ span.plugin-icon {
 /* Error messages can hold long file paths. */
 .download-row > .text > * {
   overflow-wrap: anywhere;
+}
+/* Sections on the Downloads page: In progress, Failed, History. */
+.downloads-section + .downloads-section {
+  margin-top: 24px;
+}
+.downloads-section-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-height: 40px;
+  margin: 0 4px 8px;
+}
+.downloads-section-head h2 {
+  flex: 1 0 auto;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--md-primary);
+}
+.download-row.cancelled > .icon {
+  color: var(--md-on-surface-variant);
+}
+/* Phones: a failed row's buttons go under the text, so long errors stay readable. */
+@media (max-width: 599px) {
+  .download-row:has(> .btn) {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .download-row:has(> .btn) > .text {
+    flex-basis: calc(100% - 38px);
+  }
+  /* Line the buttons up under the text (icon 24px + 14px gap). */
+  .download-row:has(> .btn) > button:first-of-type {
+    margin-left: 38px;
+  }
 }
 /* Keep "Downloads" whole; the buttons wrap onto their own line instead. */
 .downloads-head h1 {

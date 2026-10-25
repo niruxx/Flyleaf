@@ -365,7 +365,7 @@ curl -X POST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json"
 
 ### 🧭 Content Finder
 
-**Content Finder** (left menu) searches the sources installed as plugins and downloads what you pick into one of your libraries. Flyleaf then rescans that library so the book appears straight away. If a download fails (sources do drop out now and then), it's listed first on the **Downloads** page with the chapter or file it was for: press **Retry** on it, or **Retry failed** to grab every failed one again.
+**Content Finder** (left menu) searches the sources installed as plugins and downloads what you pick into one of your libraries. Flyleaf then rescans that library so the book appears straight away. **Downloads** in the left menu shows what's in progress, what **failed** (each with the chapter or file it was for, and why) and your **history**. Sources do drop out now and then: press **Retry** next to a failed download, or **Retry all**. A red number on the menu item counts failed downloads, so you notice without opening the page. *Clear history* only removes finished and cancelled downloads; failed ones stay until you retry or clear them.
 
 - **Built in:**
   - Project Gutenberg, Standard Ebooks and the **Internet Archive**, installed automatically.

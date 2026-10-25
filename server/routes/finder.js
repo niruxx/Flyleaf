@@ -146,12 +146,19 @@ router.post('/:plugin/download', async (req, res) => {
   res.status(202).json({ ids });
 });
 
+// A download "needs attention" when it failed on its own (not when you cancelled it).
+const NEEDS_ATTENTION = "(d.status = 'failed' AND COALESCE(d.error, '') != 'Cancelled')";
+
 router.get('/downloads/list', (req, res) => {
-  const mine = req.user.role === 'admin' ? '' : 'WHERE d.user_id = ?';
-  const rows = q(`SELECT d.*, u.username, l.name AS library_name FROM downloads d
-                  LEFT JOIN users u ON u.id = d.user_id LEFT JOIN libraries l ON l.id = d.library_id
-                  ${mine} ORDER BY d.id DESC LIMIT 100`).all(...(mine ? [req.user.id] : []));
-  res.json(rows.map((d) => {
+  const mine = req.user.role === 'admin' ? '' : 'AND d.user_id = ?';
+  const args = mine ? [req.user.id] : [];
+  const select = `SELECT d.*, u.username, l.name AS library_name FROM downloads d
+                  LEFT JOIN users u ON u.id = d.user_id LEFT JOIN libraries l ON l.id = d.library_id`;
+  // Everything in progress or failed, however old, so nothing that needs a retry drops off;
+  // finished and cancelled ones (the history) only the latest 100.
+  const current = q(`${select} WHERE (d.status IN ('queued', 'downloading') OR ${NEEDS_ATTENTION}) ${mine} ORDER BY d.id DESC LIMIT 1000`).all(...args);
+  const history = q(`${select} WHERE (d.status = 'done' OR (d.status = 'failed' AND d.error = 'Cancelled')) ${mine} ORDER BY d.id DESC LIMIT 100`).all(...args);
+  res.json([...current, ...history].map((d) => {
     // Which chapter/volume this was, so a failed one can be told apart from its siblings.
     const item = json(d.item, {});
     return {
@@ -160,6 +167,14 @@ router.get('/downloads/list', (req, res) => {
       fileTitle: item.fileTitle || null, volume: item.volume ?? null, chapter: item.chapter ?? null,
     };
   }));
+});
+
+/** Counts for the Downloads badge in the menu. */
+router.get('/downloads/summary', (req, res) => {
+  const mine = req.user.role === 'admin' ? '' : 'AND d.user_id = ?';
+  const r = q(`SELECT SUM(d.status IN ('queued', 'downloading')) AS active, SUM(${NEEDS_ATTENTION}) AS failed
+               FROM downloads d WHERE 1 = 1 ${mine}`).get(...(mine ? [req.user.id] : []));
+  res.json({ active: r.active || 0, failed: r.failed || 0 });
 });
 
 router.post('/downloads/:id/retry', (req, res) => {
@@ -185,10 +200,14 @@ router.delete('/downloads/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ?what=history (default): finished and cancelled; ?what=failed: failed ones you've given up on.
 router.delete('/downloads', (req, res) => {
   const mine = req.user.role === 'admin' ? '' : 'AND user_id = ?';
-  q(`DELETE FROM downloads WHERE status IN ('done', 'failed') ${mine}`).run(...(mine ? [req.user.id] : []));
-  res.json({ ok: true });
+  const which = req.query.what === 'failed'
+    ? "status = 'failed' AND COALESCE(error, '') != 'Cancelled'"
+    : "(status = 'done' OR (status = 'failed' AND error = 'Cancelled'))";
+  const { changes } = q(`DELETE FROM downloads WHERE ${which} ${mine}`).run(...(mine ? [req.user.id] : []));
+  res.json({ removed: Number(changes) });
 });
 
 // ---------------------------------------------------------------------------

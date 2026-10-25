@@ -191,7 +191,8 @@ export const api = {
   cancelDownload: (id) => DEL(`/api/finder/downloads/${id}`),
   retryDownload: (id) => POST(`/api/finder/downloads/${id}/retry`),
   retryFailedDownloads: () => POST('/api/finder/downloads/retry'),
-  clearDownloads: () => DEL('/api/finder/downloads'),
+  clearDownloads: (what = 'history') => DEL(`/api/finder/downloads?what=${what}`),
+  downloadsSummary: () => GET('/api/finder/downloads/summary'),
 
   plugins: () => GET('/api/admin/plugins'),
   pluginCatalog: () => GET('/api/admin/plugins/catalog'),

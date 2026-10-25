@@ -234,6 +234,7 @@ function buildDrawer() {
     navItem('/bookmarks', 'bookmarks', 'Bookmarks & notes'),
     navItem('/stats', 'insights', 'Reading stats'),
     can(session.user, 'contentFinder') && navItem('/finder', 'travel_explore', 'Content Finder'),
+    can(session.user, 'contentFinder') && navItem('/finder/downloads', 'download', 'Downloads'),
     can(session.user, 'upload') && navItem('/upload', 'upload', 'Upload'),
 
     // Your own libraries and the shared ones, each in its own section.
@@ -270,6 +271,26 @@ function buildDrawer() {
   ];
   document.querySelector('.drawer').replaceChildren(...children.flat(Infinity).filter(Boolean));
   highlight(location.hash.replace(/^#/, '') || '/');
+  refreshDownloadsBadge();
+}
+
+let badgeTimer = null;
+/** How many downloads failed, on the Downloads menu item. Rechecked while downloads are running. */
+export async function refreshDownloadsBadge() {
+  clearTimeout(badgeTimer);
+  if (!session.user || !can(session.user, 'contentFinder')) return;
+  let s;
+  try {
+    s = await api.downloadsSummary();
+  } catch {
+    return;
+  }
+  for (const a of document.querySelectorAll('.nav-item[data-to="/finder/downloads"]')) {
+    a.querySelector('.count')?.remove();
+    if (s.failed) a.append(h('span.count.alert', { title: `${s.failed} failed` }, String(s.failed)));
+    a.setAttribute('aria-label', s.failed ? `Downloads, ${s.failed} failed` : 'Downloads');
+  }
+  if (s.active) badgeTimer = setTimeout(refreshDownloadsBadge, 15_000);
 }
 
 function highlight(path) {

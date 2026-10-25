@@ -3,7 +3,7 @@
 
 import { api, can } from '../api.js';
 import { session, isAdmin, navigate, onLeave } from '../router.js';
-import { h, icon, iconButton, button, cover, dialog, snackbar, loading, skeleton, emptyState, stagger, field, formatBytes, timeAgo, libraryOptions, setButtonLabel } from '../ui.js';
+import { h, icon, iconButton, button, cover, dialog, snackbar, loading, skeleton, emptyState, stagger, field, formatBytes, timeAgo, libraryOptions, confirmDialog } from '../ui.js';
 
 const KIND_LABEL = { books: 'Books', manga: 'Manga', comics: 'Comics' };
 const LAST_SOURCE = 'flyleaf.finder.source';
@@ -254,6 +254,7 @@ export async function finderView(view, params, stale) {
         await api.finderDownload(src.id, { libraryId: Number(lib.input.value), book: { title: d.title, author: d.author, series: d.series, ageRating: d.ageRating, layout: d.layout }, files: picked });
         close();
         snackbar(`Downloading ${picked.length === 1 ? `“${d.title}”` : `${picked.length} files`}…`, { action: 'View', onAction: () => navigate('/finder/downloads') });
+        import('../shell.js').then((m) => m.refreshDownloadsBadge());
       } catch (e) {
         snackbar(e.message, { duration: 6000 });
         go.disabled = false;
@@ -296,80 +297,106 @@ export async function finderView(view, params, stale) {
 // Downloads
 
 export async function downloadsView(view, params, stale) {
-  const list = h('div.downloads-list', loading());
-  const clear = button('Clear finished', { variant: 'text', icon: 'clear_all', onclick: async () => {
-    await api.clearDownloads();
-    refresh();
-  } });
-  const retryAll = button('Retry failed', { variant: 'tonal', icon: 'refresh', hidden: true, onclick: async () => {
-    retryAll.disabled = true;
-    try {
-      const r = await api.retryFailedDownloads();
-      snackbar(r.retried ? `Retrying ${r.retried} ${r.retried === 1 ? 'download' : 'downloads'}` : 'Nothing to retry');
-    } catch (e) {
-      snackbar(e.message, { duration: 6000 });
-    }
-    retryAll.disabled = false;
-    refresh();
-  } });
-  view.append(h('div.page', h('div.page-head.downloads-head.enter', iconButton('arrow_back', 'Back', () => navigate('/finder')), h('h1', 'Downloads'), retryAll, clear), list));
+  const body = h('div.downloads', loading());
+  view.append(h('div.page', h('div.page-head.downloads-head.enter', iconButton('arrow_back', 'Back', () => navigate('/finder')), h('h1', 'Downloads')), body));
 
   let timer;
   onLeave(() => clearTimeout(timer));
+
+  // Which chapter/volume a download was, when its title is just the series.
+  const titleOf = (d) => {
+    const part = d.fileTitle || (d.chapter != null ? `Chapter ${d.chapter}` : d.volume != null ? `Volume ${d.volume}` : null);
+    return part && !d.title.includes(part) ? `${d.title} – ${part}` : d.title;
+  };
+  const failed = (d) => d.status === 'failed' && d.error !== 'Cancelled';
+  const active = (d) => d.status === 'queued' || d.status === 'downloading';
+
+  const run = (fn) => async () => {
+    try {
+      await fn();
+    } catch (e) {
+      snackbar(e.message, { duration: 6000 });
+    }
+    refresh();
+  };
+
+  function row(d) {
+    const title = titleOf(d);
+    const busy = active(d);
+    const cancelled = d.status === 'failed' && !failed(d);
+    const pct = d.total ? Math.min(100, (d.received / d.total) * 100) : null;
+    return h(`div.download-row.${cancelled ? 'cancelled' : d.status}`,
+      icon(cancelled ? 'block' : { queued: 'schedule', downloading: 'downloading', done: 'check_circle', failed: 'error' }[d.status]),
+      h('div.text',
+        h('div.body-large', title),
+        h('div.body-small.muted', [
+          d.status === 'downloading' ? `${formatBytes(d.received)}${d.total ? ` of ${formatBytes(d.total)}` : ''}` : null,
+          d.status === 'queued' ? 'Waiting…' : null,
+          d.status === 'done' ? `Added to ${d.library || 'library'} · ${timeAgo(d.finishedAt)}` : null,
+          failed(d) ? `${d.error}${d.finishedAt ? ` · ${timeAgo(d.finishedAt)}` : ''}` : null,
+          cancelled ? `Cancelled${d.finishedAt ? ` · ${timeAgo(d.finishedAt)}` : ''}` : null,
+          d.plugin,
+          isAdmin() && d.username ? `by ${d.username}` : null,
+        ].filter(Boolean).join(' · ')),
+        busy && h('div.progress', pct == null ? { class: 'indeterminate' } : null, h('span', { style: { width: `${pct ?? 30}%` } })),
+      ),
+      failed(d) && button('Retry', { variant: 'tonal', icon: 'refresh', onclick: run(async () => {
+        await api.retryDownload(d.id);
+        snackbar(`Retrying “${title}”`);
+      }) }),
+      cancelled && iconButton('refresh', 'Download again', run(async () => {
+        await api.retryDownload(d.id);
+        snackbar(`Downloading “${title}” again`);
+      })),
+      iconButton(busy ? 'close' : 'delete', busy ? 'Cancel' : 'Remove', run(() => api.cancelDownload(d.id))),
+    );
+  }
+
+  function section(label, rows, { actions = [], empty } = {}) {
+    return h('section.downloads-section',
+      h('div.downloads-section-head', h('h2', label, rows.length ? h('span.muted', ` (${rows.length})`) : null), ...actions),
+      rows.length ? h('div.downloads-list', rows.map(row)) : empty && h('p.note', empty));
+  }
+
   async function refresh() {
     clearTimeout(timer);
     let rows;
     try {
       rows = await api.downloads();
     } catch (e) {
-      list.replaceChildren(emptyState('error', 'Couldn’t load downloads', e.message));
+      body.replaceChildren(emptyState('error', 'Couldn’t load downloads', e.message));
       return;
     }
     if (stale()) return;
-    // Failures first, so a missing chapter is easy to spot and grab again.
-    const failed = (d) => d.status === 'failed' && d.error !== 'Cancelled';
-    rows.sort((a, b) => Number(failed(b)) - Number(failed(a)));
-    const failedCount = rows.filter(failed).length;
-    retryAll.hidden = !failedCount;
-    setButtonLabel(retryAll, `Retry failed (${failedCount})`);
-    list.replaceChildren(...(rows.length
-      ? rows.map((d) => {
-        const active = d.status === 'queued' || d.status === 'downloading';
-        // Name the chapter/volume when the title is just the series.
-        const part = d.fileTitle || (d.chapter != null ? `Chapter ${d.chapter}` : d.volume != null ? `Volume ${d.volume}` : null);
-        const title = part && !d.title.includes(part) ? `${d.title} – ${part}` : d.title;
-        const pct = d.total ? Math.min(100, (d.received / d.total) * 100) : null;
-        return h(`div.download-row.${d.status}`,
-          icon({ queued: 'schedule', downloading: 'downloading', done: 'check_circle', failed: 'error' }[d.status]),
-          h('div.text',
-            h('div.body-large', title),
-            h('div.body-small.muted', [
-              d.status === 'downloading' ? `${formatBytes(d.received)}${d.total ? ` of ${formatBytes(d.total)}` : ''}` : null,
-              d.status === 'queued' ? 'Waiting…' : null,
-              d.status === 'done' ? `Added to ${d.library || 'library'} · ${timeAgo(d.finishedAt)}` : null,
-              d.status === 'failed' ? d.error : null,
-              d.plugin,
-              isAdmin() && d.username ? `by ${d.username}` : null,
-            ].filter(Boolean).join(' · ')),
-            active && h('div.progress', pct == null ? { class: 'indeterminate' } : null, h('span', { style: { width: `${pct ?? 30}%` } })),
-          ),
-          d.status === 'failed' && iconButton('refresh', 'Retry', async () => {
-            try {
-              await api.retryDownload(d.id);
-              snackbar(`Retrying “${title}”`);
-            } catch (e) {
-              snackbar(e.message, { duration: 6000 });
-            }
-            refresh();
-          }),
-          iconButton(active ? 'close' : 'delete', active ? 'Cancel' : 'Remove', async () => {
-            await api.cancelDownload(d.id);
-            refresh();
-          }),
-        );
-      })
-      : [emptyState('download_done', 'No downloads', 'Books you download from Content Finder appear here.', button('Find books', { icon: 'travel_explore', onclick: () => navigate('/finder') }))]));
-    if (rows.some((d) => d.status === 'queued' || d.status === 'downloading')) timer = setTimeout(refresh, 1500);
+    import('../shell.js').then((m) => m.refreshDownloadsBadge());
+    if (!rows.length) {
+      body.replaceChildren(emptyState('download_done', 'No downloads', 'Books you download from Content Finder appear here.', button('Find books', { icon: 'travel_explore', onclick: () => navigate('/finder') })));
+      return;
+    }
+    const inProgress = rows.filter(active);
+    const failures = rows.filter(failed);
+    const history = rows.filter((d) => !active(d) && !failed(d));
+    body.replaceChildren(...[
+      inProgress.length > 0 && section('In progress', inProgress),
+      section('Failed', failures, {
+        empty: 'Nothing has failed.',
+        actions: failures.length ? [
+          button('Retry all', { variant: 'tonal', icon: 'refresh', onclick: run(async () => {
+            const r = await api.retryFailedDownloads();
+            snackbar(r.retried ? `Retrying ${r.retried} ${r.retried === 1 ? 'download' : 'downloads'}` : 'Nothing to retry');
+          }) }),
+          button('Clear', { variant: 'text', icon: 'clear_all', onclick: run(async () => {
+            if (!(await confirmDialog({ title: 'Clear failed downloads?', message: 'They’re removed from this list and won’t be retried. You can always download them again from Content Finder.', confirm: 'Clear', danger: true }))) return;
+            await api.clearDownloads('failed');
+          }) }),
+        ] : [],
+      }),
+      section('History', history, {
+        empty: 'Finished downloads appear here.',
+        actions: history.length ? [button('Clear history', { variant: 'text', icon: 'clear_all', onclick: run(() => api.clearDownloads('history')) })] : [],
+      }),
+    ].filter(Boolean));
+    if (inProgress.length) timer = setTimeout(refresh, 1500);
   }
   refresh();
 }
