@@ -2,7 +2,7 @@
 
 import { api } from '../api.js';
 import { session, isAdmin } from '../router.js';
-import { h, icon, button, snackbar, toggleSwitch, confirmDialog, dialog, loading, formatBytes, timeAgo, copyText } from '../ui.js';
+import { h, icon, iconButton, button, setButtonLabel, field, formError, snackbar, toggleSwitch, confirmDialog, dialog, loading, formatBytes, timeAgo, copyText } from '../ui.js';
 
 const row = (ic, title, sub, control) => h('div.setting-row', ic && icon(ic), h('div.text', h('div', title), sub && h('div.s', sub)), control);
 const group = (...rows) => h('div.settings-group', ...rows);
@@ -147,6 +147,8 @@ export async function backupPanel(panel, stale) {
         button('Download', { variant: 'tonal', icon: 'download', onclick: () => download(true) })),
     ),
     h('p.note', 'The backup is taken while Flyleaf keeps running. Book files are stored uncompressed, so a backup with books is about as big as your libraries.'),
+    h('div.sub-head', 'Automatic backups'),
+    scheduledGroup(),
     h('div.sub-head', 'Restore'),
     restoreGroup({ setup: false }),
     h('div.sub-head', 'Monitoring'),
@@ -159,6 +161,91 @@ export async function backupPanel(panel, stale) {
         button('Copy', { variant: 'text', icon: 'content_copy', onclick: () => copyText(`${location.origin}/api/metrics`).then(() => snackbar('Copied')) })),
     ),
   );
+}
+
+/** Backups on a schedule, kept in a folder on the server (another disk if you like). */
+function scheduledGroup() {
+  const wrap = h('div', loading());
+  async function load() {
+    let d;
+    try {
+      d = await api.backups();
+    } catch (e) {
+      wrap.replaceChildren(h('p.note', e.message));
+      return;
+    }
+    const s = d.schedule;
+    const enabled = toggleSwitch(s.enabled, () => {}, 'Back up automatically');
+    const every = field('How often', { value: s.every, options: [{ value: 'daily', label: 'Every day' }, { value: 'weekly', label: 'Every week' }] });
+    const hour = field('At', { value: s.hour, options: Array.from({ length: 24 }, (_, i) => ({ value: i, label: new Date(2000, 0, 1, i).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) })) });
+    const keep = field('Keep the newest', { value: s.keep, type: 'number', min: 1, max: 100, support: 'Older backups are deleted.' });
+    const books = h('input', { type: 'checkbox', checked: s.includeBooks });
+    const folder = field('Folder', { value: s.folder, autocomplete: 'off', support: `Leave empty for ${d.folder}. Use a folder on another disk to survive a disk failure.` });
+    const err = h('div');
+    const save = button('Save', { icon: 'save', onclick: async () => {
+      err.replaceChildren();
+      try {
+        await api.saveBackupSchedule({
+          enabled: enabled.querySelector('input').checked, every: every.input.value, hour: Number(hour.input.value),
+          keep: Number(keep.input.value), includeBooks: books.checked, folder: folder.input.value,
+        });
+        snackbar('Backup schedule saved');
+        load();
+      } catch (e) {
+        err.append(formError(e.message));
+      }
+    } });
+    const now = button('Back up now', { variant: 'tonal', icon: 'backup', onclick: async () => {
+      now.disabled = true;
+      setButtonLabel(now, 'Backing up…');
+      try {
+        const r = await api.runBackup();
+        snackbar(`Saved ${r.name}`);
+      } catch (e) {
+        snackbar(e.message, { duration: 6000 });
+      }
+      load();
+    } });
+    const last = d.last
+      ? d.last.error ? `Last backup failed ${timeAgo(d.last.at)}: ${d.last.error}` : `Last backup ${timeAgo(d.last.at)}`
+      : 'No automatic backups yet';
+    const rows = d.backups.map((b) => h('div.setting-row', icon(b.books ? 'library_books' : 'database'),
+      h('div.text', h('div', new Date(b.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })), h('div.s', `${formatBytes(b.size)}${b.books ? ' · with books' : ''} · ${b.name}`)),
+      iconButton('download', 'Download', () => {
+        const a = h('a', { href: api.storedBackupUrl(b.name), download: b.name });
+        document.body.append(a);
+        a.click();
+        a.remove();
+      }),
+      iconButton('settings_backup_restore', 'Restore this backup', async () => {
+        if (!(await confirmDialog({ title: 'Restore this backup?', message: `Everything in this Flyleaf’s database is replaced by the backup from ${new Date(b.createdAt).toLocaleString()}.${b.books ? ' Book files are written back too.' : ''} Everyone signs in again afterwards.`, confirm: 'Restore', danger: true, icon: 'warning' }))) return;
+        snackbar('Restoring…', { duration: 120_000 });
+        try {
+          await api.restoreStoredBackup(b.name, b.books);
+          location.hash = '#/login';
+          location.reload();
+        } catch (e) {
+          snackbar(e.message, { duration: 8000 });
+        }
+      }),
+      iconButton('delete', 'Delete', async () => {
+        if (!(await confirmDialog({ title: 'Delete this backup?', message: b.name, confirm: 'Delete', danger: true }))) return;
+        await api.deleteStoredBackup(b.name);
+        load();
+      })));
+    wrap.replaceChildren(
+      h('div.settings-group',
+        h('div.setting-row', icon('schedule'), h('div.text', h('div', 'Back up automatically'), h('div.s', last)), enabled),
+        h('div.setting-row.stack', err,
+          h('div.ob-grid2', every, hour),
+          h('div.ob-grid2', keep, h('label.check', books, 'Include book files')),
+          folder,
+          h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, save, now))),
+      rows.length > 0 && h('div.settings-group', { style: { marginTop: '12px' } }, ...rows),
+    );
+  }
+  load();
+  return wrap;
 }
 
 const formatUptime = (s) => (s < 3600 ? `${Math.max(1, Math.round(s / 60))} min` : s < 86400 ? `${Math.round(s / 3600)} h` : `${Math.round(s / 86400)} days`);

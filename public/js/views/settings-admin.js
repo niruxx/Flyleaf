@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { session, navigate } from '../router.js';
 import {
   h, icon, iconButton, button, field, formError, snackbar, confirmDialog, formDialog, timeAgo, formatDuration, formatBytes, loading, menu, AGE_RATINGS, avatar, copyText, cover,
+  pageBanner, emptyState,
 } from '../ui.js';
 import { refreshShell } from '../shell.js';
 import { scanIndicator } from './scan.js';
@@ -33,6 +34,7 @@ export async function librariesPanel(panel, stale) {
         { label: 'Scan now', icon: 'sync', onClick: async () => { await api.scanLibrary(l.id); snackbar(`Scanning ${l.name}…`); } },
         { label: 'Match metadata online', icon: 'travel_explore', onClick: async () => { await api.matchLibrary(l.id); snackbar('Matching series against online sources…'); } },
         { label: 'Edit', icon: 'edit', onClick: () => libraryDialog(l, providers) },
+        l.calibre && { label: 'Import from Calibre', icon: 'move_to_inbox', onClick: () => calibreImport(l) },
         { label: 'Remove missing files', icon: 'cleaning_services', onClick: async () => {
           const r = await api.cleanupLibrary(l.id);
           snackbar(r.removed ? `Removed ${r.removed} missing ${r.removed === 1 ? 'item' : 'items'}` : 'Nothing to clean up');
@@ -53,7 +55,7 @@ export async function librariesPanel(panel, stale) {
           refreshShell();
           reload('libraries');
         } },
-      ]),
+      ].filter(Boolean)),
     );
     return h('div.setting-row',
       icon(KIND_ICON[l.kind]),
@@ -93,17 +95,140 @@ export async function librariesPanel(panel, stale) {
     h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' } },
       button('Add library', { icon: 'create_new_folder', onclick: () => libraryDialog(null, providers) }),
       button('Scan all', { variant: 'text', icon: 'sync', onclick: async () => { await api.scanAll(); snackbar('Scanning all libraries…'); } }),
+      button('Find duplicates', { variant: 'text', icon: 'content_copy', onclick: () => navigate('/admin/duplicates') }),
       scanIndicator(() => {
         refreshShell();
         reload('libraries');
       }),
     ),
     ...sections.filter(Boolean),
-    h('p.note', 'Supported: EPUB · KEPUB · MOBI · AZW · AZW3 · FB2 · TXT · PDF · CBZ · ZIP · CBR · RAR · CB7 · 7Z · CBT · TAR · image folders. ComicInfo.xml and EPUB/Calibre metadata are read automatically.'),
+    fulltextGroup(),
+    h('p.note', 'Supported: EPUB · KEPUB · MOBI · AZW · AZW3 · FB2 · TXT · PDF · CBZ · ZIP · CBR · RAR · CB7 · 7Z · CBT · TAR · image folders. Audiobooks in book libraries: M4B · M4A · MP3 · OGG · OPUS · FLAC (a folder of tracks is one audiobook). ComicInfo.xml, EPUB/Calibre metadata and audio tags are read automatically; a Calibre metadata.db in the library folder is imported.'),
   );
 }
 
 export const MODE_LABEL = { books: 'Regular books', kavita: 'Kavita (file names)', komga: 'Komga (folders)' };
+
+/** Full-text search index: how far along it is, and a rebuild button. */
+function fulltextGroup() {
+  const line = h('div.s', 'Checking…');
+  const wrap = h('div', h('div.sub-head', icon('manage_search'), 'Full-text search'),
+    group(h('div.setting-row', icon('manage_search'),
+      h('div.text', h('div', 'Search inside books'), line),
+      button('Rebuild index', { variant: 'text', icon: 'refresh', onclick: async () => {
+        if (!(await confirmDialog({ title: 'Rebuild the search index?', message: 'Every book’s text is read again in the background. Searching inside books works again as it catches up.', confirm: 'Rebuild' }))) return;
+        draw(await api.rebuildFulltext());
+      } }))));
+  const draw = (s) => {
+    if (!s.enabled) line.textContent = 'Turned off on this server (FULLTEXT=0).';
+    else line.textContent = `${s.indexed.toLocaleString()} ${s.indexed === 1 ? 'book' : 'books'} indexed${s.pending ? ` · ${s.pending.toLocaleString()} waiting${s.running ? ` (indexing ${s.done} of ${s.total})` : ''}` : ''}. EPUB, FB2, TXT, DOCX, RTF and PDFs with text are searchable from the search page.`;
+  };
+  api.fulltextStatus().then(draw).catch(() => (line.textContent = ''));
+  return wrap;
+}
+
+/** Bring series, tags, ratings and covers over from a Calibre library's metadata.db. */
+async function calibreImport(l) {
+  const ok = await confirmDialog({
+    title: `Import from Calibre into “${l.name}”?`,
+    message: 'Titles, authors, series, tags, descriptions, publishers, identifiers and covers from Calibre’s metadata.db are applied to the matching books, and Calibre ratings become your ratings. This also happens automatically after each scan whenever metadata.db changes.',
+    confirm: 'Import',
+    icon: 'move_to_inbox',
+  });
+  if (!ok) return;
+  snackbar('Importing from Calibre…', { duration: 60_000 });
+  try {
+    const r = await api.calibreImport(l.id);
+    snackbar(`Imported ${r.books} ${r.books === 1 ? 'book' : 'books'} from Calibre${r.unmatched ? ` · ${r.unmatched} not found in the folder` : ''}${r.covers ? ` · ${r.covers} covers` : ''}${r.ratings ? ` · ${r.ratings} ratings` : ''}`, { duration: 8000 });
+  } catch (e) {
+    snackbar(e.message, { duration: 8000 });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Duplicates
+
+const DUP_REASON = {
+  'same-file': ['file_copy', 'Identical files'],
+  'same-book': ['menu_book', 'Same book, different copies'],
+  'same-volume': ['collections_bookmark', 'Same volume or chapter'],
+};
+
+/** #/admin/duplicates – review likely duplicate books, keep one copy and merge, or dismiss. */
+export async function duplicatesView(view, params, stale) {
+  const page = h('div.page', { style: { maxWidth: '1100px' } });
+  view.append(page);
+  const banner = pageBanner({ icon: 'content_copy', eyebrow: 'Libraries', title: 'Duplicates', sub: 'Looking for books that appear more than once…' });
+  const body = h('div', loading());
+  page.append(banner, body);
+
+  async function load() {
+    let groups;
+    try {
+      groups = await api.duplicates();
+    } catch (e) {
+      body.replaceChildren(h('p', e.message));
+      return;
+    }
+    if (stale()) return;
+    const files = groups.reduce((a, g) => a + g.books.length - 1, 0);
+    banner.setSub(groups.length ? `${groups.length} ${groups.length === 1 ? 'group' : 'groups'} · ${files} extra ${files === 1 ? 'copy' : 'copies'}` : 'No duplicates found');
+    if (!groups.length) {
+      body.replaceChildren(emptyState('task_alt', 'No duplicates', 'Every book appears once. Groups you marked “Not duplicates” stay hidden.'));
+      return;
+    }
+    body.replaceChildren(...groups.map(groupCard));
+  }
+
+  function groupCard(g) {
+    const [ic, label] = DUP_REASON[g.reason] || ['content_copy', 'Possible duplicates'];
+    // Keep the copy most people read, then the oldest.
+    let keep = [...g.books].sort((a, b) => b.readers - a.readers || b.notes - a.notes || a.addedAt - b.addedAt)[0].id;
+    const rows = g.books.map((b) => {
+      const radio = h('input', { type: 'radio', name: `keep-${g.key}`, checked: b.id === keep, onchange: () => (keep = b.id) });
+      return h('label.dup-row',
+        radio,
+        h('div.dup-text',
+          h('div.title-small', b.series && b.series !== b.title ? `${b.series} · ${b.title}` : b.title),
+          h('div.body-small.muted', [b.author, b.format.toUpperCase(), formatBytes(b.size), `${b.library}${b.personal ? ' (personal)' : ''}`, `added ${timeAgo(b.addedAt)}`].filter(Boolean).join(' · ')),
+          h('div.body-small.muted.mono', b.path),
+          (b.readers || b.notes) > 0 && h('div.body-small', `${b.readers} ${b.readers === 1 ? 'reader' : 'readers'} · ${b.notes} ${b.notes === 1 ? 'bookmark or note' : 'bookmarks and notes'}`)),
+        iconButton('menu_book', 'Open', (e) => {
+          e.preventDefault();
+          navigate(`/read/${b.id}`);
+        }));
+    });
+    const card = h('section.dup-group.enter',
+      h('div.dup-head', h('span.sec-icon', icon(ic)), h('div', h('div.title-medium', label), h('div.body-small.muted', 'Choose the copy to keep. Progress, reading time, bookmarks and notes from the others move to it.'))),
+      h('div.dup-rows', rows),
+      h('div.dup-actions',
+        button('Not duplicates', { variant: 'text', icon: 'visibility_off', onclick: async () => {
+          await api.ignoreDuplicates(g.key);
+          card.remove();
+          snackbar('Hidden – they won’t be suggested again');
+        } }),
+        button('Keep selected, delete others', { variant: 'tonal', icon: 'merge', onclick: async () => {
+          const others = g.books.filter((b) => b.id !== keep);
+          if (!(await confirmDialog({
+            title: `Delete ${others.length} ${others.length === 1 ? 'copy' : 'copies'}?`,
+            message: `${others.map((b) => `${b.format.toUpperCase()} in ${b.library}`).join(', ')} will be deleted from disk after everyone’s reading data moves to the copy you keep.`,
+            confirm: 'Merge and delete',
+            danger: true,
+            icon: 'merge',
+          }))) return;
+          try {
+            const r = await api.mergeDuplicates(keep, others.map((b) => b.id));
+            snackbar(`Merged · ${r.removed} ${r.removed === 1 ? 'copy' : 'copies'} deleted`);
+            card.remove();
+          } catch (e) {
+            snackbar(e.message, { duration: 6000 });
+          }
+        } })));
+    return card;
+  }
+
+  await load();
+}
 
 export function modeCards(value, onChange) {
   const wrap = h('div.mode-cards');

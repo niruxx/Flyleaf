@@ -11,31 +11,32 @@ import {
   avatar, fillAvatar,
 } from '../ui.js';
 import { readerSettingsForm } from '../components/reader-settings.js';
-import { signOut, refreshAvatarInShell } from '../shell.js';
+import { signOut, refreshAvatarInShell, initShell } from '../shell.js';
+import { t, N_, languages, currentLanguage, setLanguage } from '../i18n.js';
 
 const PANELS = [
-  { group: 'You' },
-  { id: 'account', label: 'Account', icon: 'manage_accounts' },
-  { id: 'preferences', label: 'Preferences', icon: 'tune' },
-  { id: 'appearance', label: 'Themes', icon: 'palette' },
-  { id: 'mylibs', label: 'My libraries', icon: 'folder_special', home: true },
-  { id: 'notifications', label: 'Notifications', icon: 'notifications' },
-  { group: 'Reading' },
-  { id: 'reading', label: 'Reading profiles', icon: 'chrome_reader_mode' },
-  { id: 'keybinds', label: 'Key binds', icon: 'keyboard' },
-  { id: 'fonts', label: 'EPUB fonts', icon: 'font_download' },
-  { group: 'Connections' },
-  { id: 'opds', label: 'OPDS & clients', icon: 'rss_feed', perm: 'apiAccess' },
-  { id: 'api', label: 'API & webhooks', icon: 'api', perm: 'apiAccess' },
-  { id: 'devices', label: 'Send-to devices', icon: 'send_to_mobile', perm: 'download' },
-  { id: 'import', label: 'Import (MAL)', icon: 'upload_file' },
-  { group: 'Server', admin: true },
-  { id: 'libraries', label: 'Libraries', icon: 'folder_managed', admin: true },
-  { id: 'users', label: 'Users', icon: 'group', admin: true },
-  { id: 'metadata', label: 'Metadata sources', icon: 'travel_explore', admin: true },
-  { id: 'plugins', label: 'Content Finder plugins', icon: 'extension', admin: true },
-  { id: 'server', label: 'Server & email', icon: 'dns', admin: true },
-  { id: 'backup', label: 'Backup & restore', icon: 'backup', admin: true },
+  { group: N_('You') },
+  { id: 'account', label: N_('Account'), icon: 'manage_accounts' },
+  { id: 'preferences', label: N_('Preferences'), icon: 'tune' },
+  { id: 'appearance', label: N_('Themes'), icon: 'palette' },
+  { id: 'mylibs', label: N_('My libraries'), icon: 'folder_special', home: true },
+  { id: 'notifications', label: N_('Notifications'), icon: 'notifications' },
+  { group: N_('Reading') },
+  { id: 'reading', label: N_('Reading profiles'), icon: 'chrome_reader_mode' },
+  { id: 'keybinds', label: N_('Key binds'), icon: 'keyboard' },
+  { id: 'fonts', label: N_('EPUB fonts'), icon: 'font_download' },
+  { group: N_('Connections') },
+  { id: 'opds', label: N_('OPDS & clients'), icon: 'rss_feed', perm: 'apiAccess' },
+  { id: 'api', label: N_('API & webhooks'), icon: 'api', perm: 'apiAccess' },
+  { id: 'devices', label: N_('Send-to devices'), icon: 'send_to_mobile', perm: 'download' },
+  { id: 'import', label: N_('Import (MAL)'), icon: 'upload_file' },
+  { group: N_('Server'), admin: true },
+  { id: 'libraries', label: N_('Libraries'), icon: 'folder_managed', admin: true },
+  { id: 'users', label: N_('Users'), icon: 'group', admin: true },
+  { id: 'metadata', label: N_('Metadata sources'), icon: 'travel_explore', admin: true },
+  { id: 'plugins', label: N_('Content Finder plugins'), icon: 'extension', admin: true },
+  { id: 'server', label: N_('Server & email'), icon: 'dns', admin: true },
+  { id: 'backup', label: N_('Backup & restore'), icon: 'backup', admin: true },
 ];
 
 export async function settingsView(view, params, stale) {
@@ -43,11 +44,11 @@ export async function settingsView(view, params, stale) {
   const current = params.tab && panels.some((p) => p.id === params.tab) ? params.tab : 'account';
   const nav = h('nav.settings-nav', panels.map((p) =>
     p.group
-      ? h('div.group', p.group)
-      : h('a.nav-item', { href: `#/settings/${p.id}`, 'aria-current': p.id === current ? 'page' : null }, icon(p.icon), h('span.label', p.label)),
+      ? h('div.group', t(p.group))
+      : h('a.nav-item', { href: `#/settings/${p.id}`, 'aria-current': p.id === current ? 'page' : null }, icon(p.icon), h('span.label', t(p.label))),
   ));
   const panel = h('div.settings-panel.enter');
-  const page = h('div.page', h('div.page-head', h('h1', 'Settings')), h('div.settings-layout', nav, panel));
+  const page = h('div.page', h('div.page-head', h('h1', t('Settings'))), h('div.settings-layout', nav, panel));
   view.append(page);
   requestAnimationFrame(() => nav.querySelector('[aria-current]')?.scrollIntoView({ inline: 'center', block: 'nearest' }));
 
@@ -149,20 +150,36 @@ async function changePassword() {
 
 function preferencesPanel(panel) {
   const p = prefs();
-  const t = (key, ic, title, sub) => row(ic, title, sub, toggleSwitch(Boolean(p[key]), (v) => setPref(key, v), title));
+  const tog = (key, ic, title, sub) => row(ic, title, sub, toggleSwitch(Boolean(p[key]), (v) => setPref(key, v), title));
   panel.append(
-    h('h2', 'Preferences'),
+    h('h2', t('Preferences')),
+    group(languageRow()),
     group(
-      t('blurUnreadSummaries', 'blur_on', 'Blur unread summaries', 'Hide series summaries behind a blur until you start reading – no spoilers.'),
-      t('promptOnDownload', 'download', 'Prompt on download', 'Ask before downloading a book or series to this device.'),
-      t('disableAnimations', 'animation', 'Disable animations', 'Turn off page transitions, ripples and other motion.'),
-      t('collapseRelationships', 'hub', 'Collapse series relationships', 'Start the “Related series” section collapsed.'),
-      t('colorScape', 'gradient', 'Use colorscape', 'Tint each series page with colours taken from its artwork.'),
-      t('dataSaver', 'data_saver_on', 'Data saver mode', 'Load smaller, compressed page images when reading comics and manga.'),
-      t('blurMature', 'visibility_off', 'Blur adult artwork', 'Automatically blur covers of series rated Adults only (18+).'),
+      tog('blurUnreadSummaries', 'blur_on', t('Blur unread summaries'), t('Hide series summaries behind a blur until you start reading – no spoilers.')),
+      tog('promptOnDownload', 'download', t('Prompt on download'), t('Ask before downloading a book or series to this device.')),
+      tog('disableAnimations', 'animation', t('Disable animations'), t('Turn off page transitions, ripples and other motion.')),
+      tog('collapseRelationships', 'hub', t('Collapse series relationships'), t('Start the “Related series” section collapsed.')),
+      tog('colorScape', 'gradient', t('Use colorscape'), t('Tint each series page with colours taken from its artwork.')),
+      tog('dataSaver', 'data_saver_on', t('Data saver mode'), t('Load smaller, compressed page images when reading comics and manga.')),
+      tog('blurMature', 'visibility_off', t('Blur adult artwork'), t('Automatically blur covers of series rated Adults only (18+).')),
     ),
   );
   if (can(session.user, 'contentFinder')) finderRecsSection(panel);
+}
+
+/** Language of the app: “Automatic” follows the browser. Saved to your account, so it follows you. */
+function languageRow() {
+  const select = h('select.lang-select', { 'aria-label': t('Language') }, h('option', { value: '' }, t('Automatic (browser)')));
+  languages().then((list) => {
+    for (const l of list) select.append(h('option', { value: l.code, selected: prefs().language === l.code }, l.name));
+  });
+  select.addEventListener('change', async () => {
+    setPref('language', select.value || null);
+    await setLanguage(select.value || (navigator.languages || [navigator.language])[0].split('-')[0]);
+    initShell({ again: true });
+    navigate('/settings/preferences', { replace: true });
+  });
+  return row('translate', t('Language'), t('Translations come from the community – untranslated text stays in English.'), select);
 }
 
 /** Which Content Finder sources “Discover in Content Finder” searches. */

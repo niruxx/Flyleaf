@@ -35,7 +35,7 @@ function toBook(row, detail = false, user = null) {
     seriesId: row.series_id,
     kind: row.kind,
     format: row.format,
-    engine: TEXT_FORMATS.has(row.format) ? 'text' : 'pages',
+    engine: TEXT_FORMATS.has(row.format) ? 'text' : row.format === 'audio' ? 'audio' : 'pages',
     title: row.title,
     label: volumeLabel(row),
     author: row.author,

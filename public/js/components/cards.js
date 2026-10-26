@@ -36,6 +36,7 @@ export function volumeCard(b, { series, onChange } = {}) {
   let sub;
   if (p?.finished) sub = 'Finished';
   else if (p && p.percent > 0) sub = `${Math.round(p.percent * 100)}% · ${timeAgo(p.updatedAt)}`;
+  else if (b.format === 'audio') sub = b.pageCount > 1 ? `Audiobook · ${b.pageCount} tracks` : 'Audiobook';
   else if (b.pageCount) sub = `${b.pageCount} pages`;
   else sub = b.format.toUpperCase();
   const el = h('a.tile', { href: `#/read/${b.id}`, title: b.title },

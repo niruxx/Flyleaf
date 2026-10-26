@@ -73,6 +73,24 @@ admin.get('/backup', async (req, res) => {
   res.set('Cache-Control', 'no-store');
   await backup.create(res, { includeBooks: books });
 });
+// Scheduled backups and the ones stored on the server.
+admin.get('/backups', async (req, res) => {
+  const settings = require('../settings');
+  res.json({ schedule: backup.schedule(), folder: backup.backupFolder(), last: settings.get('backupLast') || null, running: backup.isRunning(), backups: await backup.listStored() });
+});
+admin.put('/backups/schedule', (req, res) => res.json(backup.setSchedule(req.body || {})));
+admin.post('/backups/run', async (req, res) => res.json(await backup.runScheduled({ manual: true })));
+admin.get('/backups/:name', (req, res) => res.download(backup.storedPath(req.params.name)));
+admin.delete('/backups/:name', async (req, res) => {
+  await fsp.rm(backup.storedPath(req.params.name), { force: true });
+  res.json({ ok: true });
+});
+/** Restore a stored backup directly: { books } */
+admin.post('/backups/:name/restore', async (req, res) => {
+  const result = await backup.restore(backup.storedPath(req.params.name), { includeBooks: Boolean(req.body?.books) });
+  res.json({ ok: true, ...result });
+});
+
 admin.post('/restore', upload);
 admin.post('/restore/:id', apply);
 admin.delete('/restore/:id', (req, res) => {

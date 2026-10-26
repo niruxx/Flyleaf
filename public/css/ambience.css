@@ -1083,10 +1083,149 @@ body.is-offline .app-search {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.search-hit mark {
+.search-hit mark,
+.ft-snippet mark {
   padding: 0 2px;
   border-radius: 3px;
   background: color-mix(in srgb, var(--md-tertiary) 35%, transparent);
   color: var(--md-on-surface);
   font-weight: 600;
+}
+
+/* Language picker (Settings → Preferences) */
+.lang-select {
+  height: 40px;
+  padding: 0 36px 0 14px;
+  border-radius: var(--shape-full);
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container-high) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E") no-repeat right 14px center;
+  color: var(--md-on-surface);
+  font: inherit;
+  font-size: 14px;
+  appearance: none;
+  cursor: pointer;
+}
+
+/* Duplicates (admin) */
+.dup-group {
+  margin-bottom: 16px;
+  padding: 16px;
+  border-radius: var(--shape-xl);
+  background: color-mix(in srgb, var(--md-surface-container) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--md-outline-variant) 45%, transparent);
+}
+.dup-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.dup-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dup-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--shape-lg);
+  border: 1px solid color-mix(in srgb, var(--md-outline-variant) 55%, transparent);
+  cursor: pointer;
+}
+.dup-row:has(input:checked) {
+  border-color: var(--md-primary);
+  background: color-mix(in srgb, var(--md-primary) 8%, transparent);
+}
+.dup-text {
+  flex: 1;
+  min-width: 0;
+}
+.dup-text .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* Missing volumes on the series page */
+.gap-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -4px 0 14px;
+  padding: 8px 14px;
+  border-radius: var(--shape-md);
+  background: color-mix(in srgb, var(--md-tertiary-container) 60%, transparent);
+  color: var(--md-on-tertiary-container);
+  font-size: 13px;
+}
+.gap-note .icon {
+  font-size: 18px;
+}
+
+/* Full-text results on the search page */
+.ft-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 12px;
+}
+@media (max-width: 599px) {
+  .ft-list {
+    grid-template-columns: 1fr;
+  }
+}
+.ft-book {
+  display: flex;
+  gap: 14px;
+  padding: 14px;
+  border-radius: var(--shape-xl);
+  background: color-mix(in srgb, var(--md-surface-container) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--md-outline-variant) 45%, transparent);
+}
+.ft-cover {
+  width: 64px;
+  flex: none;
+}
+.ft-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ft-title {
+  color: inherit;
+  text-decoration: none;
+}
+.ft-hit {
+  display: block;
+  margin: 2px -8px 0;
+  padding: 6px 8px;
+  border-radius: var(--shape-md);
+  color: var(--md-on-surface-variant);
+  text-decoration: none;
+  font-size: 13px;
+  line-height: 19px;
+}
+.ft-where {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--md-primary);
+}
+.ft-snippet {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }

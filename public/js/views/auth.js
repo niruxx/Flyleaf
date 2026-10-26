@@ -3,17 +3,19 @@ import { session, navigate } from '../router.js';
 import { h, icon, field, button, formError } from '../ui.js';
 import { afterSignIn } from '../shell.js';
 import { onboardFrame, STEPS } from './welcome.js';
+import { t } from '../i18n.js';
 
-const FEATURES = [
-  ['auto_stories', 'Books, manga & comics', 'EPUB, PDF, CBZ, CBR and more – read right in the browser.'],
-  ['sync', 'Pick up where you left off', 'Progress, bookmarks and highlights follow you to every device.'],
-  ['insights', 'Reading stats & goals', 'Streaks, a yearly goal and your year in review.'],
-  ['rss_feed', 'Works with your apps', 'OPDS for KOReader, Panels, Chunky, Thorium and others.'],
+// A function: the language is only known after this file loads.
+const FEATURES = () => [
+  ['auto_stories', t('Books, manga & comics'), t('EPUB, PDF, CBZ, CBR and more – read right in the browser.')],
+  ['sync', t('Pick up where you left off'), t('Progress, bookmarks and highlights follow you to every device.')],
+  ['insights', t('Reading stats & goals'), t('Streaks, a yearly goal and your year in review.')],
+  ['rss_feed', t('Works with your apps'), t('OPDS for KOReader, Panels, Chunky, Thorium and others.')],
 ];
 
 const greeting = () => {
   const hr = new Date().getHours();
-  return hr < 5 ? 'Up late reading?' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening';
+  return hr < 5 ? t('Up late reading?') : hr < 12 ? t('Good morning') : hr < 18 ? t('Good afternoon') : t('Good evening');
 };
 
 /** Animated backdrop: drifting colour blobs, a dot grid and floating books. */
@@ -34,7 +36,7 @@ function backdrop() {
 }
 
 /** Left-hand showcase on wide screens; a compact strip above the card on phones. */
-function showcase({ eyebrow, title, text, points = FEATURES }) {
+function showcase({ eyebrow, title, text, points = FEATURES() }) {
   return h('aside.auth-showcase',
     h('div.auth-brand', h('span.logo', icon('auto_stories', 'filled')), h('span.title-large', 'Flyleaf')),
     h('div.auth-eyebrow.label-large', eyebrow),
@@ -52,7 +54,7 @@ function shell(title, subtitle, form, { aside = {} } = {}) {
       h('p.body-medium.muted', subtitle)),
     form);
   const root = h('div.auth', backdrop(), h('div.auth-layout',
-    showcase({ eyebrow: greeting(), title: 'Your library, everywhere.', text: 'Every book, manga and comic you own, beautifully organised and ready to read on any screen.', ...aside }),
+    showcase({ eyebrow: greeting(), title: t('Your library, everywhere.'), text: t('Every book, manga and comic you own, beautifully organised and ready to read on any screen.'), ...aside }),
     card));
   return root;
 }
@@ -67,7 +69,7 @@ function fail(err, message, card) {
 
 /** Small "Caps Lock is on" hint under a password field. */
 function capsHint(passField) {
-  const hint = h('div.caps-hint', { hidden: true }, icon('keyboard_capslock'), 'Caps Lock is on');
+  const hint = h('div.caps-hint', { hidden: true }, icon('keyboard_capslock'), t('Caps Lock is on'));
   const check = (e) => (hint.hidden = !e.getModifierState?.('CapsLock'));
   passField.input.addEventListener('keydown', check);
   passField.input.addEventListener('keyup', check);
@@ -86,7 +88,7 @@ function strength(p) {
   return s;
 }
 function strengthMeter(passField) {
-  const LABELS = ['Too short', 'Weak', 'Okay', 'Good', 'Strong'];
+  const LABELS = [t('Too short'), t('Weak'), t('Okay'), t('Good'), t('Strong')];
   const bar = h('div.strength', { 'data-level': '0' }, h('span'), h('span'), h('span'), h('span'), h('em.label-small', ''));
   passField.input.addEventListener('input', () => {
     const v = passField.input.value;
@@ -98,13 +100,13 @@ function strengthMeter(passField) {
 }
 
 export function setupView(view) {
-  const name = field('Your name', { autocomplete: 'name', support: 'Shown in the app. Optional.' });
-  const user = field('Admin username', { autocomplete: 'username', required: true, autocapitalize: 'none', support: '3–32 letters, numbers, . - _' });
-  const email = field('Email', { type: 'email', autocomplete: 'email', support: 'Optional – lets you sign in with your email too.' });
-  const pass = field('Password', { type: 'password', autocomplete: 'new-password', required: true, support: 'At least 8 characters.' });
-  const pass2 = field('Confirm password', { type: 'password', autocomplete: 'new-password', required: true });
+  const name = field(t('Your name'), { autocomplete: 'name', support: t('Shown in the app. Optional.') });
+  const user = field(t('Admin username'), { autocomplete: 'username', required: true, autocapitalize: 'none', support: t('3–32 letters, numbers, . - _') });
+  const email = field(t('Email'), { type: 'email', autocomplete: 'email', support: t('Optional – lets you sign in with your email too.') });
+  const pass = field(t('Password'), { type: 'password', autocomplete: 'new-password', required: true, support: t('At least 8 characters.') });
+  const pass2 = field(t('Confirm password'), { type: 'password', autocomplete: 'new-password', required: true });
   const err = h('div');
-  const submit = button('Create account', { type: 'submit', icon: 'arrow_forward' });
+  const submit = button(t('Create account'), { type: 'submit', icon: 'arrow_forward' });
 
   const form = h(
     'form.ob-form',
@@ -113,7 +115,7 @@ export function setupView(view) {
         e.preventDefault();
         err.replaceChildren();
         if (pass.input.value !== pass2.input.value) {
-          err.append(formError("Passwords don't match."));
+          err.append(formError(t('Passwords don’t match.')));
           return;
         }
         submit.disabled = true;
@@ -133,22 +135,22 @@ export function setupView(view) {
     user,
     h('div.ob-grid2', pass, pass2),
     h('div.ob-perks',
-      h('div', icon('admin_panel_settings'), 'You’ll manage libraries, metadata and guests.'),
-      h('div', icon('lock'), 'Passwords are hashed with scrypt and never leave this server.'),
+      h('div', icon('admin_panel_settings'), t('You’ll manage libraries, metadata and guests.')),
+      h('div', icon('lock'), t('Passwords are hashed with scrypt and never leave this server.')),
     ),
     h('div.ob-form-foot', submit),
   );
 
   // Moving servers: start from a backup instead of a new admin account.
   const restoreSlot = h('div', { style: { marginTop: '16px' } },
-    button('Restore from a backup instead', { variant: 'text', icon: 'settings_backup_restore', onclick: async () => {
+    button(t('Restore from a backup instead'), { variant: 'text', icon: 'settings_backup_restore', onclick: async () => {
       const { restoreGroup } = await import('./settings-platform.js');
       restoreSlot.replaceChildren(restoreGroup({
         setup: true,
         onDone: (r) => {
           sessionStorage.setItem('flyleaf.after-login', '/');
           restoreSlot.replaceChildren(h('div.form-error', { style: { background: 'var(--md-primary-container)', color: 'var(--md-on-primary-container)' } },
-            icon('task_alt'), h('span', `Restored${r.bookFiles ? ` with ${r.bookFiles} book files` : ''}. Sign in with an account from the backup.`)));
+            icon('task_alt'), h('span', r.bookFiles ? t('Restored with {n} book files. Sign in with an account from the backup.', { n: r.bookFiles }) : t('Restored. Sign in with an account from the backup.'))));
           setTimeout(() => {
             location.hash = '#/login';
             location.reload();
@@ -160,8 +162,8 @@ export function setupView(view) {
 
   view.append(
     onboardFrame(STEPS, 0, {
-      title: 'Welcome to Flyleaf',
-      subtitle: 'Your own library for books, manga and comics. Let’s start with the admin account.',
+      title: t('Welcome to Flyleaf'),
+      subtitle: t('Your own library for books, manga and comics. Let’s start with the admin account.'),
       content: form,
     }),
   );
@@ -169,10 +171,10 @@ export function setupView(view) {
 }
 
 export function loginView(view) {
-  const user = field('Username or email', { autocomplete: 'username', required: true, autocapitalize: 'none', autocorrect: 'off', spellcheck: 'false' });
-  const pass = field('Password', { type: 'password', autocomplete: 'current-password', required: true });
+  const user = field(t('Username or email'), { autocomplete: 'username', required: true, autocapitalize: 'none', autocorrect: 'off', spellcheck: 'false' });
+  const pass = field(t('Password'), { type: 'password', autocomplete: 'current-password', required: true });
   const err = h('div');
-  const submit = button('Sign in', { type: 'submit', icon: 'login' });
+  const submit = button(t('Sign in'), { type: 'submit', icon: 'login' });
   let root;
 
   const form = h(
@@ -208,10 +210,10 @@ export function loginView(view) {
   // "Create an account" only when the admin has turned sign-up on.
   const signup = h('div.auth-alt');
   api.status().then((st) => {
-    if (st.registration) signup.append(h('span.muted', 'New here? '), h('a', { href: '#/register' }, 'Create an account'));
+    if (st.registration) signup.append(h('span.muted', `${t('New here?')} `), h('a', { href: '#/register' }, t('Create an account')));
   }).catch(() => {});
-  root = shell('Welcome back', 'Sign in to your library.', h('div', form, signup,
-    h('p.auth-fine.body-small', icon('lock'), 'You stay signed in on this device until you sign out.')));
+  root = shell(t('Welcome back'), t('Sign in to your library.'), h('div', form, signup,
+    h('p.auth-fine.body-small', icon('lock'), t('You stay signed in on this device until you sign out.'))));
   view.append(root);
   user.input.focus();
 }
@@ -219,16 +221,16 @@ export function loginView(view) {
 export async function registerView(view) {
   const st = await api.status().catch(() => null);
   if (!st?.registration) {
-    view.append(shell('Flyleaf', 'Sign-up is closed. Ask the admin for an account.', h('div', button('Back to sign in', { variant: 'tonal', icon: 'arrow_back', onclick: () => navigate('/login', { replace: true }) }))));
+    view.append(shell(t('Flyleaf'), t('Sign-up is closed. Ask the admin for an account.'), h('div', button(t('Back to sign in'), { variant: 'tonal', icon: 'arrow_back', onclick: () => navigate('/login', { replace: true }) }))));
     return;
   }
-  const name = field('Your name', { autocomplete: 'name', support: 'Shown in the app. Optional.' });
-  const user = field('Username', { autocomplete: 'username', required: true, autocapitalize: 'none', autocorrect: 'off', spellcheck: 'false', support: '3–32 letters, numbers, . - _' });
-  const pass = field('Password', { type: 'password', autocomplete: 'new-password', required: true, support: 'At least 8 characters.' });
-  const pass2 = field('Confirm password', { type: 'password', autocomplete: 'new-password', required: true });
-  const invite = st.registration.inviteRequired && field('Invite code', { required: true, autocomplete: 'off', autocapitalize: 'none', support: 'You got this from whoever runs this Flyleaf.' });
+  const name = field(t('Your name'), { autocomplete: 'name', support: t('Shown in the app. Optional.') });
+  const user = field(t('Username'), { autocomplete: 'username', required: true, autocapitalize: 'none', autocorrect: 'off', spellcheck: 'false', support: t('3–32 letters, numbers, . - _') });
+  const pass = field(t('Password'), { type: 'password', autocomplete: 'new-password', required: true, support: t('At least 8 characters.') });
+  const pass2 = field(t('Confirm password'), { type: 'password', autocomplete: 'new-password', required: true });
+  const invite = st.registration.inviteRequired && field(t('Invite code'), { required: true, autocomplete: 'off', autocapitalize: 'none', support: t('You got this from whoever runs this Flyleaf.') });
   const err = h('div');
-  const submit = button('Create account', { type: 'submit', icon: 'person_add' });
+  const submit = button(t('Create account'), { type: 'submit', icon: 'person_add' });
   let root;
   const form = h(
     'form',
@@ -237,7 +239,7 @@ export async function registerView(view) {
         e.preventDefault();
         err.replaceChildren();
         if (pass.input.value !== pass2.input.value) {
-          fail(err, "Passwords don't match.", root.querySelector('.auth-card'));
+          fail(err, t('Passwords don’t match.'), root.querySelector('.auth-card'));
           return;
         }
         submit.disabled = true;
@@ -269,17 +271,17 @@ export async function registerView(view) {
     invite,
     submit,
   );
-  root = shell('Create your account', 'It takes a few seconds.',
-    h('div', form, h('div.auth-alt', h('span.muted', 'Already have an account? '), h('a', { href: '#/login' }, 'Sign in'))), {
+  root = shell(t('Create your account'), t('It takes a few seconds.'),
+    h('div', form, h('div.auth-alt', h('span.muted', `${t('Already have an account?')} `), h('a', { href: '#/login' }, t('Sign in')))), {
       aside: {
-        eyebrow: 'Join this library',
-        title: 'A shelf of your own.',
-        text: 'Your account comes with its own space on this server, and everything you read stays yours.',
+        eyebrow: t('Join this library'),
+        title: t('A shelf of your own.'),
+        text: t('Your account comes with its own space on this server, and everything you read stays yours.'),
         points: [
-          ['folder_special', 'Your own libraries', 'Books, Comics and Manga folders, ready for uploads and downloads.'],
-          ['bookmarks', 'Your own progress', 'Bookmarks, highlights, notes and collections that only you see.'],
-          ['local_fire_department', 'Streaks & goals', 'Set a yearly goal and watch your reading streak grow.'],
-          ['devices', 'On every device', 'Install it on your phone’s Home Screen like an app.'],
+          ['folder_special', t('Your own libraries'), t('Books, Comics and Manga folders, ready for uploads and downloads.')],
+          ['bookmarks', t('Your own progress'), t('Bookmarks, highlights, notes and collections that only you see.')],
+          ['local_fire_department', t('Streaks & goals'), t('Set a yearly goal and watch your reading streak grow.')],
+          ['devices', t('On every device'), t('Install it on your phone’s Home Screen like an app.')],
         ],
       },
     });

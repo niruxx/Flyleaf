@@ -53,7 +53,7 @@ function supported(name) {
   const { FILE_FORMATS } = require('../scanner');
   const lower = name.toLowerCase();
   const ext = path.extname(lower);
-  return Boolean(FILE_FORMATS[ext] || IMAGE_EXT.has(ext) || lower.endsWith('.kepub.epub') || lower === 'comicinfo.xml');
+  return Boolean(FILE_FORMATS[ext] || IMAGE_EXT.has(ext) || require('../audio').AUDIO_EXT.has(ext) || lower.endsWith('.kepub.epub') || lower === 'comicinfo.xml');
 }
 
 function fsMessage(e, dir) {

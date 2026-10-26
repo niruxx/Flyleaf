@@ -100,6 +100,14 @@
 
 ## 🆕 What's new
 
+- 🔎 **Search inside every book** – the search page also finds words and phrases inside EPUB, FB2, TXT, DOCX, RTF and text PDFs across your libraries, with the matching passages; open one and the book jumps to that chapter.
+- 🎧 **Audiobooks** – M4B, M4A, MP3, OGG, OPUS and FLAC in book libraries (a folder of tracks is one audiobook), with chapters, speed, a sleep timer, lock-screen controls, synced progress and offline listening. An audiobook with the same title and author as an ebook sits in the same series.
+- 📚 **Calibre libraries** – point a library at a Calibre folder and its titles, series, tags, descriptions, covers and ratings come with it (and stay in sync when `metadata.db` changes).
+- 🧹 **Duplicates** – *Settings → Libraries → Find duplicates* shows identical files and the same book or volume in several places; keep one copy and everyone's progress and notes move to it.
+- 🕳️ **Missing volumes** – series pages show gaps (“Volumes 1–4, 6 · missing 5”).
+- 🗓️ **Scheduled backups** – daily or weekly, keeping the newest N, optionally on another disk.
+- 🌍 **Translations** – a language setting, a Spanish translation of the main screens, and [a guide for adding languages](docs/translating.md).
+
 - 🔔 **Follow series for new chapters** – tap *Follow* on a manga or comic in Content Finder and Flyleaf checks it every few hours, downloading new chapters into your library (or just telling you). *Watch my downloads* matches everything you've already downloaded to its source too, so you hear about newer chapters. See *Content Finder → Following*.
 - 🛎️ **Notifications bell** in the top bar (desktop and phone): new chapters, finished or failed downloads, and for admins sign-ups and uploads.
 - 📴 **Read offline** – *Save for offline* on any book (or *Save next 3* on a series) keeps it on your phone or computer. It opens without a connection, and your progress syncs when you're back online. Needs HTTPS.
@@ -277,6 +285,7 @@ Set these in `/etc/flyleaf/flyleaf.env` (service install) or a `.env` file next 
 | `HOST` | `0.0.0.0` | Interface to bind (`127.0.0.1` = this machine only) |
 | `FLYLEAF_DATA_DIR` | `./data` | Database, covers, caches and logs |
 | `SCAN_INTERVAL_MINUTES` | `60` | Automatic rescans (`0` = only on start / manual) |
+| `FULLTEXT` | `1` | Index book text for *search inside books* (`0` turns it off) |
 | `FOLLOW_CHECK_HOURS` | `6` | How often followed series are checked for new chapters (`0` = only when you press *Check now*) |
 | `SESSION_DAYS` | `30` | How long sign-ins last |
 | `TRUST_PROXY` | `false` | Set to `true` behind an HTTPS reverse proxy |

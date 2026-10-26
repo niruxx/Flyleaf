@@ -10,6 +10,7 @@ const { saveCover } = require('./covers');
 const { parseFilename, normalizeKey } = require('./parser');
 const { json, parseAgeRating, mergeLinks, uniqBy } = require('./util');
 const log = require('./log').logger('scan');
+const { AUDIO_EXT } = require('./audio');
 
 // Extension → format. Archives are re-identified by signature (a .cbr that is really a zip, etc.).
 const FILE_FORMATS = {
@@ -73,6 +74,7 @@ async function walk(lib) {
     let images = 0;
     let bookFiles = 0;
     let newestImage = 0;
+    const audioFiles = [];
     const subdirs = [];
     for (const ent of entries) {
       if (ent.name.startsWith('.') || ent.name === '@eaDir' || ent.name === '__MACOSX') continue;
@@ -107,10 +109,24 @@ async function walk(lib) {
         images++;
         const st = await fsp.stat(full).catch(() => null);
         if (st) newestImage = Math.max(newestImage, Math.floor(st.mtimeMs));
+      } else if (lib.kind === 'books' && AUDIO_EXT.has(ext)) {
+        const st = await fsp.stat(full).catch(() => null);
+        if (st?.size) audioFiles.push({ path: full, size: st.size, mtime: Math.floor(st.mtimeMs) });
       }
     }
+    // Audiobooks (ebook libraries): a folder of tracks is one book; a lone file (an M4B) is one too.
+    // Loose files at the top of the library are separate books.
+    if (audioFiles.length === 1 || (audioFiles.length > 1 && dir === root)) {
+      for (const a of audioFiles) results.push({ ...a, format: 'audio', isDir: false });
+    } else if (audioFiles.length > 1) {
+      results.push({
+        path: dir, format: 'audio', isDir: true,
+        size: audioFiles.reduce((n, a) => n + a.size, 0), mtime: Math.max(...audioFiles.map((a) => a.mtime)),
+      });
+    }
+    state.found = results.length;
     // A folder of images (an extracted chapter) is a comic. A lone cover.jpg next to archives is not.
-    if (images >= 2 && bookFiles === 0 && dir !== root) {
+    if (images >= 2 && bookFiles === 0 && !audioFiles.length && dir !== root) {
       results.push({ path: dir, format: 'folder', isDir: true, size: images, mtime: newestImage });
       state.found = results.length;
     }
@@ -252,6 +268,19 @@ async function processBook(book) {
       if (m.author) embedded.people = [{ name: m.author, role: 'Writer' }];
       break;
     }
+    case 'audio': {
+      const m = await require('./audio').metadata(book.path);
+      Object.assign(update, { title: m.title, author: m.author, description: m.description, page_count: m.tracks });
+      embedded = {
+        people: [
+          ...(m.author ? [{ name: m.author, role: 'Writer' }] : []),
+          ...(m.narrator ? [{ name: m.narrator, role: 'Narrator' }] : []),
+        ],
+        genres: m.genres, year: m.year, description: m.description, duration: m.duration, chapters: m.chapters,
+      };
+      cover = m.cover;
+      break;
+    }
     case 'pdf': {
       const m = await meta.pdfMetadata(book.path);
       // PDF titles are frequently junk ("Microsoft Word - draft3.doc"); keep the filename unless it looks real.
@@ -304,7 +333,7 @@ async function processBook(book) {
 /** Decide which series a book belongs to, according to the library's mode. */
 function seriesFor(lib, book) {
   const emb = json(book.embedded, {});
-  const isDir = book.format === 'folder';
+  const isDir = book.format === 'folder' || (book.format === 'audio' && require('./audio').isDirSync(book.path));
   const parsed = parseFilename(book.path, isDir);
   const relDir = path.relative(lib.path, path.dirname(book.path));
   const folderName = relDir && !relDir.startsWith('..') ? path.basename(relDir) : null;
@@ -479,6 +508,9 @@ async function runQueue() {
           await processMetadata(lib.id, stats);
           state.phase = 'grouping';
           assignSeries(lib);
+          // A Calibre library: bring over Calibre's metadata (see calibre.js).
+          await require('./calibre').syncIfChanged(lib, stats.added + stats.changed > 0)
+            .catch((e) => log.warn(`"${lib.name}": Calibre import failed: ${e.message}`));
           const changes = stats.added + stats.changed + stats.missing;
           // One line per scan; quiet when nothing changed.
           const summary = `"${lib.name}": ${stats.total} items (${stats.added} new, ${stats.changed} changed, ${stats.missing} missing) in ${((Date.now() - started) / 1000).toFixed(1)}s${stats.errors ? `, ${stats.errors} unreadable (see data/logs/flyleaf.log)` : ''}`;
@@ -494,6 +526,8 @@ async function runQueue() {
     }
   } finally {
     Object.assign(state, { running: false, libraryId: null, phase: 'idle', finishedAt: Date.now() });
+    // New and changed books get their text indexed for full-text search, in the background.
+    require('./fulltext').indexPending().catch(() => {});
   }
 }
 

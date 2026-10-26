@@ -210,6 +210,8 @@ function parseComicInfo(xml) {
 }
 
 module.exports = {
+  elements,
+  decodeXml,
   titleFromFilename,
   numberFromTitle,
   epubMetadata,

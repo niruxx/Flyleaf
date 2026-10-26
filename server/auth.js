@@ -68,6 +68,8 @@ const PREF_DEFAULTS = {
   notify: { newChapters: true, downloads: true, newBooks: false, admin: true },
   // Content Finder: follow every series you download, and check downloads for newer chapters.
   watchDownloads: true,
+  // App language (a code from public/locales/index.json); null follows the browser.
+  language: null,
 };
 
 /** What a user may do beyond reading. Admins always have everything. */

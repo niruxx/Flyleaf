@@ -80,7 +80,11 @@ export class TextEngine {
     const target = startLocator || saved;
     try {
       if (target && /^epubcfi\(/.test(target)) await view.init({ lastLocation: target });
-      else await view.init({ showTextStart: false });
+      else if (startLocator) {
+        // A chapter to open at (from full-text search): an href, or a section number for FB2.
+        await view.init({ showTextStart: false });
+        await view.goTo(/^\d+$/.test(startLocator) ? Number(startLocator) : startLocator).catch(() => {});
+      } else await view.init({ showTextStart: false });
     } catch {
       await view.init({});
     }

@@ -85,8 +85,9 @@ function bookEntry(req, book, raw, { titlePrefix = '' } = {}) {
   const p = book.progress;
   const prefix = req.user.prefs.opdsEmbedProgress ? progressMark(p?.finished ? 1 : p?.percent || 0) : '';
   const isPages = archive.IMAGE_FORMATS.has(book.format) || book.format === 'pdf';
-  const mime = book.format === 'folder' ? 'application/vnd.comicbook+zip' : ORIGINAL_MIME[book.format] || 'application/octet-stream';
-  const ext = book.format === 'folder' ? 'cbz' : path.extname(raw.path).slice(1);
+  const dirAudio = book.format === 'audio' && require('./audio').isDirSync(raw.path);
+  const mime = book.format === 'folder' ? 'application/vnd.comicbook+zip' : dirAudio ? 'application/zip' : ORIGINAL_MIME[book.format] || require('./audio').AUDIO_MIME[path.extname(raw.path).toLowerCase()] || 'application/octet-stream';
+  const ext = book.format === 'folder' ? 'cbz' : book.format === 'audio' && require('./audio').isDirSync(raw.path) ? 'zip' : path.extname(raw.path).slice(1);
   const pse =
     isPages && archive.IMAGE_FORMATS.has(book.format) && book.pageCount
       ? `<link rel="http://vaemendis.net/opds-pse/stream" type="image/jpeg" href="${req.base}/books/${book.id}/pages/{pageNumber}?width={maxWidth}" pse:count="${book.pageCount}"${p?.page != null ? ` pse:lastRead="${p.page}" pse:lastReadDate="${iso(p.updatedAt)}"` : ''}/>`
@@ -226,7 +227,7 @@ router.get(['/:key/books/:id/download', '/:key/books/:id/download/:name'], async
   const b = getBook(req.params.id, req.user);
   if (!b || b.missing) return res.status(404).end();
   if (!req.user.permissions.download) return res.status(403).end();
-  if (b.format === 'folder') {
+  if (b.format === 'folder' || (b.format === 'audio' && require('./audio').isDirSync(b.path))) {
     const { ZipArchive } = require('archiver');
     const zip = new ZipArchive({ store: true });
     res.attachment(`${path.basename(b.path)}.cbz`);
@@ -282,8 +283,9 @@ function send2(req, res, { title, navigation, publications, next, page, total })
 const nav2 = (title, href) => ({ title, href, type: OPDS2, rel: 'subsection' });
 
 function publication2(req, book, raw) {
-  const ext = book.format === 'folder' ? 'cbz' : path.extname(raw.path).slice(1);
-  const mime = book.format === 'folder' ? 'application/vnd.comicbook+zip' : ORIGINAL_MIME[book.format] || 'application/octet-stream';
+  const ext = book.format === 'folder' ? 'cbz' : book.format === 'audio' && require('./audio').isDirSync(raw.path) ? 'zip' : path.extname(raw.path).slice(1);
+  const dirAudio = book.format === 'audio' && require('./audio').isDirSync(raw.path);
+  const mime = book.format === 'folder' ? 'application/vnd.comicbook+zip' : dirAudio ? 'application/zip' : ORIGINAL_MIME[book.format] || require('./audio').AUDIO_MIME[path.extname(raw.path).toLowerCase()] || 'application/octet-stream';
   const p = book.progress;
   const metadata = {
     '@type': 'http://schema.org/Book',

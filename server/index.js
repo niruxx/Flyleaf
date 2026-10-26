@@ -142,6 +142,9 @@ require('./plugins/manager').seedBuiltins().then(() => require('./plugins/downlo
 require('./plugins/suwayomi-host').boot();
 require('./push').wire();
 require('./follows').start();
+require('./backup').startSchedule();
+// Catch up on full-text indexing a little after start-up.
+setTimeout(() => require('./fulltext').indexPending().catch(() => {}), 20_000).unref();
 if (config.scanInterval > 0) {
   setInterval(() => scanner.requestScan(null), config.scanInterval * 60_000).unref();
 }

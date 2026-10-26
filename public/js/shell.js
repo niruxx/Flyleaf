@@ -7,11 +7,19 @@ import { setTheme } from './prefs.js';
 import { isDark, themeState } from './theme.js';
 import { themeReveal } from './motion.js';
 import { offlineSupported } from './offline.js';
+import { t } from './i18n.js';
 
 let drawerData = { libraries: [], collections: [], genres: [] };
 let showAllGenres = false;
 
-export function initShell() {
+/** `again`: the language changed – redraw the shell's text without adding listeners twice. */
+export function initShell({ again = false } = {}) {
+  translateStatic();
+  if (again) {
+    buildSearch(document.querySelector('.app-search'));
+    if (session.user) refreshShell();
+    return;
+  }
   const bar = document.querySelector('.app-bar');
   bar.querySelector('.menu-toggle').addEventListener('click', () => document.body.classList.toggle('drawer-open'));
   document.querySelector('.scrim').addEventListener('click', () => document.body.classList.remove('drawer-open'));
@@ -35,6 +43,18 @@ export function initShell() {
     refreshBell();
   });
   setInterval(() => document.visibilityState === 'visible' && refreshDrawer(), 60_000);
+}
+
+/** Text that's in index.html rather than built here: the phone's bottom bar and tooltips. */
+function translateStatic() {
+  const labels = { home: t('Home'), library: t('Library'), want: t('Want to read'), bookmarks: t('Bookmarks') };
+  for (const a of document.querySelectorAll('.bottom-nav a[data-nav]')) {
+    const text = [...a.childNodes].find((n) => n.nodeType === Node.TEXT_NODE);
+    if (text && labels[a.dataset.nav]) text.textContent = labels[a.dataset.nav];
+  }
+  document.querySelector('.menu-toggle')?.setAttribute('aria-label', t('Open navigation'));
+  document.querySelector('.menu-toggle')?.setAttribute('title', t('Menu'));
+  document.querySelector('.brand')?.setAttribute('aria-label', t('Flyleaf home'));
 }
 
 let lastDrawerCheck = 0;
@@ -75,26 +95,26 @@ export async function refreshShell() {
 
 function buildEnd(end) {
   const u = session.user;
-  const toggle = iconButton(isDark() ? 'light_mode' : 'dark_mode', 'Toggle dark mode', (e) => {
+  const toggle = iconButton(isDark() ? 'light_mode' : 'dark_mode', t('Toggle dark mode'), (e) => {
     // The new theme spreads out in a circle from the button.
     themeReveal(e, () => {
       setTheme({ mode: isDark() ? 'light' : 'dark' });
       toggle.querySelector('.icon').textContent = isDark() ? 'light_mode' : 'dark_mode';
     });
   });
-  const avatar = fillAvatar(h('button.avatar', { type: 'button', title: u.displayName, 'aria-label': 'Account menu' }), u);
+  const avatar = fillAvatar(h('button.avatar', { type: 'button', title: u.displayName, 'aria-label': t('Account menu') }), u);
   avatar.addEventListener('click', () => {
     const mode = themeState().mode;
     menu(avatar, [
-      { header: `${u.displayName} · ${u.role === 'admin' ? 'Admin' : 'Guest'}` },
-      { label: 'Account settings', icon: 'manage_accounts', onClick: () => navigate('/settings/account') },
-      { label: 'Reading stats', icon: 'insights', onClick: () => navigate('/stats') },
+      { header: `${u.displayName} · ${u.role === 'admin' ? t('Admin') : t('Guest')}` },
+      { label: t('Account settings'), icon: 'manage_accounts', onClick: () => navigate('/settings/account') },
+      { label: t('Reading stats'), icon: 'insights', onClick: () => navigate('/stats') },
       '-',
-      { label: 'Light', icon: 'light_mode', checked: mode === 'light', onClick: () => setTheme({ mode: 'light' }) },
-      { label: 'Dark', icon: 'dark_mode', checked: mode === 'dark', onClick: () => setTheme({ mode: 'dark' }) },
-      { label: 'System', icon: 'contrast', checked: mode === 'system', onClick: () => setTheme({ mode: 'system' }) },
+      { label: t('Light'), icon: 'light_mode', checked: mode === 'light', onClick: () => setTheme({ mode: 'light' }) },
+      { label: t('Dark'), icon: 'dark_mode', checked: mode === 'dark', onClick: () => setTheme({ mode: 'dark' }) },
+      { label: t('System'), icon: 'contrast', checked: mode === 'system', onClick: () => setTheme({ mode: 'system' }) },
       '-',
-      { label: 'Sign out', icon: 'logout', onClick: signOut },
+      { label: t('Sign out'), icon: 'logout', onClick: signOut },
     ]);
   });
   end.replaceChildren(bellButton(), toggle, avatar);
@@ -109,7 +129,7 @@ let bellTimer = null;
 let notePanel = null;
 
 function bellButton() {
-  bell = h('button.icon-btn.state.bell', { type: 'button', title: 'Notifications', 'aria-label': 'Notifications', 'aria-haspopup': 'dialog', onclick: () => (notePanel ? closeNotes() : openNotes()) },
+  bell = h('button.icon-btn.state.bell', { type: 'button', title: t('Notifications'), 'aria-label': t('Notifications'), 'aria-haspopup': 'dialog', onclick: () => (notePanel ? closeNotes() : openNotes()) },
     icon('notifications'), h('span.bell-badge', { hidden: true }));
   return bell;
 }
@@ -134,7 +154,7 @@ function setBadge(n) {
   const was = Number(badge.textContent || 0);
   badge.hidden = !n;
   badge.textContent = n > 99 ? '99+' : String(n);
-  bell.setAttribute('aria-label', n ? `Notifications, ${n} unread` : 'Notifications');
+  bell.setAttribute('aria-label', n ? t('Notifications, {n} unread', { n }) : t('Notifications'));
   bell.querySelector('.icon').textContent = n ? 'notifications_active' : 'notifications';
   // A little ring when something new arrives.
   if (n > was) {
@@ -151,16 +171,16 @@ async function openNotes() {
   const markAll = h('button.btn.text.state', { type: 'button', onclick: async () => {
     setBadge((await api.readNotifications()).unread);
     for (const n of list.querySelectorAll('.note.unread')) n.classList.remove('unread');
-  } }, 'Mark all read');
-  const clearAll = iconButton('delete_sweep', 'Clear all', async () => {
+  } }, t('Mark all read'));
+  const clearAll = iconButton('delete_sweep', t('Clear all'), async () => {
     await api.clearNotifications();
     setBadge(0);
     draw([]);
   });
-  notePanel = h('div.note-panel', { role: 'dialog', 'aria-label': 'Notifications' },
-    h('div.note-head', h('h2.title-medium', 'Notifications'), markAll, clearAll),
+  notePanel = h('div.note-panel', { role: 'dialog', 'aria-label': t('Notifications') },
+    h('div.note-head', h('h2.title-medium', t('Notifications')), markAll, clearAll),
     list,
-    h('a.note-foot.state', { href: '#/settings/notifications', onclick: closeNotes }, icon('tune'), 'Notification settings'));
+    h('a.note-foot.state', { href: '#/settings/notifications', onclick: closeNotes }, icon('tune'), t('Notification settings')));
   document.body.append(notePanel);
   bell.classList.add('selected');
   setTimeout(() => {
@@ -181,7 +201,7 @@ async function openNotes() {
       h('div.note-text', h('div.note-title', n.title), n.body && h('div.note-body', n.body), h('div.note-time', timeAgo(n.createdAt))),
       !n.read && h('span.note-dot'));
       return el;
-    }) : [h('div.note-empty', icon('notifications_off'), h('div.title-small', 'You’re all caught up'), h('div.body-small', 'New chapters, finished downloads and other news show up here.'))]));
+    }) : [h('div.note-empty', icon('notifications_off'), h('div.title-small', t('You’re all caught up')), h('div.body-small', t('New chapters, finished downloads and other news show up here.')))]));
   }
   try {
     const r = await api.notifications(60);
@@ -219,8 +239,8 @@ export async function signOut() {
 // Search with live suggestions
 
 function buildSearch(host) {
-  const input = h('input', { type: 'search', placeholder: 'Search series, books, people…', 'aria-label': 'Search', autocomplete: 'off', enterkeyhint: 'search' });
-  const clear = iconButton('close', 'Clear search', () => {
+  const input = h('input', { type: 'search', placeholder: t('Search series, books, people…'), 'aria-label': t('Search'), autocomplete: 'off', enterkeyhint: 'search' });
+  const clear = iconButton('close', t('Clear search'), () => {
     input.value = '';
     close();
     input.focus();
@@ -264,12 +284,12 @@ function buildSearch(host) {
     items = [];
     const groups = [];
     const add = (label, rows) => rows.length && groups.push(h('div.group-label', label), ...rows);
-    add('Series', r.series.map((s) => item(cover(s, { showProgress: false }), s.name, [s.authors.join(', '), s.libraryName].filter(Boolean).join(' · '), `/series/${s.id}`)));
-    add('Books', r.books.map((b) => item(cover(b, { showProgress: false }), b.label, b.series || b.author || '', `/read/${b.id}`)));
-    add('People', r.people.map((p) => item(null, p, 'Creator', `/person/${encodeURIComponent(p)}`, 'person')));
-    add('Genres', r.genres.map((g) => item(null, g, 'Genre', `/genre/${encodeURIComponent(g)}`, 'sell')));
-    add('Collections', r.collections.map((c) => item(null, c.name, 'Collection', `/collection/${c.id}`, 'collections_bookmark')));
-    const all = item(null, `Search for “${term}”`, 'See all results', `/search?q=${encodeURIComponent(term)}`, 'search');
+    add(t('Series'), r.series.map((s) => item(cover(s, { showProgress: false }), s.name, [s.authors.join(', '), s.libraryName].filter(Boolean).join(' · '), `/series/${s.id}`)));
+    add(t('Books'), r.books.map((b) => item(cover(b, { showProgress: false }), b.label, b.series || b.author || '', `/read/${b.id}`)));
+    add(t('People'), r.people.map((p) => item(null, p, t('Creator'), `/person/${encodeURIComponent(p)}`, 'person')));
+    add(t('Genres'), r.genres.map((g) => item(null, g, t('Genre'), `/genre/${encodeURIComponent(g)}`, 'sell')));
+    add(t('Collections'), r.collections.map((c) => item(null, c.name, t('Collection'), `/collection/${c.id}`, 'collections_bookmark')));
+    const all = item(null, t('Search for “{term}”', { term }), t('See all results'), `/search?q=${encodeURIComponent(term)}`, 'search');
     if (!panel) {
       panel = h('div.search-panel', { role: 'listbox' });
       host.append(panel);
@@ -341,34 +361,34 @@ function buildDrawer() {
   const mine = d.libraries.filter((l) => l.own);
   const shared = d.libraries.filter((l) => !l.personal);
   const children = [
-    navItem('/', 'home', 'Home'),
-    navItem('/library', 'local_library', 'All series'),
-    navItem('/want-to-read', 'bookmark_heart', 'Want to read'),
-    navItem('/bookmarks', 'bookmarks', 'Bookmarks & notes'),
-    offlineSupported() && navItem('/offline', 'offline_pin', 'Saved offline'),
-    navItem('/stats', 'insights', 'Reading stats'),
-    can(session.user, 'contentFinder') && navItem('/finder', 'travel_explore', 'Content Finder'),
-    can(session.user, 'contentFinder') && navItem('/finder/downloads', 'download', 'Downloads'),
-    can(session.user, 'contentFinder') && navItem('/finder/following', 'notifications_active', 'Following'),
-    can(session.user, 'upload') && navItem('/upload', 'upload', 'Upload'),
+    navItem('/', 'home', t('Home')),
+    navItem('/library', 'local_library', t('All series')),
+    navItem('/want-to-read', 'bookmark_heart', t('Want to read')),
+    navItem('/bookmarks', 'bookmarks', t('Bookmarks & notes')),
+    offlineSupported() && navItem('/offline', 'offline_pin', t('Saved offline')),
+    navItem('/stats', 'insights', t('Reading stats')),
+    can(session.user, 'contentFinder') && navItem('/finder', 'travel_explore', t('Content Finder')),
+    can(session.user, 'contentFinder') && navItem('/finder/downloads', 'download', t('Downloads')),
+    can(session.user, 'contentFinder') && navItem('/finder/following', 'notifications_active', t('Following')),
+    can(session.user, 'upload') && navItem('/upload', 'upload', t('Upload')),
 
     // Your own libraries and the shared ones, each in its own section.
-    mine.length > 0 && h('div.section-label', 'My libraries'),
+    mine.length > 0 && h('div.section-label', t('My libraries')),
     mine.map((l) => navItem(`/library/${l.id}`, KIND_ICON[l.kind], l.name, l.seriesCount)),
-    shared.length > 0 && h('div.section-label', mine.length ? 'Shared libraries' : 'Libraries'),
+    shared.length > 0 && h('div.section-label', mine.length ? t('Shared libraries') : t('Libraries')),
     shared.map((l) => navItem(`/library/${l.id}`, KIND_ICON[l.kind], l.name, l.seriesCount)),
 
-    h('div.section-label', 'Collections', iconButton('add', 'New collection', async () => {
+    h('div.section-label', t('Collections'), iconButton('add', t('New collection'), async () => {
       const { newCollection } = await import('./components/actions.js');
       const id = await newCollection();
       if (id) navigate(`/collection/${id}`);
     })),
     d.collections.length
       ? d.collections.map((c) => navItem(`/collection/${c.id}`, c.promoted ? 'public' : 'collections_bookmark', c.name, c.count))
-      : h('a.nav-item', { href: '#/collections' }, icon('library_add'), h('span.label', 'Create a collection')),
-    d.collections.length > 0 && navItem('/collections', 'grid_view', 'All collections'),
+      : h('a.nav-item', { href: '#/collections' }, icon('library_add'), h('span.label', t('Create a collection'))),
+    d.collections.length > 0 && navItem('/collections', 'grid_view', t('All collections')),
 
-    d.genres.length && h('div.section-label', 'Genres'),
+    d.genres.length && h('div.section-label', t('Genres')),
     genres.map((g) => navItem(`/genre/${encodeURIComponent(g.name)}`, null, g.name, g.count, { style: { '--dot': `oklch(0.7 0.13 ${hue(g.name)})` } })),
     d.genres.length > GENRE_LIMIT &&
       h('button.nav-item.more-toggle', {
@@ -377,12 +397,12 @@ function buildDrawer() {
           showAllGenres = !showAllGenres;
           buildDrawer();
         },
-      }, icon(showAllGenres ? 'expand_less' : 'expand_more'), h('span.label', showAllGenres ? 'Show fewer' : `Show all ${d.genres.length} genres`)),
+      }, icon(showAllGenres ? 'expand_less' : 'expand_more'), h('span.label', showAllGenres ? t('Show fewer') : t('Show all {n} genres', { n: d.genres.length }))),
 
     h('hr'),
-    navItem('/settings', 'settings', 'Settings'),
-    isAdmin() && navItem('/settings/libraries', 'admin_panel_settings', 'Manage libraries'),
-    !isAdmin() && session.user?.homeDir && navItem('/settings/mylibs', 'folder_special', 'My libraries'),
+    navItem('/settings', 'settings', t('Settings')),
+    isAdmin() && navItem('/settings/libraries', 'admin_panel_settings', t('Manage libraries')),
+    !isAdmin() && session.user?.homeDir && navItem('/settings/mylibs', 'folder_special', t('My libraries')),
   ];
   document.querySelector('.drawer').replaceChildren(...children.flat(Infinity).filter(Boolean));
   highlight(location.hash.replace(/^#/, '') || '/');

@@ -47,6 +47,8 @@ function libraryRow(l, user) {
     coverPolicy: l.cover_policy,
     sources: json(l.sources, null) || providers.DEFAULT_SOURCES[l.kind],
     lastScanAt: l.last_scan_at,
+    // Admin only: the folder is a Calibre library (has metadata.db).
+    calibre: admin ? require('../calibre').hasCalibre(l) : undefined,
     bookCount: l.book_count,
     seriesCount: l.series_count,
   };
@@ -249,6 +251,42 @@ router.get('/genres', (req, res) => {
                   WHERE ${age.sql} AND EXISTS (SELECT 1 FROM books b WHERE b.series_id = s.id AND b.missing = 0)
                   GROUP BY lower(j.value) ORDER BY count DESC, name COLLATE NOCASE`).all(...age.args);
   res.json(rows);
+});
+
+// Full-text search inside books.
+router.get('/fulltext', (req, res) => {
+  const fulltext = require('../fulltext');
+  const term = String(req.query.q || '').trim().slice(0, 200);
+  res.json({ results: term ? fulltext.search(req.user, term, { limit: Math.min(Number(req.query.limit) || 20, 50) }) : [], status: fulltext.status() });
+});
+
+// Admin: index status, and rebuilding from scratch.
+router.get('/admin/fulltext', requireAdmin, (req, res) => res.json(require('../fulltext').status()));
+router.post('/admin/fulltext/rebuild', requireAdmin, (req, res) => {
+  const fulltext = require('../fulltext');
+  fulltext.reset();
+  fulltext.indexPending().catch(() => {});
+  res.json(fulltext.status());
+});
+
+// Admin: import a Calibre library's metadata.db (see calibre.js).
+router.post('/libraries/:id/calibre', requireAdmin, async (req, res) => {
+  const lib = q('SELECT * FROM libraries WHERE id = ?').get(Number(req.params.id));
+  if (!lib) return res.status(404).json({ error: 'Library not found.' });
+  res.json(await require('../calibre').importLibrary(lib, req.user.id));
+});
+
+// Admin: duplicate books (see duplicates.js).
+router.get('/admin/duplicates', requireAdmin, (req, res) => res.json(require('../duplicates').findGroups()));
+router.post('/admin/duplicates/ignore', requireAdmin, (req, res) => {
+  require('../duplicates').ignore(String(req.body?.key || ''));
+  res.json({ ok: true });
+});
+router.post('/admin/duplicates/merge', requireAdmin, async (req, res) => {
+  const keep = Number(req.body?.keep);
+  const remove = (Array.isArray(req.body?.remove) ? req.body.remove : []).map(Number).filter(Number.isInteger);
+  if (!keep || !remove.length) return res.status(400).json({ error: 'Pick a copy to keep and at least one to remove.' });
+  res.json(await require('../duplicates').merge(keep, remove, req.user));
 });
 
 // Global search for the top bar.

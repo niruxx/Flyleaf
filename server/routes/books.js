@@ -16,6 +16,9 @@ const events = require('../events');
 const log = require('../log').logger('books');
 const { json, likePrefix } = require('../util');
 
+/** Image folders and audiobook folders are directories, not single files. */
+const isDirBook = (b) => b.format === 'folder' || (b.format === 'audio' && require('../audio').isDirSync(b.path));
+
 const router = express.Router();
 
 const FILE_MIME = {
@@ -223,7 +226,7 @@ async function deleteBook(row, user) {
   const file = path.resolve(row.path);
   if (!file.startsWith(root + path.sep)) throw Object.assign(new Error('That file is outside its library folder.'), { status: 400, expose: true });
   try {
-    await fsp.rm(file, { recursive: row.format === 'folder', force: true });
+    await fsp.rm(file, { recursive: isDirBook(row), force: true });
   } catch (e) {
     throw Object.assign(new Error(require('../plugins/downloads').friendlyFsError(e, path.dirname(file))), { status: 500, expose: true });
   }
@@ -303,7 +306,7 @@ async function moveBook(row, target, user, { keepSeries = false } = {}) {
   const srcRoot = path.resolve(src.path);
   const file = path.resolve(row.path);
   if (!file.startsWith(srcRoot + path.sep)) throw Object.assign(new Error('That file is outside its library folder.'), { status: 400, expose: true });
-  const isDir = row.format === 'folder';
+  const isDir = isDirBook(row);
   let rel = path.relative(srcRoot, file);
   // Folder-per-series libraries need the file inside a series folder, not loose at the top.
   if (target.mode === 'komga' && !rel.includes(path.sep)) {
@@ -447,7 +450,7 @@ router.get('/books/:id/cover', (req, res) => {
 router.get('/books/:id/file', async (req, res) => {
   const book = readable(req, res);
   if (!book) return;
-  if (book.format === 'folder') return res.status(400).json({ error: 'Not a single file.' });
+  if (isDirBook(book)) return res.status(400).json({ error: 'Not a single file.' });
   let file = book.path;
   if (formats.CONVERTIBLE.has(book.format)) file = await formats.toEpub(book.path, book.format, book.title);
   res.set('Cache-Control', 'private, max-age=86400');
@@ -459,10 +462,10 @@ router.get('/books/:id/file', async (req, res) => {
 router.get('/books/:id/download', requirePermission('download', 'Downloading isn’t enabled for your account.'), async (req, res) => {
   const book = readable(req, res);
   if (!book) return;
-  if (book.format === 'folder') {
+  if (isDirBook(book)) {
     const { ZipArchive } = require('archiver');
     const zip = new ZipArchive({ store: true });
-    res.attachment(`${path.basename(book.path)}.cbz`);
+    res.attachment(`${path.basename(book.path)}.${book.format === 'audio' ? 'zip' : 'cbz'}`);
     zip.on('error', () => res.destroy());
     zip.pipe(res);
     zip.directory(book.path, false);
@@ -470,6 +473,36 @@ router.get('/books/:id/download', requirePermission('download', 'Downloading isn
     return;
   }
   res.download(book.path, path.basename(book.path), { dotfiles: 'allow' }, (err) => err && !res.headersSent && res.status(404).end());
+});
+
+// ---------------------------------------------------------------------------
+// Audiobooks: the track list (with chapters and length when the file has them), and each track
+// streamed with byte ranges so the player can seek.
+
+router.get('/books/:id/tracks', async (req, res) => {
+  const book = readable(req, res);
+  if (!book) return;
+  if (book.format !== 'audio') return res.status(400).json({ error: 'Not an audiobook.' });
+  const audio = require('../audio');
+  const tracks = await audio.tracksOf(book.path);
+  const emb = json(book.embedded, {});
+  res.json({
+    tracks: tracks.map((t, n) => ({ n, title: t.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' '), size: t.size, mime: t.mime })),
+    duration: emb.duration || null,
+    chapters: emb.chapters || null,
+  });
+});
+
+router.get('/books/:id/tracks/:n', async (req, res) => {
+  const book = readable(req, res);
+  if (!book) return;
+  if (book.format !== 'audio') return res.status(400).end();
+  const tracks = await require('../audio').tracksOf(book.path);
+  const t = tracks[Number(req.params.n)];
+  if (!t) return res.status(404).end();
+  res.set('Cache-Control', 'private, max-age=86400');
+  res.type(t.mime);
+  res.sendFile(t.file, { dotfiles: 'allow', acceptRanges: true }, (err) => err && !res.headersSent && res.status(404).end());
 });
 
 router.get('/books/:id/pages', async (req, res) => {

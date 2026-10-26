@@ -77,6 +77,13 @@ export const api = {
 
   home: () => GET('/api/home'),
   search: (q, limit) => GET(`/api/search${qs({ q, limit })}`),
+  fulltext: (q, limit) => GET(`/api/fulltext${qs({ q, limit })}`),
+  fulltextStatus: () => GET('/api/admin/fulltext'),
+  duplicates: () => GET('/api/admin/duplicates'),
+  ignoreDuplicates: (key) => POST('/api/admin/duplicates/ignore', { key }),
+  mergeDuplicates: (keep, remove) => POST('/api/admin/duplicates/merge', { keep, remove }),
+  calibreImport: (libraryId) => POST(`/api/libraries/${libraryId}/calibre`),
+  rebuildFulltext: () => POST('/api/admin/fulltext/rebuild'),
   genres: () => GET('/api/genres'),
   userTags: () => GET('/api/user-tags'),
 
@@ -126,6 +133,7 @@ export const api = {
   setCover: (id, blob) => request('PUT', `/api/books/${id}/cover`, blob),
   generatedCover: (id, blob) => request('POST', `/api/books/${id}/cover/generated`, blob),
   pages: (id) => GET(`/api/books/${id}/pages`),
+  audioTracks: (id) => GET(`/api/books/${id}/tracks`),
   setFinished: (id, finished) => POST(`/api/books/${id}/finished`, { finished }),
   saveProgress: (id, b, opts) => request('PUT', `/api/books/${id}/progress`, { day: localDay(), ...b }, opts),
 
@@ -210,6 +218,12 @@ export const api = {
   }),
   restoreBackup: (id, books, { setup = false } = {}) => POST(`${setup ? '/api/setup/restore' : '/api/admin/restore'}/${id}`, { books }),
   cancelRestore: (id) => DEL(`/api/admin/restore/${id}`),
+  backups: () => GET('/api/admin/backups'),
+  saveBackupSchedule: (b) => PUT('/api/admin/backups/schedule', b),
+  runBackup: () => POST('/api/admin/backups/run'),
+  storedBackupUrl: (name) => `/api/admin/backups/${encodeURIComponent(name)}`,
+  deleteStoredBackup: (name) => DEL(`/api/admin/backups/${encodeURIComponent(name)}`),
+  restoreStoredBackup: (name, books) => POST(`/api/admin/backups/${encodeURIComponent(name)}/restore`, { books }),
 
   adminSettings: () => GET('/api/admin/settings'),
   saveAdminSettings: (b) => PUT('/api/admin/settings', b),

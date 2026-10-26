@@ -2,7 +2,7 @@
 // books saved for offline reading (flyleaf-offline, never cleared on update). Other API calls
 // always go to the network.
 
-const VERSION = 'flyleaf-v14';
+const VERSION = 'flyleaf-v16';
 const SHELL = [
   '/',
   '/css/m3.css',
@@ -54,7 +54,7 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(req)
       .then((res) => {
-        if (res.ok && (url.pathname.startsWith('/vendor/') || SHELL.includes(url.pathname) || /\.(js|css|woff2|png|svg)$/.test(url.pathname))) {
+        if (res.ok && (url.pathname.startsWith('/vendor/') || url.pathname.startsWith('/locales/') || SHELL.includes(url.pathname) || /\.(js|css|woff2|png|svg)$/.test(url.pathname))) {
           const copy = res.clone();
           caches.open(VERSION).then((c) => c.put(req, copy));
         }
@@ -64,7 +64,30 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-const OFFLINE_RE = /^\/api\/books\/\d+\/(reader|file|cover|pages(\/\d+)?)$/;
+const OFFLINE_RE = /^\/api\/books\/\d+\/(reader|file|cover|pages(\/\d+)?|tracks(\/\d+)?)$/;
+
+/** Answer a Range request (audio seeking) from a saved whole file. */
+async function rangeFrom(saved, range) {
+  const blob = await saved.blob();
+  const m = /bytes=(\d*)-(\d*)/.exec(range);
+  let start = m && m[1] ? Number(m[1]) : 0;
+  let end = m && m[2] ? Number(m[2]) : blob.size - 1;
+  if (m && !m[1] && m[2]) {
+    start = Math.max(0, blob.size - Number(m[2]));
+    end = blob.size - 1;
+  }
+  end = Math.min(end, blob.size - 1);
+  if (start > end) return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${blob.size}` } });
+  return new Response(blob.slice(start, end + 1), {
+    status: 206,
+    headers: {
+      'Content-Type': saved.headers.get('content-type') || 'application/octet-stream',
+      'Content-Range': `bytes ${start}-${end}/${blob.size}`,
+      'Content-Length': String(end - start + 1),
+      'Accept-Ranges': 'bytes',
+    },
+  });
+}
 
 async function fromOffline(req, url) {
   // Page images are saved at full size; the data-saver width doesn't change what's offline.
@@ -83,7 +106,7 @@ async function fromOffline(req, url) {
     }
     return saved;
   }
-  if (saved && !req.headers.has('range')) return saved;
+  if (saved) return req.headers.has('range') ? rangeFrom(saved, req.headers.get('range')) : saved;
   if (kind === 'cover') {
     // Covers are immutable per ?v= – cache-first.
     const cache = await caches.open('flyleaf-covers');

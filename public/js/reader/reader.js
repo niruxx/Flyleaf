@@ -8,6 +8,7 @@ import { Tracker } from './tracker.js';
 import { readerSettingsForm } from '../components/reader-settings.js';
 import { resolveKeybinds, actionFor } from '../keybinds.js';
 import { annotationRow } from '../views/bookmarks.js';
+import { t, plural } from '../i18n.js';
 
 export async function readerView(view, params, stale) {
   const data = await api.reader(params.id);
@@ -25,8 +26,11 @@ export async function readerView(view, params, stale) {
     } catch {}
   };
   const onVis = () => document.visibilityState === 'visible' && requestWakeLock();
-  document.addEventListener('visibilitychange', onVis);
-  requestWakeLock();
+  // Listening doesn't need the screen kept on.
+  if (book.engine !== 'audio') {
+    document.addEventListener('visibilitychange', onVis);
+    requestWakeLock();
+  }
 
   onLeave(() => {
     shell.engine?.destroy?.();
@@ -38,14 +42,17 @@ export async function readerView(view, params, stale) {
   });
 
   try {
-    const mod = book.engine === 'text' ? await import('./text.js') : await import('./pages.js');
-    const Engine = mod.TextEngine || mod.PageEngine;
+    const mod = book.engine === 'text' ? await import('./text.js') : book.engine === 'audio' ? await import('./audio.js') : await import('./pages.js');
+    const Engine = mod.TextEngine || mod.AudioEngine || mod.PageEngine;
     const engine = new Engine(book, shell, tracker, data);
     if (stale()) return engine.destroy();
     shell.engine = engine;
     await engine.open(params.query.get('loc'));
     shell.refreshBookmark();
     shell.engineReady();
+    // From full-text search results: show the matches in this book.
+    const q = params.query.get('q');
+    if (q && engine.search) shell.openSearch(q);
   } catch (err) {
     console.error(err);
     shell.fail(err.message || 'This file could not be opened.');
@@ -62,18 +69,18 @@ function createShell(data, tracker) {
   let overridden = data.overridden;
 
   const titleSub = h('div.s');
-  const bookmarkBtn = iconButton('bookmark_add', 'Bookmark this page (B)', () => toggleBookmark());
-  const tocBtn = iconButton('toc', 'Contents & annotations (T)', () => openContents());
-  const settingsBtn = iconButton('tune', 'Reader settings (S)', () => openSettings());
+  const bookmarkBtn = iconButton('bookmark_add', t('Bookmark this page (B)'), () => toggleBookmark());
+  const tocBtn = iconButton('toc', t('Contents & annotations (T)'), () => openContents());
+  const settingsBtn = iconButton('tune', t('Reader settings (S)'), () => openSettings());
   const fsBtn = document.fullscreenEnabled
-    ? iconButton('fullscreen', 'Full screen (F)', () => toggleFullscreen())
+    ? iconButton('fullscreen', t('Full screen (F)'), () => toggleFullscreen())
     : null;
   // Shown once the engine says it can search (EPUB-type books, PDFs with text).
-  const searchBtn = iconButton('search', 'Search in book (/)', () => openSearch());
+  const searchBtn = iconButton('search', t('Search in book (/)'), () => openSearch());
   searchBtn.hidden = true;
 
   const top = h('div.chrome-top',
-    iconButton('arrow_back', 'Close book', () => exit()),
+    iconButton('arrow_back', t('Close book'), () => exit()),
     h('div.titles', h('div.t', book.series && book.series !== book.label ? `${book.series} · ${book.label}` : book.title), titleSub),
     searchBtn,
     bookmarkBtn,
@@ -84,8 +91,8 @@ function createShell(data, tracker) {
 
   const slider = h('input.slider', { type: 'range', min: 0, max: 100, value: 0, step: 1, 'aria-label': 'Position in book' });
   const pageNo = h('span.pageno', '');
-  const prevBtn = iconButton('chevron_left', 'Previous page', () => shell.engine?.left());
-  const nextBtn = iconButton('chevron_right', 'Next page', () => shell.engine?.right());
+  const prevBtn = iconButton('chevron_left', t('Previous page'), () => shell.engine?.left());
+  const nextBtn = iconButton('chevron_right', t('Next page'), () => shell.engine?.right());
   const prevBook = book.prev && iconButton('skip_previous', `Previous: ${book.prev.label}`, () => openBook(book.prev));
   const nextBook = book.next && iconButton('skip_next', `Next: ${book.next.label}`, () => openBook(book.next));
   const bottom = h('div.chrome-bottom',
@@ -96,7 +103,7 @@ function createShell(data, tracker) {
   const flag = h('div.bookmark-flag');
   const stage = h('div.stage');
   const loadingEl = h('div.page-loading', h('div.spinner'));
-  const root = h(`div.reader${book.engine === 'text' ? '.text' : ''}`, stage, loadingEl, mini, flag, top, bottom);
+  const root = h(`div.reader${book.engine === 'text' ? '.text' : book.engine === 'audio' ? '.audio' : ''}`, stage, loadingEl, mini, flag, top, bottom);
 
   let sliderHandlers = {};
   slider.addEventListener('input', () => {
@@ -143,7 +150,8 @@ function createShell(data, tracker) {
   // ----- settings -----
   let saveTimer;
   function openSettings() {
-    const show = book.engine === 'text' ? 'text' : 'pages';
+    // Audiobooks only have the behaviour settings.
+    const show = book.engine === 'text' ? 'text' : book.engine === 'audio' ? 'none' : 'pages';
     sheet((close) => {
       const fontsBox = h('div');
       const footer = h('div.sheet-footer',
@@ -226,11 +234,12 @@ function createShell(data, tracker) {
   // The last search stays, so reopening the sheet shows the same results.
   const found = { query: '', groups: [], done: true };
   let searchRun = 0;
-  function openSearch() {
+  /** Open the search sheet; with `initial`, search for it straight away (links from full-text search). */
+  function openSearch(initial) {
     const eng = shell.engine;
     if (!eng?.search) return;
     sheet((close) => {
-      const input = h('input.search-input', { type: 'search', placeholder: 'Search in this book', value: found.query, enterkeyhint: 'search', autocomplete: 'off', 'aria-label': 'Search in this book' });
+      const input = h('input.search-input', { type: 'search', placeholder: t('Search in this book'), value: initial || found.query, enterkeyhint: 'search', autocomplete: 'off', 'aria-label': t('Search in this book') });
       const status = h('div.search-status.body-small.muted');
       const bar = h('div.progress.search-progress', { hidden: true }, h('span', { style: { width: '0%' } }));
       const list = h('div.search-results');
@@ -239,15 +248,16 @@ function createShell(data, tracker) {
       const item = (r) => h('button.search-hit.list-item.state', { type: 'button', onclick: () => {
         close();
         eng.goTo(r.target);
-        shell.toast('Search result');
+        shell.toast(t('Search result'));
       } }, h('span.excerpt', excerptPre(r.pre), h('mark', r.match), excerptPost(r.post)));
       const group = (g) => h('div.search-group', h('div.search-chapter', g.label || 'Text'), g.items.map(item));
       const draw = () => {
         list.replaceChildren(...found.groups.map(group));
         const n = total();
-        status.textContent = !found.query ? 'Type a word or phrase and press Enter.' : found.done
-          ? (n ? `${n}${n >= 500 ? '+' : ''} ${n === 1 ? 'match' : 'matches'} in ${found.groups.length} ${book.engine === 'text' ? (found.groups.length === 1 ? 'section' : 'sections') : (found.groups.length === 1 ? 'page' : 'pages')}` : `No matches for “${found.query}”`)
-          : `Searching… ${n} so far`;
+        const where = book.engine === 'text' ? plural(found.groups.length, '{n} section', '{n} sections') : plural(found.groups.length, '{n} page', '{n} pages');
+        status.textContent = !found.query ? t('Type a word or phrase and press Enter.') : found.done
+          ? (n ? t('{matches} in {where}', { matches: plural(n, '{n} match', '{n} matches', { n: `${n}${n >= 500 ? '+' : ''}` }), where }) : t('No matches for “{query}”', { query: found.query }))
+          : t('Searching… {n} so far', { n });
       };
 
       async function run() {
@@ -285,10 +295,11 @@ function createShell(data, tracker) {
         }
       });
       draw();
-      setTimeout(() => input.focus(), 50);
+      if (initial && initial !== found.query) run();
+      else setTimeout(() => input.focus(), 50);
       return h('div.search-sheet',
         h('div.sheet-section', h('div.search-field', icon('search'), input,
-          iconButton('close', 'Clear search', () => {
+          iconButton('close', t('Clear search'), () => {
             searchRun++;
             input.value = '';
             eng.clearSearch?.();
@@ -411,6 +422,7 @@ function createShell(data, tracker) {
     engineReady() {
       searchBtn.hidden = !shell.engine?.search;
     },
+    openSearch,
     handleKey(e) {
       const eng = shell.engine;
       // "/" or Ctrl/⌘+F: search in the book (instead of the browser's find, which can't see inside it).
@@ -457,7 +469,7 @@ function createShell(data, tracker) {
         h('div.dialog-body', nextB ? h('p', `Up next in ${book.series}: ${nextB.label}`) : h('p', book.title)),
         h('div.dialog-actions',
           h('button.btn.text.state', { type: 'button', onclick: () => card.close() }, 'Stay here'),
-          h('button.btn.text.state', { type: 'button', onclick: () => { card.close(); exit(); } }, 'Close book'),
+          h('button.btn.text.state', { type: 'button', onclick: () => { card.close(); exit(); } }, t('Close book')),
           nextB && h('button.btn.filled.state', { type: 'button', onclick: () => { card.close(); openBook(nextB); } }, icon('skip_next'), 'Read next'),
         ),
       );

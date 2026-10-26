@@ -138,6 +138,10 @@ export async function seriesView(view, params, stale) {
     s.publisher && ['Publisher', s.publisher],
     ['Age rating', s.ageRatingLabel],
     ['In library', `${s.count} ${s.count === 1 ? 'item' : 'items'}`],
+    ...['volume', 'chapter'].map((kind) => {
+      const g = numberGaps(s.books.filter((b) => !b.special && (kind === 'chapter' ? b.chapter != null : b.volume != null && b.chapter == null)).map((b) => b[kind]));
+      return g && [kind === 'volume' ? 'Volumes' : 'Chapters', `${g.ranges}${g.missing.length ? ` · missing ${g.missingText}` : ''}`];
+    }),
     ['Your progress', s.readCount ? `${s.readCount} of ${s.count} read` : started ? 'Started' : 'Not started'],
     s.language && ['Language', s.language],
     s.lastRead && ['Last read', timeAgo(s.lastRead)],
@@ -236,8 +240,15 @@ export async function seriesView(view, params, stale) {
   // Grid of covers, or a detailed list with format, pages, size and progress.
   let layout = readVolLayout();
   const volumes = h('div');
+  // A note above volumes or chapters with gaps ("Missing: 5, 7–9").
+  const gapNote = (label, list) => {
+    const kind = label === 'Volumes' ? 'volume' : label === 'Chapters' ? 'chapter' : null;
+    const g = kind && numberGaps(list.map((b) => b[kind]));
+    return g?.missing.length > 0 && h('div.gap-note', icon('report'),
+      `Missing ${kind === 'volume' ? (g.missing.length === 1 ? 'volume' : 'volumes') : (g.missing.length === 1 ? 'chapter' : 'chapters')} ${g.missingText} (you have ${g.ranges})`);
+  };
   const drawVolumes = () => volumes.replaceChildren(...groups.map(([label, list]) =>
-    h('div.vol-group', !single && h('h3.title-medium', { style: { margin: '0 0 12px' } }, label),
+    h('div.vol-group', !single && h('h3.title-medium', { style: { margin: '0 0 12px' } }, label), gapNote(label, list),
       layout === 'list'
         ? stagger(h('div.vol-list', list.map((b) => volumeRow(b, s, reload))))
         : stagger(h('div.grid', list.map((b) => volumeCard(b, { series: s, onChange: reload })))))));
@@ -275,6 +286,39 @@ export async function seriesView(view, params, stale) {
     );
     more.hidden = false;
   }).catch(() => {});
+}
+
+/**
+ * Which whole numbers are missing between the lowest and highest of `nums` (half-numbers like
+ * 10.5 count as present but don't create gaps). Returns { ranges: "1–4, 6", missing: [5],
+ * missingText: "5" }, or null with fewer than two numbered items.
+ */
+export function numberGaps(nums) {
+  const have = [...new Set(nums.filter((n) => n != null && Number.isFinite(Number(n))).map(Number))].sort((a, b) => a - b);
+  if (have.length < 2) return null;
+  const whole = new Set(have.filter(Number.isInteger));
+  const lo = Math.ceil(have[0]);
+  const hi = Math.floor(have.at(-1));
+  const missing = [];
+  // Very long runs (chapter 1 to 1200) are checked too, but only the first 200 gaps are kept.
+  for (let n = lo; n <= hi && missing.length < 200; n++) if (!whole.has(n)) missing.push(n);
+  const compact = (list) => {
+    const out = [];
+    for (let i = 0; i < list.length; i++) {
+      let j = i;
+      while (j + 1 < list.length && list[j + 1] === list[j] + 1) j++;
+      out.push(j > i ? `${list[i]}–${list[j]}` : String(list[i]));
+      i = j;
+    }
+    return out;
+  };
+  const ranges = compact([...whole].sort((a, b) => a - b));
+  const missingParts = compact(missing);
+  return {
+    ranges: ranges.length > 6 ? `${ranges.slice(0, 6).join(', ')}, …` : ranges.join(', '),
+    missing,
+    missingText: missingParts.length > 8 ? `${missingParts.slice(0, 8).join(', ')} and more` : missingParts.join(', '),
+  };
 }
 
 /** Star i (1–5) for a 1–10 rating: filled, half or empty. */

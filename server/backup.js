@@ -64,10 +64,11 @@ async function create(out, { includeBooks = false } = {}) {
   try {
     const libraries = db.q('SELECT id, name, path FROM libraries ORDER BY id').all();
     const zip = new ZipArchive({ zlib: { level: 6 } });
+    // "close" (not "finish"): a backup file must be closed before it's renamed into place.
     const done = new Promise((resolve, reject) => {
       zip.on('error', reject);
+      out.on('error', reject);
       out.on('close', resolve);
-      out.on('finish', resolve);
     });
     zip.on('warning', (e) => log.warn(e.message));
     zip.pipe(out);
@@ -226,4 +227,113 @@ async function restore(file, { includeBooks = false } = {}) {
   }
 }
 
-module.exports = { create, estimate, receive, inspect, restore };
+// ---------------------------------------------------------------------------
+// Scheduled backups: kept in a folder (data/backups/auto, or another disk), the newest N kept.
+
+const SCHEDULE = 'backupSchedule';
+const SCHEDULE_DEFAULTS = { enabled: false, every: 'daily', hour: 3, keep: 7, includeBooks: false, folder: '' };
+const NAME_RE = /^flyleaf-backup-[\w-]+\.zip$/;
+let backupRunning = null;
+
+const schedule = () => ({ ...SCHEDULE_DEFAULTS, ...(require('./settings').get(SCHEDULE) || {}) });
+const backupFolder = (s = schedule()) => (s.folder ? path.resolve(s.folder) : path.join(config.dataDir, 'backups', 'auto'));
+
+function setSchedule(patch) {
+  const cur = schedule();
+  const next = {
+    enabled: patch.enabled === undefined ? cur.enabled : Boolean(patch.enabled),
+    every: ['daily', 'weekly'].includes(patch.every) ? patch.every : cur.every,
+    hour: patch.hour === undefined ? cur.hour : Math.min(23, Math.max(0, Math.round(Number(patch.hour) || 0))),
+    keep: patch.keep === undefined ? cur.keep : Math.min(100, Math.max(1, Math.round(Number(patch.keep) || 1))),
+    includeBooks: patch.includeBooks === undefined ? cur.includeBooks : Boolean(patch.includeBooks),
+    folder: patch.folder === undefined ? cur.folder : String(patch.folder || '').trim(),
+  };
+  if (next.folder) {
+    if (!path.isAbsolute(next.folder)) throw err('The backup folder must be an absolute path, e.g. /mnt/backup/flyleaf.');
+    try {
+      fs.mkdirSync(next.folder, { recursive: true });
+      fs.accessSync(next.folder, fs.constants.W_OK);
+    } catch (e) {
+      throw err(`Flyleaf can’t write to ${next.folder} (${e.code || e.message}).`);
+    }
+  }
+  require('./settings').set(SCHEDULE, next);
+  return next;
+}
+
+/** Stored backups, newest first. */
+async function listStored() {
+  const dir = backupFolder();
+  let names = [];
+  try {
+    names = (await fsp.readdir(dir)).filter((n) => NAME_RE.test(n));
+  } catch {}
+  const out = [];
+  for (const name of names) {
+    const st = await fsp.stat(path.join(dir, name)).catch(() => null);
+    if (st) out.push({ name, size: st.size, createdAt: st.mtimeMs, books: name.includes('-with-books') });
+  }
+  return out.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** A stored backup's full path, refusing anything that isn't one of ours. */
+function storedPath(name) {
+  if (!NAME_RE.test(String(name))) throw err('That isn’t a Flyleaf backup.', 404);
+  const file = path.join(backupFolder(), name);
+  if (!fs.existsSync(file)) throw err('That backup is gone.', 404);
+  return file;
+}
+
+/** Write a backup into the backup folder now, then remove the oldest beyond `keep`. */
+async function runScheduled({ manual = false } = {}) {
+  if (backupRunning) return backupRunning;
+  backupRunning = (async () => {
+    const s = schedule();
+    const dir = backupFolder(s);
+    await fsp.mkdir(dir, { recursive: true });
+    // To the second, so a manual backup right after a scheduled one doesn't replace it.
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+    const name = `flyleaf-backup-${stamp}${s.includeBooks ? '-with-books' : ''}.zip`;
+    const tmp = path.join(dir, `.${name}.part`);
+    try {
+      await create(fs.createWriteStream(tmp), { includeBooks: s.includeBooks });
+      await fsp.rename(tmp, path.join(dir, name));
+    } catch (e) {
+      await fsp.rm(tmp, { force: true });
+      require('./settings').set('backupLast', { at: Date.now(), error: e.message });
+      log.warn(`Backup failed: ${e.message}`);
+      throw e;
+    }
+    for (const old of (await listStored()).slice(s.keep)) await fsp.rm(path.join(dir, old.name), { force: true }).catch(() => {});
+    require('./settings').set('backupLast', { at: Date.now(), name, error: null });
+    log.info(`${manual ? 'Backup' : 'Scheduled backup'} saved: ${path.join(dir, name)}`);
+    return { name };
+  })().finally(() => {
+    backupRunning = null;
+  });
+  return backupRunning;
+}
+
+/** Whether a scheduled backup is due: at the chosen hour, once a day or once a week. */
+function due(now = new Date()) {
+  const s = schedule();
+  if (!s.enabled) return false;
+  const last = require('./settings').get('backupLast')?.at || 0;
+  const gap = (s.every === 'weekly' ? 7 : 1) * 86400_000;
+  // At or after the chosen hour, and not since the last slot.
+  const slot = new Date(now);
+  slot.setHours(s.hour, 0, 0, 0);
+  if (slot > now) slot.setDate(slot.getDate() - 1);
+  return now - last >= gap - 3600_000 && last < slot.getTime();
+}
+
+function startSchedule() {
+  setInterval(() => {
+    if (due()) runScheduled().catch(() => {});
+  }, 10 * 60_000).unref();
+}
+
+module.exports = {
+  create, estimate, receive, inspect, restore,
+  schedule, setSchedule, listStored, storedPath, runScheduled, startSchedule, backupFolder, isRunning: () => Boolean(backupRunning),
+};

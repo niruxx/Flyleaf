@@ -3,7 +3,7 @@
 
 import { api } from '../api.js';
 import { onLeave, isAdmin, navigate, render } from '../router.js';
-import { h, icon, iconButton, button, emptyState, menu, store, snackbar, stagger, pageBanner, confirmDialog, formDialog, field, STATUS_LABEL, USER_STATUS, skeleton } from '../ui.js';
+import { h, icon, iconButton, button, emptyState, menu, store, snackbar, stagger, pageBanner, confirmDialog, formDialog, field, STATUS_LABEL, USER_STATUS, skeleton, cover } from '../ui.js';
 import { seriesCard } from '../components/cards.js';
 import { refreshShell } from '../shell.js';
 import { scanIndicator } from './scan.js';
@@ -228,6 +228,8 @@ function browse(kind) {
 
     const results = h('div');
     const sentinel = h('div', { style: { height: '1px' } });
+    // Search: matches inside the books' text, above the series that match by name.
+    if (kind === 'search' && fixed.q) page.append(insideBooks(fixed.q));
     page.append(results, sentinel);
 
     let hasMore = false;
@@ -261,7 +263,7 @@ function browse(kind) {
       if (!state.offset && !banner.dataset.art) {
         banner.dataset.art = '1';
         banner.setArt(data.items.filter((s) => !s.blur).map((s) => s.coverUrl));
-        if (['genre', 'person', 'tag', 'search'].includes(kind) || (kind === 'library' && !params.id)) banner.setSub(data.items.length ? `${data.items.length}${data.hasMore ? '+' : ''} series` : 'Nothing yet');
+        if (['genre', 'person', 'tag', 'search'].includes(kind) || (kind === 'library' && !params.id)) banner.setSub(data.items.length ? `${data.items.length}${data.hasMore ? '+' : ''} series` : kind === 'search' ? null : 'Nothing yet');
       }
       if (!data.items.length) return results.append(noResults());
       results.append(stagger(h('div.grid', data.items.map((s) => seriesCard(s, { onChange: () => load(true) })))));
@@ -290,7 +292,7 @@ function browse(kind) {
         case 'collection':
           return emptyState('collections_bookmark', 'This collection is empty', 'Add series from their ⋮ menu → “Add to category”.');
         case 'search':
-          return emptyState('search_off', 'No results', 'Try another title, author or genre.');
+          return emptyState('search_off', 'No series match', 'Try another title, author or genre.');
         default:
           return emptyState('folder_open', 'Nothing here yet', isAdmin() ? 'Files are picked up when the library is scanned.' : 'Check back later.');
       }
@@ -298,6 +300,47 @@ function browse(kind) {
 
     await load();
   };
+}
+
+/** A snippet from the server, with \u0001…\u0002 around the matches, as text and <mark>s. */
+function snippetEl(s) {
+  const out = h('span.ft-snippet');
+  for (const [i, part] of String(s).split(/\u0001|\u0002/).entries()) out.append(i % 2 ? h('mark', part) : part);
+  return out;
+}
+
+/** “Inside books”: full-text matches for a search, each opening the book at that spot. */
+function insideBooks(term) {
+  const section = h('section.section.ft-results', { hidden: true });
+  api.fulltext(term, 20).then(({ results, status }) => {
+    if (!section.isConnected) return;
+    const note = status.pending > 0 ? h('p.body-small.muted', `Still indexing ${status.pending} ${status.pending === 1 ? 'book' : 'books'} – more matches may turn up.`) : null;
+    if (!results.length) {
+      if (note) {
+        section.append(note);
+        section.hidden = false;
+      }
+      return;
+    }
+    // The series search may have come up empty; say so less bluntly when the text matched.
+    section.classList.add('has-results');
+    const total = results.reduce((a, r) => a + r.total, 0);
+    section.append(...[
+      h('div.section-head', h('h2.with-icon', h('span.sec-icon', icon('manage_search')), 'Inside books', h('span.sec-count', `${total}${total >= 600 ? '+' : ''}`))),
+      note,
+      stagger(h('div.ft-list', results.map(({ book, hits, total: n }) => {
+        const open = (hit) => `#/read/${book.id}?loc=${encodeURIComponent(hit.section)}&q=${encodeURIComponent(term)}`;
+        return h('div.ft-book',
+          h('a.ft-cover', { href: open(hits[0]) }, cover(book, { showProgress: false })),
+          h('div.ft-body',
+            h('a.ft-title.title-small', { href: open(hits[0]) }, book.series && book.series !== book.title ? `${book.series} · ${book.label || book.title}` : book.title),
+            h('div.body-small.muted', `${n} ${n === 1 ? 'match' : 'matches'}${book.author ? ` · ${book.author}` : ''}`),
+            hits.map((hit) => h('a.ft-hit.state', { href: open(hit) }, h('span.ft-where', hit.label), snippetEl(hit.snippet)))));
+      }))),
+    ].filter(Boolean));
+    section.hidden = false;
+  }).catch(() => {});
+  return section;
 }
 
 export const libraryView = browse('library');

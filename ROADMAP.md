@@ -41,11 +41,11 @@ for metadata, so the series IDs are already there.
 - ⬜ **Kobo sync** (Komga, Kavita and Calibre-Web have it): the Kobo store API that lets a Kobo
   e-reader sync a shelf and reading progress straight from the server
 
-### Search inside a book (1 of 2 done)
+### ✅ Search inside a book (2 of 2 done)
 - ✅ Search in the reader (`/` or Ctrl+F) for EPUB, MOBI/AZW3, FB2, TXT/DOCX/RTF and text PDFs,
   with matches in context, grouped by chapter or page, and jump-to
-- ⬜ Library-wide full-text search with SQLite FTS5 (Calibre-Web and Kavita do metadata
-  search; full text would set Flyleaf apart)
+- ✅ Library-wide full-text search with SQLite FTS5: *Inside books* on the search page, with
+  snippets; a result opens the book at that chapter with the matches shown
 
 ---
 
@@ -70,21 +70,23 @@ for metadata, so the series IDs are already there.
 
 ---
 
-## 🗂️ Library & organisation (0 of 8 done)
+## 🗂️ Library & organisation (4 of 8 done)
 
 - ⬜ **Smart filters / saved searches**: save a filter (genre + status + unread, …) as a shelf
   on Home or in the drawer (Kavita's Smart Filters, Komga's saved filters)
 - ⬜ **Reading lists across series**: import **ComicRack `.cbl`** files for comic events in
   reading order (Kavita, Komga)
-- ⬜ **Duplicate detection**: the same book in two formats or two libraries, with a merge or
-  delete option
-- ⬜ **Missing volumes or chapters**: show gaps in a series ("Volumes 1–4, 6 · 5 is missing")
+- ✅ **Duplicate detection**: identical files, the same book in two formats or libraries, and the
+  same volume or chapter twice; keep one copy and merge everyone's reading data into it
+- ✅ **Missing volumes or chapters**: gaps shown on the series page ("Volumes 1–4, 6 · missing 5")
 - ⬜ **Bulk edit**: select many series and set genres, tags, age rating or collection in one go
 - ⬜ **Watch folders for changes** instead of rescanning every `SCAN_INTERVAL_MINUTES`, so new
   files show up within seconds
-- ⬜ **Calibre library import**: read `metadata.db` to bring over series, tags, ratings and covers
-- ⬜ **Audiobooks** (M4B / MP3 folders) with a player and synced progress, the way Audiobookshelf
-  does it, or at least pair an audiobook with its ebook
+- ✅ **Calibre library import**: `metadata.db` brings over titles, series, tags, descriptions,
+  identifiers, covers and ratings, again whenever it changes
+- ✅ **Audiobooks** (M4B / M4A / MP3 / OGG / OPUS / FLAC, a folder of tracks = one book) with a
+  player (chapters, speed, sleep timer, lock-screen controls), synced progress and offline
+  listening; an audiobook with the same title and author joins its ebook's series
 
 ---
 
@@ -109,7 +111,7 @@ for metadata, so the series IDs are already there.
 
 ---
 
-## 🛠️ Platform (5 of 8 done)
+## 🛠️ Platform (7 of 9 done)
 
 - ✅ **Docker image** and `docker-compose.yml` (the built-in Mihon runtime runs inside the container)
 - ✅ **OPDS 2.0** (JSON) feeds at `/api/opds/<key>/v2`, next to OPDS 1.2
@@ -117,6 +119,10 @@ for metadata, so the series IDs are already there.
   and uploads
 - ✅ **Backup and restore from the UI**: database only, or database and books, also on the setup page
 - ✅ **Health and metrics endpoints** (`/api/health`, Prometheus at `/api/metrics`)
-- ⬜ **Translations (i18n)**: move the UI strings into message files so the community can translate them
+- ✅ **Translations (i18n)**: message files in `public/locales`, a language setting, `npm run i18n`
+  to extract strings, a [translator's guide](docs/translating.md) and a Spanish translation
+- ✅ **Scheduled backups**: daily or weekly, keeping the newest N, optionally on another disk;
+  stored backups can be downloaded, restored or deleted from the UI
+- ⬜ **Translate the rest of the interface**: the main screens (navigation, Home, sign-in,
+  settings navigation, reader controls) use `t()`; the other views still need wrapping
 - ⬜ **Publish the Docker image** to a registry (GitHub Container Registry) from CI, for `docker pull`
-- ⬜ **Scheduled backups**: keep the last N backups automatically, optionally on another disk

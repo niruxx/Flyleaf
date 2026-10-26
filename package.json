@@ -12,7 +12,8 @@
     "start": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env server/index.js",
     "dev": "node --watch --disable-warning=ExperimentalWarning --env-file-if-exists=.env server/index.js",
     "icons": "node scripts/make-icons.js",
-    "reset-password": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env scripts/reset-password.js"
+    "reset-password": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env scripts/reset-password.js",
+    "i18n": "node scripts/i18n.js"
   },
   "license": "MIT",
   "dependencies": {

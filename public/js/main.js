@@ -16,6 +16,7 @@ import { readerView } from './reader/reader.js';
 import { offlineView } from './views/offline.js';
 import { lastUser, rememberUser, flushProgress, savedBooks } from './offline.js';
 import { snackbar } from './ui.js';
+import { t, initLanguage, setLanguage, currentLanguage } from './i18n.js';
 
 route('/setup', setupView, { bare: true, auth: false });
 route('/login', loginView, { bare: true, auth: false });
@@ -42,6 +43,7 @@ route('/finder/following', (...a) => import('./views/finder.js').then((m) => m.f
 route('/offline', offlineView);
 route('/settings/:tab?', settingsView);
 route('/admin/users/:id/files', (...a) => import('./views/settings-admin.js').then((m) => m.userFilesView(...a)));
+route('/admin/duplicates', (...a) => import('./views/settings-admin.js').then((m) => m.duplicatesView(...a)));
 route('/read/:id', readerView, { bare: true });
 // Old links from v1.
 route('/book/:id', async (view, params) => {
@@ -56,6 +58,8 @@ setUnauthorizedHandler(() => {
 
 async function boot() {
   syncThemeColor();
+  // The language: your setting (remembered from last time), else the browser's.
+  await initLanguage(lastUser()?.prefs?.language || null);
   initShell();
   initMotion();
   let status;
@@ -79,6 +83,12 @@ async function boot() {
   session.user = status.user;
   rememberUser(status.user);
   flushProgress();
+  // Signed in on another device with a different language setting.
+  const wanted = status.user?.prefs?.language;
+  if (wanted && wanted !== currentLanguage()) {
+    await setLanguage(wanted);
+    initShell({ again: true });
+  }
   const hash = location.hash.replace(/^#/, '');
   if (status.needsSetup) {
     history.replaceState(null, '', '#/setup');
@@ -100,15 +110,15 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
 addEventListener('offline', () => {
   document.body.classList.add('is-offline');
   if (!session.user) return;
-  snackbar(savedBooks().length ? 'You’re offline. Books saved on this device still open.' : 'You’re offline.', {
-    action: savedBooks().length ? 'Saved books' : undefined,
+  snackbar(savedBooks().length ? t('You’re offline. Books saved on this device still open.') : t('You’re offline.'), {
+    action: savedBooks().length ? t('Saved books') : undefined,
     onAction: () => navigate('/offline'),
     duration: 6000,
   });
 });
 addEventListener('online', () => {
   document.body.classList.remove('is-offline');
-  if (session.user) snackbar('Back online');
+  if (session.user) snackbar(t('Back online'));
 });
 
 boot();

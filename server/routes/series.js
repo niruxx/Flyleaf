@@ -485,7 +485,7 @@ router.get('/series/:id/download', requirePermission('download', 'Downloading is
   zip.on('error', () => res.destroy());
   zip.pipe(res);
   for (const b of books) {
-    if (b.format === 'folder') zip.directory(b.path, path.basename(b.path));
+    if (b.format === 'folder' || (b.format === 'audio' && require('../audio').isDirSync(b.path))) zip.directory(b.path, path.basename(b.path));
     else zip.file(b.path, { name: path.basename(b.path) });
   }
   await zip.finalize();

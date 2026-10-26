@@ -417,6 +417,23 @@ const migrations = [
   );
   CREATE INDEX notifications_user ON notifications(user_id, created_at DESC);
   `,
+
+  // v8: full-text search of book contents.
+  `
+  -- One row per chapter (EPUB-type books) or page (PDFs). section: an href or page index to open at.
+  CREATE VIRTUAL TABLE book_text USING fts5(
+    text, book_id UNINDEXED, section UNINDEXED, label UNINDEXED,
+    tokenize = 'unicode61 remove_diacritics 2'
+  );
+  CREATE TABLE book_text_state (
+    book_id     INTEGER PRIMARY KEY REFERENCES books(id) ON DELETE CASCADE,
+    mtime       INTEGER,                               -- the file's mtime when indexed
+    sections    INTEGER NOT NULL DEFAULT 0,
+    chars       INTEGER NOT NULL DEFAULT 0,
+    error       TEXT,
+    indexed_at  INTEGER NOT NULL
+  );
+  `,
 ];
 
 function migrate() {

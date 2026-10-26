@@ -39,10 +39,13 @@ export const onSavedChange = (fn) => (listeners.add(fn), () => listeners.delete(
 const changed = () => listeners.forEach((fn) => fn());
 
 /** The URLs a book needs (pages are stored without the data-saver width). */
-function urlsFor(book, pageCount) {
+function urlsFor(book, pageCount, trackCount = 0) {
   const urls = [`/api/books/${book.id}/reader`];
   if (book.coverUrl) urls.push(book.coverUrl);
-  if (book.engine === 'pages' && book.format !== 'pdf') {
+  if (book.engine === 'audio') {
+    urls.push(`/api/books/${book.id}/tracks`);
+    for (let i = 0; i < trackCount; i++) urls.push(`/api/books/${book.id}/tracks/${i}?v=${book.version}`);
+  } else if (book.engine === 'pages' && book.format !== 'pdf') {
     urls.push(`/api/books/${book.id}/pages`);
     for (let i = 0; i < pageCount; i++) urls.push(pageUrl(book, i));
   } else {
@@ -56,6 +59,7 @@ function urlsFor(book, pageCount) {
 const ENGINE_FILES = {
   text: ['/js/reader/text.js', ...['view', 'epub', 'epubcfi', 'paginator', 'overlayer', 'progress', 'text-walker', 'search', 'fixed-layout', 'mobi', 'fb2', 'footnotes', 'vendor/zip', 'vendor/fflate'].map((f) => `/vendor/foliate/${f}.js`)],
   pages: ['/js/reader/pages.js'],
+  audio: ['/js/reader/audio.js'],
   pdf: ['/js/reader/pages.js', '/vendor/pdfjs/pdf.min.mjs', '/vendor/pdfjs/pdf.worker.min.mjs'],
 };
 const warmEngine = (book) =>
@@ -76,8 +80,10 @@ export function saveBook(bookId, { onProgress } = {}) {
     const data = await api.reader(bookId);
     const { book } = data;
     let pageCount = 0;
+    let trackCount = 0;
     if (book.engine === 'pages' && book.format !== 'pdf') pageCount = (await api.pages(bookId)).count;
-    const urls = urlsFor(book, pageCount);
+    if (book.engine === 'audio') trackCount = (await api.audioTracks(bookId)).tracks.length;
+    const urls = urlsFor(book, pageCount, trackCount);
     warmEngine(book);
     const cache = await caches.open(CACHE);
     let done = 0;
