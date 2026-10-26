@@ -31,7 +31,7 @@
     "material-symbols": "^0.48.0",
     "node-html-parser": "^9.0.4",
     "node-unrar-js": "^2.0.2",
-    "nodemailer": "^10.0.16",
+    "nodemailer": "^10.1.4",
     "pdfjs-dist": "^6.4.299",
     "tar": "^7.5.22",
     "wasmoon": "^1.16.0",
