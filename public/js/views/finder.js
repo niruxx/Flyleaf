@@ -194,11 +194,12 @@ export async function finderView(view, params, stale) {
         results.append(grid);
       }
       grid.append(...r.items.map((it) => tile(src, it)));
-      more.replaceChildren(r.hasMore ? button('Load more', { variant: 'tonal', icon: 'expand_more', onclick: (e) => {
+      // No more pages: leave it empty (replaceChildren would print a null as the text "null").
+      more.replaceChildren(...(r.hasMore ? [button('Load more', { variant: 'tonal', icon: 'expand_more', onclick: (e) => {
         e.currentTarget.disabled = true;
         pageNo++;
         run(false);
-      } }) : null);
+      } })] : []));
     } catch (e) {
       if (my !== token) return;
       results.replaceChildren(emptyState('cloud_off', `${src.name} didn’t respond`, e.message, button('Try again', { variant: 'tonal', icon: 'refresh', onclick: () => run(true) })));
