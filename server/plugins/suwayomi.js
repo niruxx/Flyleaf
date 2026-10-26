@@ -149,12 +149,11 @@ async function setRepos(list) {
 /** All extensions from the configured repositories (refreshed from the repos each time). */
 async function extensions() {
   const { base } = connection();
-  const showNsfw = Boolean(json(q('SELECT settings FROM plugins WHERE id = ?').get(PLUGIN_ID)?.settings, {}).nsfw);
+  // Every extension, 18+ ones included – the dialog lets the admin hide them.
   const fields = 'pkgName name versionName lang isNsfw isInstalled hasUpdate isObsolete iconUrl repo';
   // fetchExtensions re-reads the repositories; the plain list is cached by Suwayomi.
   const data = await graphql(`mutation { fetchExtensions(input: {}) { extensions { ${fields} } } }`);
   return (data.fetchExtensions?.extensions || [])
-    .filter((e) => showNsfw || !e.isNsfw || e.isInstalled)
     .map((e) => ({
       pkgName: e.pkgName,
       name: e.name?.replace(/^Tachiyomi:\s*/, '') || e.pkgName,

@@ -440,11 +440,33 @@ async function renderMihon(body) {
   const list = h('div.settings-group.ext-list', loading());
   let all = [];
 
+  // 18+ extensions are listed unless you choose to hide them (remembered on this device).
+  let showNsfw = true;
+  try {
+    showNsfw = localStorage.getItem('flyleaf.mihonNsfw') !== 'hide';
+  } catch {}
+  const nsfwToggle = h('label.check', h('input', { type: 'checkbox', checked: showNsfw, onchange: (e) => {
+    showNsfw = e.target.checked;
+    try {
+      localStorage.setItem('flyleaf.mihonNsfw', showNsfw ? 'show' : 'hide');
+    } catch {}
+    limit = 300;
+    draw();
+  } }), 'Show 18+ extensions');
+  let limit = 300;
   let shown = [];
   function draw() {
     const term = filter.value.trim().toLowerCase();
-    shown = all.filter((e) => (!term || e.name.toLowerCase().includes(term) || e.pkgName.includes(term)) && (!lang.value || e.lang === lang.value));
-    list.replaceChildren(...(shown.length ? shown.slice(0, 300).map(extRow) : [h('div.setting-row', icon('search_off'), h('div.text', 'No extensions match.'))]));
+    shown = all.filter((e) => (showNsfw || !e.nsfw || e.installed) && (!term || e.name.toLowerCase().includes(term) || e.pkgName.includes(term)) && (!lang.value || e.lang === lang.value));
+    const hiddenNsfw = showNsfw ? 0 : all.filter((e) => e.nsfw && !e.installed).length;
+    const rows = shown.length ? shown.slice(0, limit).map(extRow) : [h('div.setting-row', icon('search_off'), h('div.text', 'No extensions match.'))];
+    if (shown.length > limit) {
+      rows.push(h('div.setting-row', h('div.text', h('div.s', `Showing ${limit.toLocaleString()} of ${shown.length.toLocaleString()}`)),
+        button('Show more', { variant: 'text', onclick: () => { limit += 300; draw(); } }),
+        button('Show all', { variant: 'text', onclick: () => { limit = Infinity; draw(); } })));
+    }
+    if (hiddenNsfw) rows.push(h('div.setting-row', icon('visibility_off'), h('div.text', h('div.s', `${hiddenNsfw.toLocaleString()} 18+ ${hiddenNsfw === 1 ? 'extension is' : 'extensions are'} hidden – tick “Show 18+ extensions” to list them.`))));
+    list.replaceChildren(...rows);
     if (!bulkState?.running) drawBulk();
   }
 
@@ -586,6 +608,7 @@ async function renderMihon(body) {
       button('Install APK', { variant: 'tonal', icon: 'install_mobile', onclick: () => pickApks(loadExtensions) })),
     h('p.body-small.muted', { style: { margin: '-4px 0 8px' } }, 'Have an extension that’s no longer in any repository, like an old Tachiyomi one? Install its .apk file.'),
     h('div.ext-filters', filter, lang),
+    nsfwToggle,
     bulkBar,
     list,
     h('p.body-small.muted', { style: { marginTop: '12px' } }, 'Only use extensions for sources you’re allowed to download from.'),
