@@ -473,12 +473,12 @@ async function fontsPanel(panel, stale) {
     if (f.css && !document.querySelector(`link[href="${f.css}"]`)) document.head.append(h('link', { rel: 'stylesheet', href: f.css }));
     if (f.url && !document.getElementById(`ff-${f.id}`)) document.head.append(h('style', { id: `ff-${f.id}` }, `@font-face{font-family:"${f.family}";src:url("${f.url}")}`));
   }
-  const rows = fonts.map((f) =>
-    row(null, f.name, null,
+  const fontRow = (f) =>
+    row(null, f.name, f.custom ? (f.own ? t('Yours') : t('Shared by the admin')) : null,
       h('div', { style: { display: 'flex', alignItems: 'center', gap: '12px' } },
         h('span.muted', { style: { fontFamily: f.family || 'inherit', fontSize: '17px', whiteSpace: 'nowrap' } }, 'Aa Bb Cc 123'),
-        f.custom && isAdmin() && iconButton('delete', `Delete ${f.name}`, async () => {
-          if (!(await confirmDialog({ title: `Delete ${f.name}?`, message: 'Readers using it will fall back to the publisher font.', confirm: 'Delete', danger: true }))) return;
+        f.canDelete && iconButton('delete', `Delete ${f.name}`, async () => {
+          if (!(await confirmDialog({ title: `Delete ${f.name}?`, message: f.shared ? 'Everyone using it will fall back to the publisher font.' : 'Books using it will fall back to the publisher font.', confirm: 'Delete', danger: true }))) return;
           await api.deleteFont(f.id.replace('custom-', ''));
           navigate('/settings/fonts', { replace: true });
         }),
@@ -489,24 +489,54 @@ async function fontsPanel(panel, stale) {
           setPref('enabledFonts', enabled);
         }, `Use ${f.name}`),
       ),
-    ),
-  );
-  const upload = isAdmin() && button('Upload font', { variant: 'tonal', icon: 'upload', onclick: () => {
-    const input = h('input', { type: 'file', accept: '.woff2,.woff,.ttf,.otf' });
+    );
+  const upload = button(t('Upload a font'), { variant: 'tonal', icon: 'upload', onclick: () => {
+    const input = h('input', { type: 'file', accept: '.woff2,.woff,.ttf,.otf', multiple: true });
     input.addEventListener('change', async () => {
-      const file = input.files[0];
-      if (!file) return;
-      const name = field('Font name', { value: file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' '), required: true });
-      await formDialog({ title: 'Add font', fields: [name], submit: 'Upload', onSubmit: () => api.uploadFont(name.input.value, file) });
+      const files = [...input.files];
+      if (!files.length) return;
+      const nice = (file) => file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
+      const name = files.length === 1 && field('Font name', { value: nice(files[0]), required: true });
+      const share = h('input', { type: 'checkbox', checked: true });
+      await formDialog({
+        title: files.length === 1 ? 'Add font' : `Add ${files.length} fonts`,
+        icon: 'font_download',
+        fields: [
+          name || h('p.body-medium', files.map(nice).join(', ')),
+          isAdmin() && h('label.check', share, 'Share with everyone (otherwise only you see it)'),
+        ],
+        submit: 'Upload',
+        onSubmit: async () => {
+          for (const file of files) {
+            const r = await api.uploadFont(name ? name.input.value : nice(file), file, { private: isAdmin() ? !share.checked : true });
+            // With a hand-picked font list, a new font would otherwise stay hidden from the reader.
+            if (enabled) {
+              enabled = [...enabled, `custom-${r.id}`];
+              setPref('enabledFonts', enabled);
+            }
+          }
+        },
+      });
       navigate('/settings/fonts', { replace: true });
     });
     input.click();
   } });
-  panel.append(
+  const bundled = fonts.filter((f) => !f.custom);
+  const mine = fonts.filter((f) => f.custom && f.own);
+  const shared = fonts.filter((f) => f.custom && !f.own);
+  panel.append(...[
     h('p.note', { style: { margin: '-8px 4px 16px' } }, 'Choose which fonts appear in the ebook reader’s font menu.'),
-    group(...rows),
-    upload ? h('div', { style: { marginTop: '16px' } }, upload, h('p.note', 'Admins can add .woff2, .woff, .ttf or .otf fonts for everyone.')) : '',
-  );
+    mine.length > 0 && h('div.sub-head', t('Your fonts')),
+    mine.length > 0 && group(...mine.map(fontRow)),
+    shared.length > 0 && h('div.sub-head', t('Shared fonts')),
+    shared.length > 0 && group(...shared.map(fontRow)),
+    h('div.sub-head', t('Bundled fonts')),
+    group(...bundled.map(fontRow)),
+    h('div', { style: { marginTop: '16px' } }, upload,
+      h('p.note', isAdmin()
+        ? 'Add .woff2, .woff, .ttf or .otf fonts – for everyone, or just for you.'
+        : 'Add your own .woff2, .woff, .ttf or .otf fonts. Only you see them.')),
+  ].filter(Boolean));
 }
 
 // ---------------------------------------------------------------------------

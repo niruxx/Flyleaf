@@ -74,6 +74,8 @@ api.use(require('./routes/books').router);
 api.use(require('./routes/reading').router);
 api.use(require('./routes/personal').router);
 api.use(require('./routes/lists').router);
+api.use(require('./routes/export').router);
+api.use(require('./routes/lookup').router);
 api.use(require('./routes/notifications').router);
 
 api.use((req, res) => res.status(404).json({ error: 'Not found.' }));

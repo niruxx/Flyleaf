@@ -3,6 +3,51 @@
 import { api, pageUrl } from '../api.js';
 import { h, icon, iconButton, button, menu, store, cover, loading, emptyState, stagger, pageHeader, timeAgo, segmented, snackbar, confirmDialog, formDialog, field } from '../ui.js';
 
+const EXPORTS = [
+  { format: 'markdown', label: 'Markdown (.md)', icon: 'description' },
+  { format: 'obsidian', label: 'Obsidian vault (one note per book)', icon: 'hub' },
+  { format: 'csv', label: 'Spreadsheet (.csv)', icon: 'table_view' },
+  { format: 'readwise', label: 'Readwise import file (.csv)', icon: 'upload_file' },
+];
+
+function saveFile(url) {
+  const a = h('a', { href: url, download: '' });
+  document.body.append(a);
+  a.click();
+  a.remove();
+}
+
+/** Send highlights to Readwise with the reader's own access token (remembered on this device). */
+async function sendToReadwise(bookId) {
+  let saved = '';
+  try {
+    saved = localStorage.getItem('flyleaf.readwiseToken') || '';
+  } catch {}
+  const token = field('Readwise access token', { value: saved, required: true, autocomplete: 'off', support: 'Get it at readwise.io/access_token. It’s kept on this device only. Highlights Readwise already has are skipped.' });
+  await formDialog({
+    title: 'Send to Readwise',
+    icon: 'send',
+    fields: [token],
+    submit: 'Send',
+    onSubmit: async () => {
+      const r = await api.sendToReadwise(token.input.value.trim(), bookId);
+      try {
+        localStorage.setItem('flyleaf.readwiseToken', token.input.value.trim());
+      } catch {}
+      snackbar(`Sent ${r.sent} ${r.sent === 1 ? 'highlight' : 'highlights'} from ${r.books} ${r.books === 1 ? 'book' : 'books'} to Readwise`, { duration: 5000 });
+    },
+  });
+}
+
+/** The export menu: every book, or one (bookId). */
+export function exportMenu(anchor, bookId) {
+  menu(anchor, [
+    ...EXPORTS.map((e) => ({ label: e.label, icon: e.icon, onClick: () => saveFile(api.annotationsExportUrl(e.format, bookId)) })),
+    '-',
+    { label: 'Send to Readwise…', icon: 'send', onClick: () => sendToReadwise(bookId) },
+  ]);
+}
+
 export const HIGHLIGHT_COLORS = {
   yellow: '#f5d34f',
   green: '#7ad38a',
@@ -42,7 +87,11 @@ export async function bookmarksView(view, params, stale) {
     },
   }))));
   page.append(
-    pageHeader('Bookmarks & notes'),
+    pageHeader('Bookmarks & notes', (() => {
+      const b = button('Export', { variant: 'tonal', icon: 'ios_share' });
+      b.addEventListener('click', () => exportMenu(b));
+      return b;
+    })()),
     h('div.toolbar.enter', { style: { marginBottom: '16px' } }, segmented([
       { value: '', label: 'All', icon: 'select_all' },
       { value: 'bookmark', label: 'Bookmarks', icon: 'bookmark' },
@@ -86,7 +135,15 @@ export async function bookmarksView(view, params, stale) {
         h('section', { style: { marginBottom: '28px' } },
           h('a', { href: `#/series/${book.seriesId}`, style: { display: 'flex', alignItems: 'center', gap: '12px', textDecoration: 'none', color: 'inherit', marginBottom: '10px' } },
             h('div', { style: { width: '36px' } }, cover(book, { showProgress: false })),
-            h('div', h('div.title-medium', book.series || book.title), book.series && book.series !== book.title && h('div.body-small.muted', book.title))),
+            h('div', { style: { flex: '1', minWidth: '0' } }, h('div.title-medium', book.series || book.title), book.series && book.series !== book.title && h('div.body-small.muted', book.title)),
+            (() => {
+              const b = iconButton('ios_share', 'Export this book’s notes', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                exportMenu(b, book.id);
+              });
+              return b;
+            })()),
           items.map((a) => annotationRow(a, book, load)),
         ),
       ))),

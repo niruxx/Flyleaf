@@ -707,3 +707,232 @@
 .chapter-end .ce-cover.loaded .ce-cover-label {
   display: none;
 }
+
+/* Footnote pop-up (ebooks) */
+.reader .fn-pop {
+  position: absolute;
+  z-index: 30;
+  max-height: min(48vh, 420px);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--shape-lg);
+  background: color-mix(in srgb, var(--fn-bg, var(--md-surface-container-high)) 96%, var(--fn-fg, #888) 4%);
+  color: var(--fn-fg, var(--md-on-surface));
+  border: 1px solid color-mix(in srgb, var(--fn-fg, #888) 18%, transparent);
+  box-shadow: 0 16px 44px rgb(0 0 0 / 0.32);
+  animation: fn-in 180ms var(--ease-emphasized-decel) both;
+}
+.reader .fn-pop.sheet-like {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 55vh;
+  border-radius: var(--shape-xl) var(--shape-xl) 0 0;
+  padding-bottom: var(--safe-bottom);
+  animation-name: fn-up;
+}
+.reader .fn-pop.leaving {
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 150ms, transform 150ms;
+}
+@keyframes fn-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+}
+@keyframes fn-up {
+  from { transform: translateY(100%); }
+}
+.reader .fn-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 6px 0 16px;
+}
+.reader .fn-kind {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.reader .fn-kind .icon {
+  font-size: 16px;
+}
+.reader .fn-pop .fn-go {
+  height: 32px;
+  padding: 0 12px;
+  color: var(--fn-link, var(--md-primary));
+}
+.reader .fn-pop .icon-btn {
+  color: inherit;
+}
+.reader .fn-body {
+  overflow: auto;
+  padding: 4px 18px 16px;
+  font-family: Georgia, 'Iowan Old Style', serif;
+  font-size: 16px;
+  line-height: 1.55;
+  overscroll-behavior: contain;
+}
+.reader .fn-body p {
+  margin: 0 0 0.6em;
+}
+.reader .fn-body > :last-child,
+.reader .fn-body > * > :last-child {
+  margin-bottom: 0;
+}
+.reader .fn-body ol,
+.reader .fn-body ul {
+  margin: 0;
+  padding-left: 1.4em;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reader .fn-pop {
+    animation: none;
+  }
+}
+
+/* Look-up pop-up (define / Wikipedia / translate) – uses .fn-pop for its frame */
+.reader .lk-pop {
+  max-height: min(60vh, 520px);
+  background: var(--md-surface-container-high);
+  color: var(--md-on-surface);
+  border-color: var(--md-outline-variant);
+}
+.reader .lk-pop .fn-head {
+  padding: 10px 8px 6px 12px;
+}
+.reader .lk-pop .segmented.compact button {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+.reader .lk-body {
+  overflow: auto;
+  padding: 6px 18px 16px;
+  font-size: 14.5px;
+  line-height: 1.5;
+  overscroll-behavior: contain;
+}
+.reader .lk-loading {
+  display: grid;
+  place-items: center;
+  padding: 18px 0;
+}
+.reader .lk-loading .spinner {
+  margin: 0;
+  width: 28px;
+  height: 28px;
+}
+.reader .lk-word {
+  font-family: Georgia, 'Iowan Old Style', serif;
+  font-size: 22px;
+  font-weight: 600;
+  margin: 2px 0 2px;
+}
+.reader .lk-pos {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--md-primary);
+  margin: 10px 0 2px;
+}
+.reader .lk-entry ol {
+  margin: 4px 0 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 4px;
+}
+.reader .lk-example {
+  font-style: italic;
+  color: var(--md-on-surface-variant);
+  font-size: 13.5px;
+  margin-top: 2px;
+}
+.reader .lk-thumb {
+  float: right;
+  width: 92px;
+  height: 92px;
+  object-fit: cover;
+  border-radius: var(--shape-md);
+  margin: 4px 0 8px 12px;
+}
+.reader .lk-extract {
+  margin: 8px 0;
+}
+.reader .lk-source {
+  margin: 8px 0 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--md-outline-variant);
+  color: var(--md-on-surface-variant);
+  font-style: italic;
+}
+.reader .lk-translation .lk-extract {
+  font-size: 17px;
+  font-family: Georgia, 'Iowan Old Style', serif;
+}
+.reader .lk-langs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--md-on-surface-variant);
+}
+.reader .lk-langs .icon {
+  font-size: 16px;
+}
+.reader .lk-select {
+  padding: 4px 8px;
+  border-radius: var(--shape-sm, 8px);
+  border: 1px solid var(--md-outline-variant);
+  background: var(--md-surface-container);
+  color: var(--md-on-surface);
+  font: inherit;
+}
+.reader .lk-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.reader .lk-out {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--md-primary);
+  text-decoration: none;
+  clear: both;
+}
+.reader .lk-out .icon {
+  font-size: 15px;
+}
+.reader .lk-empty,
+.reader .lk-error {
+  margin: 8px 0;
+  color: var(--md-on-surface-variant);
+}
+.reader .lk-error {
+  color: var(--md-error);
+}
+
+/* Image filters (brightness, contrast, greyscale, invert) and paper whitening, per page */
+.reader .paged img,
+.reader .paged canvas,
+.reader .strip .pg img,
+.reader .strip .pg canvas {
+  filter: var(--paper, ) var(--page-filter, brightness(1));
+}
+.reader svg.page-filters {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}

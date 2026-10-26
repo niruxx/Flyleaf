@@ -109,6 +109,7 @@ function buildEnd(end) {
       { header: `${u.displayName} · ${u.role === 'admin' ? t('Admin') : t('Guest')}` },
       { label: t('Account settings'), icon: 'manage_accounts', onClick: () => navigate('/settings/account') },
       { label: t('Reading stats'), icon: 'insights', onClick: () => navigate('/stats') },
+      { label: t('What’s new'), icon: 'campaign', onClick: () => navigate('/whats-new') },
       '-',
       { label: t('Light'), icon: 'light_mode', checked: mode === 'light', onClick: () => setTheme({ mode: 'light' }) },
       { label: t('Dark'), icon: 'dark_mode', checked: mode === 'dark', onClick: () => setTheme({ mode: 'dark' }) },
@@ -456,4 +457,6 @@ export function afterSignIn() {
   // Remembered so the app can still open (to saved books) without a connection.
   import('./offline.js').then(({ rememberUser }) => rememberUser(session.user));
   refreshShell();
+  // After an update: a small card with what changed (once per version).
+  setTimeout(() => import('./whatsnew.js').then((m) => m.maybeShowWhatsNew()).catch(() => {}), 1500);
 }

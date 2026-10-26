@@ -75,6 +75,13 @@ export function readerSettingsForm(settings, onChange, { show = 'all', fonts = [
           toggle('Smart spreads', 'Show wide pages (two-page scans) on their own and keep the pages after them paired correctly', settings.smartSpreads !== false, set('smartSpreads')),
           toggle('Cover on its own', 'Start pairing from the second page, like a printed book', settings.coverAlone !== false, set('coverAlone')))
         : '',
+      h('div.sheet-section', h('h3', 'Image'),
+        toggle('Auto-crop borders', 'Trim blank margins around scanned pages so the art fills the screen', Boolean(settings.autoCrop), set('autoCrop')),
+        toggle('Whiten yellowed pages', 'Turn yellowed or grey paper in old scans back to white', Boolean(settings.whitenPaper), set('whitenPaper')),
+        h('div.filter-row', icon('brightness_6'), h('span.filter-label', 'Brightness'), rangeInput(50, 150, 5, Number(settings.filterBrightness) || 100, set('filterBrightness'), (v) => `${v}%`, { live: true })),
+        h('div.filter-row', icon('contrast'), h('span.filter-label', 'Contrast'), rangeInput(50, 150, 5, Number(settings.filterContrast) || 100, set('filterContrast'), (v) => `${v}%`, { live: true })),
+        toggle('Greyscale', 'Black and white – handy for colour-tinted scans', Boolean(settings.filterGreyscale), set('filterGreyscale')),
+        toggle('Invert (night mode)', 'Light text on dark pages; colours keep their hue', Boolean(settings.filterInvert), set('filterInvert'))),
       section('Background colour', bgRow),
       settings.layout === 'webtoon' || show === 'all'
         ? section('Webtoon page gap', h('div.row', rangeInput(0, 40, 2, settings.webtoonGap, set('webtoonGap'), (v) => `${v}px`)))
@@ -149,14 +156,16 @@ export function readerSettingsForm(settings, onChange, { show = 'all', fonts = [
   return out;
 }
 
-function rangeInput(min, max, step, value, onCommit, fmt) {
+function rangeInput(min, max, step, value, onCommit, fmt, { live = false } = {}) {
   const label = h('span.label-large', { style: { minWidth: '52px', textAlign: 'right' } }, fmt(value));
   const input = h('input.slider', { type: 'range', min, max, step, value });
   const fill = () => input.style.setProperty('--fill', `${((input.value - min) / (max - min)) * 100}%`);
   fill();
+  // live: report while dragging (cheap previews such as image filters), not only on release.
   input.addEventListener('input', () => {
     fill();
     label.textContent = fmt(Number(input.value));
+    if (live) onCommit(Number(input.value));
   });
   input.addEventListener('change', () => onCommit(Number(input.value)));
   return h('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', flex: '1' } }, input, label);

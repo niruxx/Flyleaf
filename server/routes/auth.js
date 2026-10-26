@@ -152,10 +152,30 @@ me.patch('/', (req, res) => {
 /** Your personal folder: { used, quota, free, files } (bytes; quota null = no limit). */
 me.get('/storage', async (req, res) => res.json(await require('../storage').summary(req.user.id)));
 
+/**
+ * What's new (CHANGELOG.md): the latest versions, and which of them you haven't seen yet.
+ * ?limit= how many versions (default 10).
+ */
+me.get('/changelog', (req, res) => {
+  const changelog = require('../changelog');
+  const all = changelog.entries();
+  const seen = req.user.prefs.changelogSeen;
+  const unseen = seen ? all.filter((e) => changelog.compare(e.version, seen) > 0) : [];
+  res.json({
+    latest: changelog.latest(),
+    seen: seen || null,
+    unseen: unseen.slice(0, 5),
+    entries: all.slice(0, Math.min(Math.max(Number(req.query.limit) || 10, 1), 100)),
+  });
+});
+
 me.put('/prefs', (req, res) => {
   const incoming = req.body && typeof req.body === 'object' ? req.body : {};
   const next = { ...req.user.prefs };
   for (const [k, v] of Object.entries(incoming)) if (k in auth.PREF_DEFAULTS) next[k] = v;
+  // A new account finishing the welcome steps starts from today's version: "What's new" is for
+  // updates that come after.
+  if (incoming.onboarded === true && !next.changelogSeen) next.changelogSeen = require('../changelog').latest();
   const raw = JSON.stringify(next);
   if (raw.length > 20000) return res.status(400).json({ error: 'Preferences are too large.' });
   q('UPDATE users SET prefs = ? WHERE id = ?').run(raw, req.user.id);

@@ -149,6 +149,12 @@ export const api = {
   deleteCollection: (id) => DEL(`/api/collections/${id}`),
   addToCollection: (id, seriesIds) => POST(`/api/collections/${id}/items`, { seriesIds }),
   removeFromCollection: (id, seriesId) => DEL(`/api/collections/${id}/items/${seriesId}`),
+  annotationsExportUrl: (format, book) => `/api/annotations/export${qs({ format, book })}`,
+  sendToReadwise: (token, book) => POST('/api/annotations/readwise', { token, book }),
+  lookupDefine: (word, lang) => GET(`/api/lookup/define${qs({ word, lang })}`),
+  lookupWiki: (q, lang) => GET(`/api/lookup/wiki${qs({ q, lang })}`),
+  lookupTranslate: (q, from, to) => GET(`/api/lookup/translate${qs({ q, from, to })}`),
+  changelog: (limit) => GET(`/api/me/changelog${qs({ limit })}`),
   smartFilters: () => GET('/api/filters'),
   createSmartFilter: (b) => POST('/api/filters', b),
   updateSmartFilter: (id, b) => PATCH(`/api/filters/${id}`, b),
@@ -186,7 +192,7 @@ export const api = {
   sendSeries: (id, deviceId) => POST(`/api/series/${id}/send`, { deviceId }),
 
   fonts: () => GET('/api/fonts'),
-  uploadFont: (name, file) => request('POST', '/api/fonts', file, { headers: { 'X-Font-Name': name, 'Content-Type': 'application/octet-stream' } }),
+  uploadFont: (name, file, { private: own = false } = {}) => request('POST', '/api/fonts', file, { headers: { 'X-Font-Name': name, 'Content-Type': 'application/octet-stream', ...(own ? { 'X-Font-Private': '1' } : {}) } }),
   deleteFont: (id) => DEL(`/api/fonts/${id}`),
 
   importMalStack: (url) => POST('/api/import/mal-stack', { url }),

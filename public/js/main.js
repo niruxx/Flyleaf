@@ -32,6 +32,7 @@ route('/search', searchView);
 route('/collections', collectionsView);
 route('/collection/:id', collectionView);
 route('/shelf/:id', shelfView);
+route('/whats-new', (...a) => import('./whatsnew.js').then((m) => m.whatsNewView(...a)));
 route('/reading-lists', (...a) => import('./views/lists.js').then((m) => m.readingListsView(...a)));
 route('/reading-list/:id', (...a) => import('./views/lists.js').then((m) => m.readingListView(...a)));
 route('/series/:id', seriesView);

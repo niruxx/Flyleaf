@@ -9,6 +9,84 @@ const AUTO_SPEEDS = [0, 25, 40, 60, 85, 115, 150, 195, 250, 320, 400];
 const isWide = (el) => (el.naturalWidth || el.width) > (el.naturalHeight || el.height) * 1.1;
 
 // ---------------------------------------------------------------------------
+// Page analysis, for auto-crop and "whiten yellowed paper": each page is looked at once, small.
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/**
+ * { crop: { x, y, w, h } as fractions of the page (null when there's nothing to trim), paper: [r, g, b] }.
+ * The border colour is the median of the outermost pixels; rows and columns that are almost all
+ * that colour are margin. The paper colour is the average of the brightest 15% of pixels.
+ */
+function analysePage(el) {
+  const W = el.naturalWidth || el.width;
+  const H = el.naturalHeight || el.height;
+  if (!W || !H) return null;
+  const scale = Math.min(1, 240 / Math.max(W, H));
+  const w = Math.max(8, Math.round(W * scale));
+  const hh = Math.max(8, Math.round(H * scale));
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = hh;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  let data;
+  try {
+    ctx.drawImage(el, 0, 0, w, hh);
+    data = ctx.getImageData(0, 0, w, hh).data;
+  } catch {
+    return null;
+  }
+  const at = (x, y) => (y * w + x) * 4;
+  const ring = [];
+  for (let x = 0; x < w; x++) ring.push(at(x, 0), at(x, hh - 1));
+  for (let y = 0; y < hh; y++) ring.push(at(0, y), at(w - 1, y));
+  const median = (ch) => ring.map((i) => data[i + ch]).sort((a, b) => a - b)[ring.length >> 1];
+  const bg = [median(0), median(1), median(2)];
+  const off = (i) => Math.abs(data[i] - bg[0]) + Math.abs(data[i + 1] - bg[1]) + Math.abs(data[i + 2] - bg[2]) > 60;
+  const blankRow = (y) => {
+    let n = 0;
+    for (let x = 0; x < w; x++) if (off(at(x, y)) && ++n > w * 0.012) return false;
+    return true;
+  };
+  const blankCol = (x, top, bottom) => {
+    let n = 0;
+    for (let y = top; y <= bottom; y++) if (off(at(x, y)) && ++n > (bottom - top) * 0.012) return false;
+    return true;
+  };
+  let top = 0;
+  while (top < hh - 1 && blankRow(top)) top++;
+  let bottom = hh - 1;
+  while (bottom > top && blankRow(bottom)) bottom--;
+  let left = 0;
+  while (left < w - 1 && blankCol(left, top, bottom)) left++;
+  let right = w - 1;
+  while (right > left && blankCol(right, top, bottom)) right--;
+  // Keep a hair of margin so lettering never touches the edge.
+  top = Math.max(0, top - 1);
+  left = Math.max(0, left - 1);
+  bottom = Math.min(hh - 1, bottom + 1);
+  right = Math.min(w - 1, right + 1);
+  let crop = { x: left / w, y: top / hh, w: (right - left + 1) / w, h: (bottom - top + 1) / hh };
+  // Nothing worth trimming, or a mostly blank page (a title page, a fade to white): leave it.
+  if ((crop.w > 0.97 && crop.h > 0.97) || crop.w < 0.5 || crop.h < 0.5) crop = null;
+
+  const lum = [];
+  for (let i = 0; i < data.length; i += 16) lum.push([data[i] * 0.3 + data[i + 1] * 0.59 + data[i + 2] * 0.11, i]);
+  lum.sort((a, b) => b[0] - a[0]);
+  const bright = lum.slice(0, Math.max(1, Math.round(lum.length * 0.15)));
+  const paper = [0, 1, 2].map((ch) => bright.reduce((a, [, i]) => a + data[i + ch], 0) / bright.length);
+  return { crop, paper };
+}
+
+/** Per-channel gains that turn the paper colour white (none for dark or already-white pages). */
+function paperGains(paper) {
+  const lum = paper[0] * 0.3 + paper[1] * 0.59 + paper[2] * 0.11;
+  if (lum < 140) return null; // dark pages: nothing to whiten
+  const gains = paper.map((v) => Math.min(1.6, Math.max(1, 252 / Math.max(1, v))));
+  return gains.every((g) => g < 1.02) ? null : gains;
+}
+
+// ---------------------------------------------------------------------------
 // Sources
 
 class ImageSource {
@@ -173,6 +251,7 @@ export class PageEngine {
     this.wide = new Map(); // page → wide (a two-page scan), once it has loaded
     this.spreadList = null;
     this.atEnd = false; // showing the chapter end screen after the last page
+    this.analysis = new Map(); // page → analysePage() result (auto-crop, paper colour)
   }
 
   get dir() {
@@ -236,17 +315,91 @@ export class PageEngine {
     r.classList.toggle('double', this.s.layout === 'double');
     for (const f of ['screen', 'width', 'height', 'original']) r.classList.toggle(`fit-${f}`, this.s.scaling === f);
     r.style.setProperty('--strip-gap', `${this.s.webtoonGap || 0}px`);
+    r.style.setProperty('--page-filter', this.pageFilter());
     this.shell.setArrows(this.dir === 'rtl');
   }
 
   applySetting(key) {
     this.applyTheme();
-    if (['layout', 'direction', 'scaling', 'pageSplit', 'webtoonGap', 'smartSpreads', 'coverAlone'].includes(key)) {
+    if (['layout', 'direction', 'scaling', 'pageSplit', 'webtoonGap', 'smartSpreads', 'coverAlone', 'autoCrop', 'whitenPaper'].includes(key)) {
       this.half = 0;
       this.spreadList = null;
       this.build();
     }
     if (key === 'autoScrollSpeed') this.shell.autoScrollChanged(this.autoScrolling);
+  }
+
+  // ----- image filters & auto-crop -----
+
+  /** Brightness, contrast, greyscale and invert as a CSS filter (applied to every page). */
+  pageFilter() {
+    const s = this.s;
+    const f = [];
+    const b = Number(s.filterBrightness) || 100;
+    const c = Number(s.filterContrast) || 100;
+    if (b !== 100) f.push(`brightness(${b / 100})`);
+    if (c !== 100) f.push(`contrast(${c / 100})`);
+    if (s.filterGreyscale) f.push('grayscale(1)');
+    // Invert for night reading; turning the hues back keeps colour pages' colours.
+    if (s.filterInvert) f.push('invert(1) hue-rotate(180deg)');
+    return f.join(' ') || 'brightness(1)';
+  }
+
+  /** An SVG filter that maps this page's paper colour to white; returns its id. */
+  paperFilter(i, gains) {
+    const id = `flp-${this.book.id}-${i}`;
+    if (document.getElementById(id)) return id;
+    let svg = this.shell.root.querySelector('svg.page-filters');
+    if (!svg) {
+      svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('class', 'page-filters');
+      svg.setAttribute('aria-hidden', 'true');
+      this.shell.root.append(svg);
+    }
+    const filter = document.createElementNS(SVG_NS, 'filter');
+    filter.id = id;
+    filter.setAttribute('color-interpolation-filters', 'sRGB');
+    const transfer = document.createElementNS(SVG_NS, 'feComponentTransfer');
+    ['R', 'G', 'B'].forEach((ch, n) => {
+      const fn = document.createElementNS(SVG_NS, `feFunc${ch}`);
+      fn.setAttribute('type', 'linear');
+      fn.setAttribute('slope', gains[n].toFixed(3));
+      transfer.append(fn);
+    });
+    filter.append(transfer);
+    svg.append(filter);
+    return id;
+  }
+
+  /**
+   * Auto-crop and paper whitening for one loaded page. Returns the element to show: a cropped
+   * canvas, or the page itself. Webtoon strips are only trimmed at the sides (top and bottom
+   * would break the strip).
+   */
+  prepare(el, i, { sidesOnly = false } = {}) {
+    const s = this.s;
+    if (!s.autoCrop && !s.whitenPaper) return el;
+    if (!this.analysis.has(i)) this.analysis.set(i, analysePage(el));
+    const a = this.analysis.get(i);
+    if (!a) return el;
+    let out = el;
+    const crop = a.crop && (sidesOnly ? { x: a.crop.x, y: 0, w: a.crop.w, h: 1 } : a.crop);
+    if (s.autoCrop && crop && crop.w * crop.h < 0.97) {
+      const W = el.naturalWidth || el.width;
+      const H = el.naturalHeight || el.height;
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(crop.w * W));
+      c.height = Math.max(1, Math.round(crop.h * H));
+      c.getContext('2d').drawImage(el, Math.round(crop.x * W), Math.round(crop.y * H), c.width, c.height, 0, 0, c.width, c.height);
+      c.style.aspectRatio = `${c.width} / ${c.height}`;
+      c.setAttribute('role', 'img');
+      c.setAttribute('aria-label', el.alt || `Page ${i + 1}`);
+      c.dataset.alt = el.alt || `Page ${i + 1}`;
+      out = c;
+    }
+    const gains = s.whitenPaper && paperGains(a.paper);
+    if (gains) out.style.setProperty('--paper', `url(#${this.paperFilter(i, gains)})`);
+    return out;
   }
 
   // ----- navigation -----
@@ -431,6 +584,7 @@ export class PageEngine {
     clearTimeout(loadingTimer);
     if (seq !== this.renderSeq) return;
     this.shell.setLoading(false);
+    els = els.map((el, n) => this.prepare(el, spread[n]));
     // A page turned out to be wide: the spreads changed, so show the right pair instead.
     if (els.map((el, n) => this.noteSize(spread[n], el)).some(Boolean)) {
       const now = this.spreadOf(this.page);
@@ -572,7 +726,7 @@ export class PageEngine {
       loaded.add(i);
       const pg = pages[i];
       try {
-        const el = await this.source.load(i, { cssWidth: pg.clientWidth || W() });
+        const el = this.prepare(await this.source.load(i, { cssWidth: pg.clientWidth || W() }), i, { sidesOnly: true });
         if (!loaded.has(i) || !pg.isConnected) return;
         const above = pg.getBoundingClientRect().bottom <= strip.getBoundingClientRect().top + 1;
         const before = pg.offsetHeight;
@@ -720,7 +874,8 @@ export class PageEngine {
     this.page = p;
     const pg = pages[p];
     pg.scrollIntoView({ block: 'start' });
-    const el = await this.source.load(p, { cssWidth: pg.clientWidth || innerWidth }).catch(() => null);
+    const loadedEl = await this.source.load(p, { cssWidth: pg.clientWidth || innerWidth }).catch(() => null);
+    const el = loadedEl && this.prepare(loadedEl, p, { sidesOnly: true });
     if (el && !pg.classList.contains('ready')) {
       pg.replaceChildren(el);
       pg.classList.add('ready');

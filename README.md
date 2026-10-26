@@ -100,6 +100,15 @@
 
 ## 🆕 What's new
 
+The full list is in [CHANGELOG.md](CHANGELOG.md) – and in the app: after an update everyone sees a small *What's new* card once, and the whole changelog is under *What's new* in the account menu.
+
+- 📖 **Look up while reading** – select text in an ebook for a dictionary definition (Wiktionary), a Wikipedia summary or a translation (`LOOKUP=0` turns it off).
+- ✂️ **Auto-crop & image filters** – trim blank borders from scans, whiten yellowed paper, and set brightness, contrast, greyscale or invert for comics and manga.
+- 📝 **Footnote pop-ups** – tap a footnote or endnote marker in an ebook and the note opens in place, with *Go to note* to jump there.
+- 🔤 **Your own fonts** – anyone can upload .ttf, .otf, .woff or .woff2 fonts for the ebook reader (*Settings → EPUB fonts*); the admin can share fonts with everyone.
+- 📤 **Export highlights & notes** – Markdown, CSV, an Obsidian vault (one note per book), a Readwise import file, or straight to Readwise with your access token.
+- 📣 **What's new** – a post-update card, read from CHANGELOG.md.
+
 - 👀 **New files show up within seconds** – library folders are watched for changes, so files you copy in, rename or delete appear without waiting for the next scan (`WATCH_FOLDERS`). Network shares that don't report changes still get the scheduled scan.
 - 🗂️ **Smart shelves** – set filters on any list (unread + ongoing + Action, say) and save them as a shelf on Home and in the side menu. Shelves stay up to date as your library changes.
 - 📚 **Reading lists** – read across series in order (comic events, crossovers): add books or whole series from their menus, reorder them, and the reader's *Next* follows the list. Import and export **ComicRack .cbl** files.
@@ -300,6 +309,7 @@ Set these in `/etc/flyleaf/flyleaf.env` (service install) or a `.env` file next 
 | `FLYLEAF_DATA_DIR` | `./data` | Database, covers, caches and logs |
 | `SCAN_INTERVAL_MINUTES` | `60` | Automatic rescans (`0` = only on start / manual) |
 | `WATCH_FOLDERS` | `1` | Watch library folders and pick up changes within seconds (`0` turns it off) |
+| `LOOKUP` | `1` | Dictionary, Wikipedia and translation look-ups in the reader (the server asks Wiktionary, Wikipedia and MyMemory; `0` turns it off) |
 | `WATCH_DELAY_SECONDS` | `5` | How long a folder must be quiet before it is scanned (so copies can finish) |
 | `FULLTEXT` | `1` | Index book text for *search inside books* (`0` turns it off) |
 | `FOLLOW_CHECK_HOURS` | `6` | How often followed series are checked for new chapters (`0` = only when you press *Check now*) |

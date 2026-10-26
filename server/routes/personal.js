@@ -405,28 +405,41 @@ const BUILTIN_FONTS = [
   { id: 'mono', name: 'Monospace', family: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace' },
 ];
 
+// Uploaded fonts are either shared (uploaded by the admin for everyone, user_id NULL) or
+// someone's own, which only they see.
+const MAX_OWN_FONTS = 30;
+const visibleFont = (id, user) => q('SELECT * FROM fonts WHERE id = ? AND (user_id IS NULL OR user_id = ?)').get(Number(id), user.id);
+
 router.get('/fonts', (req, res) => {
-  const custom = q('SELECT id, name, file FROM fonts ORDER BY name').all().map((f) => ({
+  const custom = q('SELECT id, name, file, user_id FROM fonts WHERE user_id IS NULL OR user_id = ? ORDER BY name COLLATE NOCASE').all(req.user.id).map((f) => ({
     id: `custom-${f.id}`,
     name: f.name,
     family: `Flyleaf Custom ${f.id}`,
     url: `/api/fonts/${f.id}/file`,
     custom: true,
+    own: f.user_id === req.user.id,
+    shared: f.user_id == null,
+    canDelete: f.user_id === req.user.id || (f.user_id == null && req.user.role === 'admin'),
   }));
   res.json([...BUILTIN_FONTS, ...custom]);
 });
 
 router.get('/fonts/:id/file', (req, res) => {
-  const f = q('SELECT file FROM fonts WHERE id = ?').get(Number(req.params.id));
+  const f = visibleFont(req.params.id, req.user);
   if (!f) return res.status(404).end();
   res.set('Cache-Control', 'private, max-age=31536000, immutable');
   res.sendFile(path.join(FONT_DIR, path.basename(f.file)));
 });
 
 const FONT_EXT = { 'font/woff2': '.woff2', 'font/woff': '.woff', 'font/ttf': '.ttf', 'font/otf': '.otf' };
-router.post('/fonts', requireAdmin, express.raw({ type: () => true, limit: '10mb' }), async (req, res) => {
+/** Upload a font: the file is the body, X-Font-Name names it. Admins share it with everyone unless X-Font-Private: 1. */
+router.post('/fonts', express.raw({ type: () => true, limit: '10mb' }), async (req, res) => {
   const name = String(req.get('X-Font-Name') || '').trim().slice(0, 60);
   if (!name) return res.status(400).json({ error: 'Name the font.' });
+  const shared = req.user.role === 'admin' && req.get('X-Font-Private') !== '1';
+  if (!shared && q('SELECT COUNT(*) AS n FROM fonts WHERE user_id = ?').get(req.user.id).n >= MAX_OWN_FONTS) {
+    return res.status(400).json({ error: `You can keep up to ${MAX_OWN_FONTS} fonts of your own. Delete one first.` });
+  }
   const buf = req.body;
   if (!Buffer.isBuffer(buf) || buf.length < 100) return res.status(400).json({ error: 'Upload a font file.' });
   // Identify by signature: wOF2, wOFF, OTTO, or TrueType 0x00010000.
@@ -435,13 +448,14 @@ router.post('/fonts', requireAdmin, express.raw({ type: () => true, limit: '10mb
   if (!ext) return res.status(400).json({ error: 'Use a .woff2, .woff, .ttf or .otf file.' });
   const file = `${crypto.randomBytes(8).toString('hex')}${ext}`;
   await fsp.writeFile(path.join(FONT_DIR, file), buf);
-  const id = Number(q('INSERT INTO fonts (name, file, created_at) VALUES (?, ?, ?)').run(name, file, Date.now()).lastInsertRowid);
-  res.status(201).json({ id });
+  const id = Number(q('INSERT INTO fonts (name, file, created_at, user_id) VALUES (?, ?, ?, ?)').run(name, file, Date.now(), shared ? null : req.user.id).lastInsertRowid);
+  res.status(201).json({ id, shared });
 });
 
-router.delete('/fonts/:id', requireAdmin, async (req, res) => {
-  const f = q('SELECT * FROM fonts WHERE id = ?').get(Number(req.params.id));
+router.delete('/fonts/:id', async (req, res) => {
+  const f = visibleFont(req.params.id, req.user);
   if (!f) return res.status(404).json({ error: 'Font not found.' });
+  if (f.user_id == null ? req.user.role !== 'admin' : f.user_id !== req.user.id) return res.status(403).json({ error: 'Only the admin can delete shared fonts.' });
   await fsp.rm(path.join(FONT_DIR, path.basename(f.file)), { force: true });
   q('DELETE FROM fonts WHERE id = ?').run(f.id);
   res.json({ ok: true });

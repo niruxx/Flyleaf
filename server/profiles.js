@@ -16,6 +16,12 @@ const DEFAULT_SETTINGS = {
   autoScrollSpeed: 3, // 1–10
   smartSpreads: true, // double-page: wide pages alone
   coverAlone: true, // double-page: the first page alone
+  autoCrop: false, // trim blank page borders
+  whitenPaper: false, // turn yellowed paper white
+  filterBrightness: 100, // %
+  filterContrast: 100, // %
+  filterGreyscale: false,
+  filterInvert: false,
   // Behaviour
   autoCloseMenu: true,
   immersive: false,

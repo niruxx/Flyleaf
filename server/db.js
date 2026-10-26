@@ -502,6 +502,11 @@ const migrations = [
 
   ALTER TABLE reading_log ADD COLUMN pages INTEGER NOT NULL DEFAULT 0;   -- pages read that day
   `,
+
+  // v11: everyone can upload their own reader fonts.
+  `
+  ALTER TABLE fonts ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;   -- NULL = shared with everyone (admin)
+  `,
 ];
 
 function migrate() {

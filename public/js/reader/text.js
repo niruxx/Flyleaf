@@ -16,6 +16,54 @@ async function fonts() {
   return fontCache;
 }
 
+// ---------------------------------------------------------------------------
+// Footnotes: links to notes open in a pop-up instead of jumping to the notes page. A link is a
+// note reference when the book says so (epub:type="noteref", role="doc-noteref"), or when it
+// looks like one: a superscript, or a short marker such as "1", "[2]", "*" or "†".
+
+const EPUB_NS = 'http://www.idpf.org/2007/ops';
+const words = (el, attr) => new Set((attr === 'type' ? el?.getAttributeNS?.(EPUB_NS, 'type') : el?.getAttribute?.('role'))?.split(/\s+/) || []);
+const NOTE_TYPES = { footnote: 'Footnote', endnote: 'Endnote', rearnote: 'Endnote', note: 'Note', glossdef: 'Definition', biblioentry: 'Reference' };
+const NOTE_ROLES = { 'doc-footnote': 'Footnote', 'doc-endnote': 'Endnote', 'doc-biblioentry': 'Reference', definition: 'Definition', note: 'Note' };
+
+function isSuper(el) {
+  if (!el || el.nodeType !== 1) return false;
+  if (el.matches('sup')) return true;
+  const v = el.ownerDocument.defaultView?.getComputedStyle(el).verticalAlign;
+  return v === 'super' || v === 'top' || v === 'text-top';
+}
+
+/** 'yes', 'maybe' (looks like one; checked again once the target is found) or null. */
+function noteRefKind(a) {
+  const types = words(a, 'type');
+  const roles = words(a, 'role');
+  if (['noteref', 'glossref', 'biblioref'].some((t) => types.has(t)) || ['doc-noteref', 'doc-glossref', 'doc-biblioref'].some((r) => roles.has(r))) return 'yes';
+  if (types.has('backlink') || roles.has('doc-backlink')) return null;
+  const text = a.textContent.trim();
+  const marker = /^[[(]?(\d{1,4}|[ivxlc]{1,6}|[a-z]|[*†‡§¶]+)[\])]?$/i.test(text);
+  if (isSuper(a) || isSuper(a.parentElement) || (a.children.length === 1 && isSuper(a.children[0]))) return 'maybe';
+  return marker && text.length <= 6 ? 'maybe' : null;
+}
+
+/** Copy a note's content into this page: text and simple formatting only (no scripts, styles, links or images). */
+const KEEP = new Set(['P', 'DIV', 'SPAN', 'EM', 'STRONG', 'I', 'B', 'U', 'SMALL', 'SUP', 'SUB', 'BR', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'CITE', 'CODE', 'Q', 'DL', 'DT', 'DD', 'ABBR', 'DFN', 'S']);
+function cleanNote(node) {
+  const out = document.createDocumentFragment();
+  for (const child of node.childNodes) {
+    if (child.nodeType === 3) out.append(child.textContent);
+    else if (child.nodeType === 1) {
+      const tag = child.tagName.toUpperCase().replace(/^.*:/, '');
+      if (/^(SCRIPT|STYLE|IMG|SVG|IMAGE|VIDEO|AUDIO|IFRAME|OBJECT|HEAD)$/.test(tag)) continue;
+      // Links back to the text ("↩", "1.") are only noise in a pop-up.
+      if (tag === 'A' && (words(child, 'type').has('backlink') || words(child, 'role').has('doc-backlink') || /^[\s↩↑⤴^]*$/.test(child.textContent))) continue;
+      const el = document.createElement(KEEP.has(tag) ? tag.toLowerCase() : /^(H\d|SECTION|ASIDE|ARTICLE|HEADER|FOOTER)$/.test(tag) ? 'div' : 'span');
+      el.append(cleanNote(child));
+      out.append(el);
+    }
+  }
+  return out;
+}
+
 export class TextEngine {
   constructor(book, shell, tracker) {
     this.book = book;
@@ -63,6 +111,8 @@ export class TextEngine {
       e.preventDefault();
       window.open(e.detail.a.href, '_blank', 'noopener');
     });
+    view.addEventListener('link', (e) => this.onLink(e));
+    view.addEventListener('relocate', () => this.closeFootnote());
 
     this.toc = flattenToc(view.book.toc || []);
     this.setAnnotations(this.shell.annotations);
@@ -97,6 +147,8 @@ export class TextEngine {
   }
 
   destroy() {
+    this.closeFootnote();
+    import('./lookup.js').then((m) => m.closeLookup()).catch(() => {});
     this.cleanups.forEach((fn) => fn());
     document.querySelector('.sel-toolbar')?.remove();
     try {
@@ -243,6 +295,7 @@ export class TextEngine {
     doc.addEventListener('pointerdown', (e) => {
       downAt = { x: e.clientX, y: e.clientY };
       this.tracker.activity();
+      if (!e.target.closest?.('a[href]')) this.closeFootnote();
     });
     doc.addEventListener('click', (e) => {
       if (e.target.closest?.('a[href]')) return;
@@ -260,6 +313,7 @@ export class TextEngine {
     });
     doc.addEventListener('keydown', (e) => {
       this.tracker.activity();
+      if (e.key === 'Escape' && this.footnoteCleanup) return this.closeFootnote();
       this.shell.handleKey(e);
     });
     let selTimer;
@@ -276,6 +330,82 @@ export class TextEngine {
     };
     doc.addEventListener('pointerup', checkSelection);
     doc.addEventListener('selectionchange', checkSelection);
+  }
+
+  // ----- footnotes -----
+
+  onLink(e) {
+    const { a, href } = e.detail;
+    const kind = noteRefKind(a);
+    if (!kind) return; // an ordinary link: foliate follows it
+    e.preventDefault();
+    this.showFootnote(a, href, kind).catch(() => this.view.goTo(href).catch(() => {}));
+  }
+
+  async showFootnote(a, href, kind) {
+    const book = this.view.book;
+    const target = await book.resolveHref(href);
+    const doc = await book.sections[target.index].createDocument();
+    let el = target.anchor?.(doc);
+    if (el?.startContainer) el = el.startContainer.nodeType === 1 ? el.startContainer : el.startContainer.parentElement;
+    if (!el || el.nodeType !== 1) throw new Error('No note there');
+    // The anchor is often a span or link inside the note: take the note itself.
+    while (el.matches('a, span, sup, sub, em, strong, i, b, small') && el.parentElement && el.parentElement !== doc.body) el = el.parentElement;
+    if (el === doc.body) el = doc.getElementById(decodeURIComponent(href.split('#')[1] || ''))?.nextElementSibling || null;
+    if (!el) throw new Error('No note there');
+    const type = Object.entries(NOTE_TYPES).find(([t]) => words(el, 'type').has(t))?.[1]
+      || Object.entries(NOTE_ROLES).find(([r]) => words(el, 'role').has(r))?.[1];
+    const text = el.textContent.trim();
+    // A "maybe" that points at a heading or a whole chapter isn't a note: just go there.
+    if (!text || (kind === 'maybe' && (!type && (/^H\d$/.test(el.tagName.toUpperCase()) || text.length > 2500)))) throw new Error('Not a note');
+
+    this.closeFootnote();
+    const c = this.colors();
+    const body = h('div.fn-body');
+    body.append(cleanNote(el));
+    const pop = h('div.fn-pop', { role: 'dialog', 'aria-label': type || 'Note', style: { '--fn-bg': c.bg, '--fn-fg': c.fg, '--fn-link': c.link } },
+      h('div.fn-head',
+        h('span.fn-kind', icon('sticky_note_2'), type || 'Note'),
+        h('button.btn.text.state.fn-go', { type: 'button', onclick: () => {
+          this.closeFootnote();
+          this.view.goTo(href).catch(() => {});
+        } }, 'Go to note'),
+        iconButton('close', 'Close', () => this.closeFootnote())),
+      body);
+    this.shell.root.append(pop);
+    // Next to the link on wide screens; a sheet at the bottom on phones.
+    const frame = a.ownerDocument.defaultView?.frameElement?.getBoundingClientRect() || { left: 0, top: 0 };
+    const r = a.getBoundingClientRect();
+    const rect = { left: frame.left + r.left, top: frame.top + r.top, bottom: frame.top + r.bottom, width: r.width };
+    if (innerWidth >= 600) {
+      const w = Math.min(440, innerWidth - 32);
+      pop.style.width = `${w}px`;
+      pop.style.left = `${Math.max(16, Math.min(innerWidth - w - 16, rect.left + rect.width / 2 - w / 2))}px`;
+      const below = innerHeight - rect.bottom > Math.min(pop.offsetHeight, innerHeight * 0.45) + 24;
+      if (below) pop.style.top = `${rect.bottom + 10}px`;
+      else pop.style.bottom = `${innerHeight - rect.top + 10}px`;
+    } else pop.classList.add('sheet-like');
+    // Escape closes the pop-up – before the reader sees it (where Escape closes the book).
+    const onKey = (ev) => {
+      if (ev.key !== 'Escape') return;
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      this.closeFootnote();
+    };
+    const onDown = (ev) => !pop.contains(ev.target) && this.closeFootnote();
+    window.addEventListener('keydown', onKey, true);
+    setTimeout(() => document.addEventListener('pointerdown', onDown), 0);
+    this.footnoteCleanup = () => {
+      window.removeEventListener('keydown', onKey, true);
+      document.removeEventListener('pointerdown', onDown);
+      pop.classList.add('leaving');
+      setTimeout(() => pop.remove(), 160);
+    };
+  }
+
+  closeFootnote() {
+    this.footnoteCleanup?.();
+    this.footnoteCleanup = null;
   }
 
   // ----- annotations -----
@@ -337,6 +467,12 @@ export class TextEngine {
       iconButton('content_copy', 'Copy', () => {
         copyText(text);
         bar.remove();
+      }),
+      iconButton('dictionary', 'Look up (define, Wikipedia, translate)', async () => {
+        bar.remove();
+        const { openLookup } = await import('./lookup.js');
+        const lang = [].concat(this.view.book.metadata?.language || [])[0] || this.book.language || null;
+        openLookup({ text: text.slice(0, 500), bookLang: lang, at: { x, y, bottom }, root: this.shell.root });
       }),
     );
     document.body.append(bar);

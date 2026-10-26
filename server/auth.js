@@ -70,6 +70,8 @@ const PREF_DEFAULTS = {
   watchDownloads: true,
   // App language (a code from public/locales/index.json); null follows the browser.
   language: null,
+  // The newest CHANGELOG.md version you've seen in "What's new" (null: not yet).
+  changelogSeen: null,
 };
 
 /** What a user may do beyond reading. Admins always have everything. */

@@ -50,14 +50,14 @@ for metadata, so the series IDs are already there.
 
 ---
 
-## 📖 Reader (3 of 11 done)
+## 📖 Reader (9 of 11 done)
 
 - ⬜ **Text-to-speech / read aloud** with the Web Speech API: highlight the current sentence,
   a speed control and a sleep timer (Readest and KOReader have it)
-- ⬜ **Dictionary and lookup** on selected text: built-in definitions, Wikipedia, and
+- ✅ **Dictionary and lookup** on selected text: built-in definitions, Wikipedia, and
   "translate selection" (KOReader, Readest, Apple Books)
-- ⬜ **Auto-crop page borders** for scanned comics and PDFs (KOReader, Mihon)
-- ⬜ **Image filters** for manga: brightness, contrast, greyscale and invert, plus colour
+- ✅ **Auto-crop page borders** for scanned comics and PDFs (KOReader, Mihon)
+- ✅ **Image filters** for manga: brightness, contrast, greyscale and invert, plus colour
   correction for yellowed scans (Mihon's custom filter)
 - ⬜ **Proper pinch and double-tap zoom** inside the page reader, not just the browser's own
   zoom, with pan and reset (Mihon, Panels)
@@ -66,9 +66,9 @@ for metadata, so the series IDs are already there.
 - ✅ **Chapter end screen**: "Next chapter" with a cover preview instead of just turning the page
 - ✅ **Smart dual-page**: detect wide pages and show them alone, keep spreads aligned
   (Kavita, Mihon)
-- ⬜ **Footnote pop-ups** in EPUBs instead of jumping to the notes page
-- ⬜ **Custom fonts**: upload your own TTF/OTF next to the bundled ones
-- ⬜ **Export highlights and notes** as Markdown, CSV, or to Readwise / Obsidian
+- ✅ **Footnote pop-ups** in EPUBs instead of jumping to the notes page
+- ✅ **Custom fonts**: upload your own TTF/OTF next to the bundled ones
+- ✅ **Export highlights and notes** as Markdown, CSV, or to Readwise / Obsidian
 
 ---
 
