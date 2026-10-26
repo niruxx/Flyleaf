@@ -4747,6 +4747,26 @@ html.has-bg body.scrolled .app-bar {
   flex-wrap: wrap;
   gap: 4px;
 }
+/* Phones: picture and text share the first row; the buttons get their own row below. */
+@media (max-width: 599px) {
+  .setting-row.profile-pic {
+    flex-wrap: wrap;
+    gap: 12px 16px;
+  }
+  .setting-row.profile-pic > .avatar {
+    width: 64px !important;
+    height: 64px !important;
+    font-size: 26px !important;
+    flex: none;
+  }
+  .setting-row.profile-pic .text {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .setting-row.profile-pic .pic-actions {
+    flex: 1 1 100%;
+  }
+}
 .avatar.has-img {
   overflow: hidden;
   padding: 0;

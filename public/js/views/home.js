@@ -29,7 +29,9 @@ export async function homeView(view, params, stale) {
   const totalSeries = data.libraries.reduce((a, l) => a + l.seriesCount, 0);
   const current = data.continueReading[0];
   const actions = [
-    current && h('a.btn.filled.state', { href: `#/read/${current.id}` }, icon('play_arrow', 'filled'), `Continue ${current.series || current.title}`),
+    // Long titles are cut with “…” so the button keeps its padding.
+    current && h('a.btn.filled.state', { href: `#/read/${current.id}`, title: `Continue ${current.series || current.title}` },
+      icon('play_arrow', 'filled'), h('span.btn-label', `Continue ${current.series || current.title}`)),
     h('a.btn.tonal.state', { href: '#/library' }, icon('local_library'), 'Browse library'),
     can(session.user, 'contentFinder') && h('a.btn.outlined.state', { href: '#/finder' }, icon('travel_explore'), 'Find books'),
   ];
@@ -114,8 +116,9 @@ export async function homeView(view, params, stale) {
       sectionHead('Browse by genre', 'category', `${list.length}`),
       h('div.genre-cloud', top.map((g, i) => h('a.genre-pill.state', {
         href: `#/genre/${encodeURIComponent(g.name)}`,
-        style: { '--h': String(hashHue(g.name)), '--w': String(0.85 + (g.count / max) * 0.45), '--i': String(i) },
-      }, g.name, h('span.n', String(g.count))))),
+        title: `${g.name} · ${g.count} series`,
+        style: { '--h': String(hashHue(g.name)), '--w': String(0.9 + (g.count / max) * 0.3), '--i': String(i) },
+      }, h('span.g', g.name), h('span.n', String(g.count))))),
     );
     genres.hidden = false;
   }).catch(() => {});
@@ -161,7 +164,8 @@ function libraryCard(l) {
       icon('arrow_forward')));
   api.seriesList({ library: l.id, sort: 'added', limit: 4 }).then((r) => {
     const covers = r.items.filter((s) => s.coverUrl && !s.blur).map((s) => s.coverUrl);
-    mosaic.replaceChildren(...covers.map((url, i) => h('span', { style: { backgroundImage: `url("${url}")`, '--i': String(i) } })));
+    // --off: distance from the middle cover, so they fan out evenly from the centre.
+    mosaic.replaceChildren(...covers.map((url, i) => h('span', { style: { backgroundImage: `url("${url}")`, '--off': String(i - (covers.length - 1) / 2) } })));
     card.classList.toggle('has-art', covers.length > 0);
   }).catch(() => {});
   return card;

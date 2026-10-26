@@ -269,6 +269,19 @@ body.scrolled .app-bar {
 }
 .hero-actions .btn {
   max-width: 100%;
+  min-width: 0;
+}
+.btn-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Phones: the main button takes a full row, so long titles get room before they're cut. */
+@media (max-width: 599px) {
+  .hero-actions .btn.filled {
+    flex: 1 1 100%;
+    padding: 0 20px;
+  }
 }
 .hero-actions .btn.filled {
   box-shadow: 0 8px 22px -8px color-mix(in srgb, var(--md-primary) 70%, transparent);
@@ -418,7 +431,9 @@ body.scrolled .app-bar {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
+  max-width: min(220px, 100%);
+  padding: 6px 14px;
+  line-height: 20px;
   border-radius: var(--shape-full);
   font-size: calc(13px * var(--w));
   font-weight: 500;
@@ -434,9 +449,23 @@ body.scrolled .app-bar {
   transform: translateY(-2px);
   background: color-mix(in oklch, oklch(0.7 0.13 var(--h)) 38%, var(--md-surface-container));
 }
+/* Long imported genre names are cut with “…” (the full name is in the tooltip). */
+.genre-pill .g {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .genre-pill .n {
+  flex: none;
   font-size: 11px;
   opacity: 0.7;
+}
+@media (max-width: 599px) {
+  .genre-pill {
+    font-size: 13px;
+    max-width: 160px;
+  }
 }
 
 /* Library cards with a mosaic of covers */
@@ -466,7 +495,7 @@ body.scrolled .app-bar {
     box-shadow: 0 16px 34px -14px color-mix(in srgb, var(--md-primary) 55%, rgb(0 0 0 / 0.5));
   }
   .lib-card:hover .lib-mosaic span {
-    transform: rotate(calc((var(--i) - 1.5) * 4deg)) translateY(-6px);
+    transform: rotate(calc(var(--off) * 5deg)) translateY(-6px);
   }
 }
 .lib-mosaic {
@@ -475,7 +504,7 @@ body.scrolled .app-bar {
   z-index: -2;
   display: flex;
   align-items: flex-start;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 8px;
   padding: 16px 18px;
 }
@@ -485,8 +514,13 @@ body.scrolled .app-bar {
   border-radius: var(--shape-sm);
   background: center / cover;
   box-shadow: 0 8px 18px -8px rgb(0 0 0 / 0.6);
-  transform: rotate(calc((var(--i) - 1.5) * 3deg));
+  transform: rotate(calc(var(--off) * 3deg));
   transition: transform 450ms var(--ease-emphasized-decel);
+  /* They start stacked in the middle and spread out. */
+  animation: lib-spread 700ms var(--ease-emphasized-decel) backwards;
+}
+@keyframes lib-spread {
+  from { translate: calc(var(--off) * -80px) 0; opacity: 0; }
 }
 /* Fade the covers out behind the name so it stays readable. */
 .lib-card.has-art::before {
