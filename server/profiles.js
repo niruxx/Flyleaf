@@ -22,6 +22,9 @@ const DEFAULT_SETTINGS = {
   filterContrast: 100, // %
   filterGreyscale: false,
   filterInvert: false,
+  // How pages look and turn (all books)
+  look: 'plain', // plain | book (paper, page edges, spine) | eink
+  pageTurn: 'slide', // slide | book (3D page turn) | none
   // Behaviour
   autoCloseMenu: true,
   immersive: false,

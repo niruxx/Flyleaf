@@ -3,7 +3,8 @@
 import { api, fileUrl } from '../api.js';
 import { h, icon, iconButton, snackbar, dialog, field, copyText } from '../ui.js';
 import { isDark } from '../theme.js';
-import { TEXT_THEMES } from '../components/reader-settings.js';
+import { TEXT_THEMES, LOOKS, PAPER_GRAIN } from '../components/reader-settings.js';
+import { fallingLeaf, reducedMotion } from './turn.js';
 import { HIGHLIGHT_COLORS } from '../views/bookmarks.js';
 
 const EXT = { epub: 'epub', txt: 'epub', mobi: 'mobi', azw3: 'azw3', fb2: 'fb2' };
@@ -160,6 +161,7 @@ export class TextEngine {
   // ----- appearance -----
 
   colors() {
+    if (LOOKS[this.s.look]) return LOOKS[this.s.look];
     const key = this.s.textTheme === 'auto' ? (isDark() ? 'dark' : 'light') : this.s.textTheme;
     return TEXT_THEMES[key] || TEXT_THEMES.light;
   }
@@ -172,6 +174,9 @@ export class TextEngine {
     r.setAttribute('margin', '36px');
     r.setAttribute('max-inline-size', m.inline);
     r.setAttribute('max-column-count', this.s.columns === '1' || this.s.columns === 1 ? '1' : '2');
+    // Slide between pages; Book turns are drawn by turnBook(); None jumps.
+    if (this.s.pageTurn === 'slide' || !this.s.pageTurn) r.setAttribute('animated', '');
+    else r.removeAttribute('animated');
     if (this.s.columns === '2' || this.s.columns === 2) r.setAttribute('max-inline-size', `${parseInt(m.inline, 10) * 2}px`);
   }
 
@@ -211,13 +216,16 @@ export class TextEngine {
       img, svg { max-width: 100%; height: auto; }
       ::selection { background: ${c.link}55; }
       aside[epub|type~="footnote"], aside[epub|type~="endnote"], aside[epub|type~="note"], aside[epub|type~="rearnote"] { display: none; }
+      ${s.look === 'book' ? `html { background: ${PAPER_GRAIN}, ${c.bg} !important; } body { background: transparent !important; }` : ''}
+      ${s.look === 'eink' ? 'img, svg, video { filter: grayscale(1) contrast(1.15); } a, a * { text-decoration: underline !important; }' : ''}
     `;
     this.view.renderer.setStyles?.(css);
-    this.view.style.background = c.bg;
+    // The Book look: the paper (with its grain) is painted once, behind the transparent pages.
+    this.view.style.background = this.s.look === 'book' ? `${PAPER_GRAIN}, ${c.bg}` : c.bg;
   }
 
   applySetting(key) {
-    if (['flow', 'margin', 'columns'].includes(key)) this.applyLayout();
+    if (['flow', 'margin', 'columns', 'pageTurn'].includes(key)) this.applyLayout();
     this.applyStyles();
   }
 
@@ -225,11 +233,55 @@ export class TextEngine {
 
   next() {
     if (this.view.renderer.atEnd && !this.scrollMode()) return this.shell.showEnd();
+    if (this.bookTurns()) return this.turnBook('next');
     this.view.next();
   }
   prev() {
     if (this.view.renderer.atStart && !this.scrollMode()) return this.shell.toast('Start of book');
+    if (this.bookTurns()) return this.turnBook('prev');
     this.view.prev();
+  }
+
+  bookTurns() {
+    return this.s.pageTurn === 'book' && !this.scrollMode() && !reducedMotion();
+  }
+
+  /**
+   * A book-style page turn for ebooks. The page is an iframe that can't be copied, so the
+   * page itself lifts on its spine until it's edge-on, the book moves on underneath, and a
+   * blank leaf finishes falling over to the other side.
+   */
+  async turnBook(dir) {
+    const view = this.view;
+    if (this.turning) return dir === 'next' ? view.next() : view.prev();
+    this.turning = true;
+    const toLeft = (dir === 'next') !== (view.book.dir === 'rtl');
+    const stage = this.shell.stage;
+    const host = view.parentElement;
+    const rect = { left: 0, top: 0, width: host.clientWidth, height: host.clientHeight };
+    try {
+      // Two pages side by side: the book moves on, and a leaf peels off the page on the
+      // turning side and lands on the other, hinged at the spine.
+      if (this.shell.root.classList.contains('two-up')) {
+        rect.width /= 2;
+        if (toLeft) rect.left = rect.width;
+        await (dir === 'next' ? view.next() : view.prev());
+        fallingLeaf({ stage, rect, toLeft, paper: this.colors().bg, from: 0, grain: this.s.look === 'book' });
+        return;
+      }
+      view.style.transformOrigin = `${toLeft ? rect.left : rect.left + rect.width}px 50%`;
+      const lift = view.animate([
+        { transform: 'perspective(2400px) rotateY(0deg)' },
+        { transform: `perspective(2400px) rotateY(${toLeft ? -90 : 90}deg)` },
+      ], { duration: 300, easing: 'cubic-bezier(0.5, 0, 0.75, 0.4)', fill: 'forwards' });
+      await lift.finished;
+      await (dir === 'next' ? view.next() : view.prev());
+      lift.cancel();
+      fallingLeaf({ stage, rect, toLeft, paper: this.colors().bg, grain: this.s.look === 'book' });
+    } finally {
+      view.style.transformOrigin = '';
+      this.turning = false;
+    }
   }
   left() {
     this.view.book.dir === 'rtl' ? this.next() : this.prev();
@@ -275,6 +327,12 @@ export class TextEngine {
 
   onRelocate(detail) {
     const { fraction, tocItem, pageItem, location, cfi } = detail;
+    // Two pages side by side (wide screens): the Book look draws a spine between them.
+    try {
+      const doc = this.view.renderer.getContents()[0]?.doc;
+      const col = parseFloat(doc?.documentElement.style.columnWidth) || 0;
+      this.shell.root.classList.toggle('two-up', !this.scrollMode() && col > 0 && this.view.renderer.size >= col * 1.8);
+    } catch {}
     this.fraction = fraction ?? this.fraction;
     this.currentHref = tocItem?.href;
     for (const t of this.toc) t.current = t.target === tocItem?.href;

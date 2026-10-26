@@ -2,6 +2,8 @@
 
 import { api, pageUrl, fileUrl } from '../api.js';
 import { h, resolveColor } from '../ui.js';
+import { LOOKS } from '../components/reader-settings.js';
+import { turnPages, measure, reducedMotion, finishTurn } from './turn.js';
 
 const MAX_CANVAS_PIXELS = 12_000_000; // stay well under iOS Safari's canvas limits
 // Auto-scroll speeds (levels 1–10) in pixels per second on an 800px-tall screen.
@@ -306,7 +308,7 @@ export class PageEngine {
   // ----- settings -----
 
   applyTheme() {
-    let bg = this.s.background || '#000000';
+    let bg = LOOKS[this.s.look]?.surround || this.s.background || '#000000';
     if (!/^#[0-9a-f]{6}$/i.test(bg)) bg = resolveColor(bg);
     const lum = parseInt(bg.slice(1, 3), 16) * 0.3 + parseInt(bg.slice(3, 5), 16) * 0.59 + parseInt(bg.slice(5, 7), 16) * 0.11;
     this.shell.setTheme(bg, lum > 140 ? '#1b1b1f' : '#ffffff');
@@ -321,7 +323,7 @@ export class PageEngine {
 
   applySetting(key) {
     this.applyTheme();
-    if (['layout', 'direction', 'scaling', 'pageSplit', 'webtoonGap', 'smartSpreads', 'coverAlone', 'autoCrop', 'whitenPaper'].includes(key)) {
+    if (['layout', 'direction', 'scaling', 'pageSplit', 'webtoonGap', 'smartSpreads', 'coverAlone', 'autoCrop', 'whitenPaper', 'look'].includes(key)) {
       this.half = 0;
       this.spreadList = null;
       this.build();
@@ -339,7 +341,8 @@ export class PageEngine {
     const c = Number(s.filterContrast) || 100;
     if (b !== 100) f.push(`brightness(${b / 100})`);
     if (c !== 100) f.push(`contrast(${c / 100})`);
-    if (s.filterGreyscale) f.push('grayscale(1)');
+    if (s.filterGreyscale || s.look === 'eink') f.push('grayscale(1)');
+    if (s.look === 'eink') f.push('contrast(1.12)');
     // Invert for night reading; turning the hues back keeps colour pages' colours.
     if (s.filterInvert) f.push('invert(1) hue-rotate(180deg)');
     return f.join(' ') || 'brightness(1)';
@@ -378,7 +381,8 @@ export class PageEngine {
    */
   prepare(el, i, { sidesOnly = false } = {}) {
     const s = this.s;
-    if (!s.autoCrop && !s.whitenPaper) return el;
+    const whiten = s.whitenPaper || s.look === 'book' || s.look === 'eink';
+    if (!s.autoCrop && !whiten) return el;
     if (!this.analysis.has(i)) this.analysis.set(i, analysePage(el));
     const a = this.analysis.get(i);
     if (!a) return el;
@@ -397,7 +401,7 @@ export class PageEngine {
       c.dataset.alt = el.alt || `Page ${i + 1}`;
       out = c;
     }
-    const gains = s.whitenPaper && paperGains(a.paper);
+    const gains = whiten && paperGains(a.paper);
     if (gains) out.style.setProperty('--paper', `url(#${this.paperFilter(i, gains)})`);
     return out;
   }
@@ -616,10 +620,28 @@ export class PageEngine {
     }
 
     const solo = this.s.layout === 'double' && spread.length === 1;
-    const wrap = h(`div.spread${this.wideFit ? '.fit-wide' : ''}${solo ? '.solo' : ''}${dir ? `.turn-${dir}` : ''}`, els);
+    const turn = dir ? this.s.pageTurn || 'slide' : 'none';
+    const wrap = h(`div.spread${this.wideFit ? '.fit-wide' : ''}${solo ? '.solo' : ''}${turn === 'slide' ? `.turn-${dir}` : ''}${els.length > 1 ? '.pair' : ''}`, els);
+    // The Book look: a spine between two pages, or a soft fold on the bound side of one.
+    if (this.s.look === 'book') wrap.append(h(`div.spine${els.length > 1 ? '' : '.single'}`));
+    // Book page turn: the old pages go onto a leaf that swings over the new ones.
+    const old = this.container.querySelector(':scope > .spread:not(.end-spread)');
+    const bookTurn = turn === 'book' && old && !reducedMotion();
+    const oldRects = bookTurn ? measure(old, this.shell.stage) : null;
+    finishTurn();
     this.container.replaceChildren(wrap);
     this.container.scrollTop = dir === 'prev' && this.s.scaling !== 'screen' ? this.container.scrollHeight : 0;
     this.container.scrollLeft = this.dir === 'rtl' ? this.container.scrollWidth : 0;
+    if (bookTurn) {
+      turnPages({
+        stage: this.shell.stage,
+        oldWrap: old,
+        oldRects,
+        newWrap: wrap,
+        toLeft: (dir === 'next') !== (this.dir === 'rtl'),
+        paper: this.s.look === 'eink' ? LOOKS.eink.bg : '#fbf8f1',
+      });
+    }
     this.preload(spread);
   }
 
@@ -698,7 +720,7 @@ export class PageEngine {
   showEndPage() {
     this.atEnd = true;
     this.renderSeq++;
-    this.container.replaceChildren(h('div.spread.end-spread.turn-next', this.shell.endPanel({ paged: true })));
+    this.container.replaceChildren(h(`div.spread.end-spread${this.s.pageTurn === 'none' ? '' : '.turn-next'}`, this.shell.endPanel({ paged: true })));
     this.container.scrollTop = 0;
     this.shell.setPosition(this.shell.endLabel, this.shell.endLabel);
     this.shell.setSliderValue(this.count - 1);

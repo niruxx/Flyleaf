@@ -936,3 +936,158 @@
   height: 0;
   overflow: hidden;
 }
+
+/* ---------- Book page turn (see reader/turn.js) ---------- */
+.reader .turn-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  overflow: hidden;
+}
+.reader .turn-under,
+.reader .turn-leaf,
+.reader .turn-cast {
+  position: absolute;
+}
+.reader .turn-leaf {
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+.reader .turn-leaf.hinge-left {
+  transform-origin: left center;
+}
+.reader .turn-leaf.hinge-right {
+  transform-origin: right center;
+}
+.reader .turn-face {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.reader .turn-face.back {
+  transform: rotateY(180deg);
+}
+.reader .turn-under > img,
+.reader .turn-under > canvas,
+.reader .turn-face > img,
+.reader .turn-face > canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  filter: var(--paper, ) var(--page-filter, brightness(1));
+}
+/* The page darkens as it lifts towards you, lightest along the fold. */
+.reader .turn-shade {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+.reader .turn-leaf.hinge-left .front .turn-shade {
+  background: linear-gradient(to right, rgb(0 0 0 / 0.55), rgb(0 0 0 / 0.1) 30%, rgb(255 255 255 / 0.18) 70%, rgb(0 0 0 / 0.25));
+}
+.reader .turn-leaf.hinge-right .front .turn-shade {
+  background: linear-gradient(to left, rgb(0 0 0 / 0.55), rgb(0 0 0 / 0.1) 30%, rgb(255 255 255 / 0.18) 70%, rgb(0 0 0 / 0.25));
+}
+.reader .turn-face.back .turn-shade,
+.reader .turn-face.plain .turn-shade {
+  background: linear-gradient(to right, rgb(0 0 0 / 0.35), rgb(0 0 0 / 0.05) 25%, transparent 60%, rgb(0 0 0 / 0.2));
+}
+.reader .turn-cast.from-right {
+  background: linear-gradient(to left, rgb(0 0 0 / 0.5), transparent 70%);
+  opacity: 0;
+}
+.reader .turn-cast.from-left {
+  background: linear-gradient(to right, rgb(0 0 0 / 0.5), transparent 70%);
+  opacity: 0;
+}
+
+/* ---------- Book look: paper pages with edges, a spine and grain ---------- */
+.reader.look-book .paged .spread {
+  position: relative;
+  /* A few sheets peeking out on each side, and the book's shadow on the table. */
+  box-shadow:
+    -2px 1px 0 #ebe6da, -4px 2px 0 #d8d1c1, -6px 3px 0 #e6e0d2, -8px 4px 0 #cfc7b6,
+    2px 1px 0 #ebe6da, 4px 2px 0 #d8d1c1, 6px 3px 0 #e6e0d2, 8px 4px 0 #cfc7b6,
+    0 24px 60px rgb(0 0 0 / 0.55), 0 6px 16px rgb(0 0 0 / 0.35);
+}
+.reader.look-book .paged .spread.end-spread {
+  box-shadow: none;
+}
+.reader.look-book .paged .spread::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: var(--paper-grain);
+  mix-blend-mode: multiply;
+  opacity: 0.55;
+}
+.reader.look-book .paged .spread.end-spread::after {
+  display: none;
+}
+/* The spine: pages curve down into the binding. */
+.reader.look-book .spine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 40px);
+  width: 80px;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(to right, transparent, rgb(0 0 0 / 0.06) 30%, rgb(0 0 0 / 0.32) 48%, rgb(0 0 0 / 0.4) 50%, rgb(0 0 0 / 0.32) 52%, rgb(0 0 0 / 0.06) 70%, transparent);
+}
+/* One page: a gentle fold on the bound side (left, or right in manga). */
+.reader.look-book .spine.single {
+  left: 0;
+  width: 46px;
+  background: linear-gradient(to right, rgb(0 0 0 / 0.22), rgb(0 0 0 / 0.06) 45%, transparent);
+}
+.reader.look-book.rtl .spine.single {
+  left: auto;
+  right: 0;
+  background: linear-gradient(to left, rgb(0 0 0 / 0.22), rgb(0 0 0 / 0.06) 45%, transparent);
+}
+.reader.look-book .strip .pg.ready {
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.04);
+}
+/* Ebooks: the page edges at the sides, and the spine between two pages. */
+.reader.look-book .text-stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  box-shadow: inset 14px 0 18px -12px rgb(0 0 0 / 0.28), inset -14px 0 18px -12px rgb(0 0 0 / 0.28);
+}
+.reader.look-book.two-up .text-stage::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 36px);
+  width: 72px;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, rgb(0 0 0 / 0.05) 30%, rgb(0 0 0 / 0.2) 49%, rgb(0 0 0 / 0.24) 50%, rgb(0 0 0 / 0.2) 51%, rgb(0 0 0 / 0.05) 70%, transparent);
+}
+
+/* ---------- E-ink look ---------- */
+.reader.look-eink .paged .spread {
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.08);
+}
+.reader.look-eink .paged .spread.turn-next,
+.reader.look-eink .paged .spread.turn-prev {
+  animation-duration: 120ms;
+}
+.reader.text.look-book {
+  background-image: var(--paper-grain);
+}
+.reader .turn-face.plain {
+  backface-visibility: visible;
+  -webkit-backface-visibility: visible;
+}

@@ -3,6 +3,14 @@
 import { h, icon, segmented, toggleSwitch, field } from '../ui.js';
 
 export const BACKGROUNDS = ['#000000', '#16161a', '#2b2b30', '#5c5c66', '#f4ecd8', '#ffffff'];
+/** Paper colours for the Book and E-ink looks (Reader settings → Look). */
+export const LOOKS = {
+  book: { bg: '#f7f1e3', fg: '#2a241c', link: '#7a4b1c', surround: '#26231f' },
+  eink: { bg: '#edede8', fg: '#141414', link: '#141414', surround: '#dcdcd6' },
+};
+/** Paper grain, as a tiny SVG noise tile (used by the Book look). */
+export const PAPER_GRAIN = `url("data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch"/><feColorMatrix values="0 0 0 0 0.45  0 0 0 0 0.38  0 0 0 0 0.28  0 0 0 0.09 0"/></filter><rect width="100%" height="100%" filter="url(#n)"/></svg>')}")`;
+
 export const TEXT_THEMES = {
   light: { bg: '#fbfaf7', fg: '#1f1d1a', link: '#4a4fb5', label: 'Paper' },
   sepia: { bg: '#f3ead6', fg: '#4f3d2e', link: '#8a5a2b', label: 'Sepia' },
@@ -31,6 +39,21 @@ export function readerSettingsForm(settings, onChange, { show = 'all', fonts = [
   const pages = show === 'pages' || show === 'all';
   const text = show === 'text' || show === 'all';
   const out = h('div');
+
+  // How pages look and turn – for every kind of book.
+  out.append(
+    section('Look', h('p.body-small.muted', { style: { margin: '-4px 0 8px' } }, 'Book: white paper with page edges and a spine, like a printed book. E-ink: a calm grey screen like an e-reader.'),
+      segmented([
+        { value: 'plain', label: 'Plain', icon: 'crop_square' },
+        { value: 'book', label: 'Book', icon: 'auto_stories' },
+        { value: 'eink', label: 'E-ink', icon: 'tablet' },
+      ], settings.look || 'plain', set('look'))),
+    section('Page turn', segmented([
+      { value: 'slide', label: 'Slide', icon: 'swipe_left' },
+      { value: 'book', label: 'Book', icon: 'menu_book' },
+      { value: 'none', label: 'None', icon: 'block' },
+    ], settings.pageTurn || 'slide', set('pageTurn'))),
+  );
 
   if (pages) {
     if (show === 'all') out.append(h('div.sub-head', { style: { margin: '8px 24px 0' } }, 'Manga, comics & PDF'));

@@ -50,7 +50,7 @@ for metadata, so the series IDs are already there.
 
 ---
 
-## 📖 Reader (9 of 11 done)
+## 📖 Reader (11 of 13 done)
 
 - ⬜ **Text-to-speech / read aloud** with the Web Speech API: highlight the current sentence,
   a speed control and a sleep timer (Readest and KOReader have it)
@@ -61,6 +61,10 @@ for metadata, so the series IDs are already there.
   correction for yellowed scans (Mihon's custom filter)
 - ⬜ **Proper pinch and double-tap zoom** inside the page reader, not just the browser's own
   zoom, with pan and reset (Mihon, Panels)
+- ✅ **Book look**: paper pages with edges, a spine and grain, or an E-ink look, for ebooks, comics
+  and PDFs (Apple Books, Kindle)
+- ✅ **Book page turns**: pages swing over on the spine in 3D, with the next page on the back of
+  the turning leaf in two-page spreads
 - ✅ **Auto-scroll** for webtoon mode with adjustable speed (play/pause in the reader menu or `P`,
   `-`/`=` for speed; touching the screen pauses it)
 - ✅ **Chapter end screen**: "Next chapter" with a cover preview instead of just turning the page

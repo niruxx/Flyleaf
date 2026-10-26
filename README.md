@@ -102,6 +102,7 @@
 
 The full list is in [CHANGELOG.md](CHANGELOG.md) – and in the app: after an update everyone sees a small *What's new* card once, and the whole changelog is under *What's new* in the account menu.
 
+- 📕 **Book look & page turns** – a *Book* look (paper pages, page edges, a spine) or an *E-ink* look for every kind of book, and pages that turn over in 3D like a real book (*Reader settings → Look / Page turn*).
 - 📖 **Look up while reading** – select text in an ebook for a dictionary definition (Wiktionary), a Wikipedia summary or a translation (`LOOKUP=0` turns it off).
 - ✂️ **Auto-crop & image filters** – trim blank borders from scans, whiten yellowed paper, and set brightness, contrast, greyscale or invert for comics and manga.
 - 📝 **Footnote pop-ups** – tap a footnote or endnote marker in an ebook and the note opens in place, with *Go to note* to jump there.

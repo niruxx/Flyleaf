@@ -5,7 +5,7 @@ import { api } from '../api.js';
 import { onLeave, navigate, previousPath } from '../router.js';
 import { h, icon, iconButton, button, sheet, syncThemeColor, snackbar, segmented } from '../ui.js';
 import { Tracker } from './tracker.js';
-import { readerSettingsForm } from '../components/reader-settings.js';
+import { readerSettingsForm, PAPER_GRAIN } from '../components/reader-settings.js';
 import { resolveKeybinds, actionFor } from '../keybinds.js';
 import { annotationRow } from '../views/bookmarks.js';
 import { t, plural } from '../i18n.js';
@@ -396,6 +396,9 @@ function createShell(data, tracker) {
     },
     applyBehaviour() {
       root.classList.toggle('immersive', Boolean(settings.immersive));
+      root.classList.toggle('look-book', settings.look === 'book');
+      root.classList.toggle('look-eink', settings.look === 'eink');
+      root.style.setProperty('--paper-grain', PAPER_GRAIN);
     },
     /** Change one setting from inside the reader (like the settings sheet does). */
     changeSetting(key, value) {

@@ -8,6 +8,15 @@ How to write an entry: add a `## [version] – YYYY-MM-DD` heading at the top (a
 `### Fixed` with one bullet per change. Start a bullet with **the feature in bold** and say what
 it does for readers in a sentence – that's what shows up in the card.
 
+## [2.7.0] – 2026-10-26
+
+Make it feel like a real book.
+
+### Added
+- **Book look** – white paper pages with a little grain, page edges, a shadow along the spine and the book resting on a dark table – for ebooks, comics and PDFs alike (*Reader settings → Look*).
+- **E-ink look** – a calm grey screen with crisp black text and greyscale pictures, like an e-reader.
+- **Book page turns** – pages swing over on their spine in 3D, and in two-page spreads the next page is printed on the back of the turning leaf (*Reader settings → Page turn*: Slide, Book or None).
+
 ## [2.6.0] – 2026-10-26
 
 Look words up while you read, and cleaner scans.
