@@ -63,6 +63,11 @@ export async function librariesPanel(panel, stale) {
         h('div', h('a', { href: `#/library/${l.id}`, style: { color: 'inherit' } }, l.name)),
         h('div.s.mono', l.path),
         h('div.s', `${l.seriesCount} series · ${l.bookCount} files · ${MODE_LABEL[l.mode] || l.mode}${l.autoMetadata ? ' · auto metadata' : ''} · ${l.lastScanAt ? `scanned ${timeAgo(l.lastScanAt)}` : 'not scanned yet'}`),
+        l.watch && l.watch.reason !== 'off' && h('div.s.watch-line', { class: l.watch.watching ? 'on' : 'off', title: l.watch.error || '' },
+          icon(l.watch.watching ? 'visibility' : 'visibility_off'),
+          l.watch.watching
+            ? `Watching for new files${l.watch.lastScan ? ` · last change picked up ${timeAgo(l.watch.lastScan)}` : ''}`
+            : l.watch.error ? `Not watching: ${l.watch.error} – new files show up at the next scheduled scan` : 'Starting to watch…'),
       ),
       more,
     );

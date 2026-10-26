@@ -13,6 +13,9 @@ const DEFAULT_SETTINGS = {
   pageSplit: 'none', // none | split | split-reverse | fit
   background: '#000000',
   webtoonGap: 0,
+  autoScrollSpeed: 3, // 1–10
+  smartSpreads: true, // double-page: wide pages alone
+  coverAlone: true, // double-page: the first page alone
   // Behaviour
   autoCloseMenu: true,
   immersive: false,

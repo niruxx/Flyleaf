@@ -1350,7 +1350,7 @@ dialog .tabs button {
 }
 @media (min-width: 720px) {
   .goals {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   }
 }
 .goal-card {

@@ -11,7 +11,7 @@ import { annotationRow } from '../views/bookmarks.js';
 import { t, plural } from '../i18n.js';
 
 export async function readerView(view, params, stale) {
-  const data = await api.reader(params.id);
+  const data = await api.reader(params.id, params.query.get('list'));
   if (stale()) return;
   const { book } = data;
 
@@ -95,7 +95,17 @@ function createShell(data, tracker) {
   const nextBtn = iconButton('chevron_right', t('Next page'), () => shell.engine?.right());
   const prevBook = book.prev && iconButton('skip_previous', `Previous: ${book.prev.label}`, () => openBook(book.prev));
   const nextBook = book.next && iconButton('skip_next', `Next: ${book.next.label}`, () => openBook(book.next));
+  // Auto-scroll (webtoon mode): play/pause and speed.
+  const autoBtn = iconButton('play_arrow', t('Auto-scroll (P)'), () => shell.engine?.toggleAutoScroll?.());
+  const autoSpeed = h('span.auto-speed.label-large');
+  const autoRow = h('div.row.auto-row', { hidden: true },
+    autoBtn,
+    h('span.label-medium.auto-label', t('Auto-scroll')),
+    iconButton('remove', t('Slower (-)'), () => shell.engine?.autoScrollSpeed?.(-1)),
+    autoSpeed,
+    iconButton('add', t('Faster (=)'), () => shell.engine?.autoScrollSpeed?.(1)));
   const bottom = h('div.chrome-bottom',
+    autoRow,
     h('div.row', prevBtn, slider, nextBtn),
     h('div.row', { style: { justifyContent: 'space-between' } }, prevBook || h('span', { style: { width: '40px' } }), pageNo, nextBook || h('span', { style: { width: '40px' } })),
   );
@@ -144,11 +154,19 @@ function createShell(data, tracker) {
 
   async function openBook(b) {
     if (b.progress?.finished) await api.setFinished(b.id, false);
-    navigate(`/read/${b.id}`, { replace: true });
+    // Reading from a reading list: keep following the list.
+    navigate(`/read/${b.id}${book.readingList ? `?list=${book.readingList.id}` : ''}`, { replace: true });
   }
 
   // ----- settings -----
   let saveTimer;
+  /** Settings changed in the reader are saved for this series (a custom override of the profile). */
+  function persistSettings() {
+    overridden = true;
+    clearTimeout(saveTimer);
+    const { resolvedDir, ...clean } = settings;
+    saveTimer = setTimeout(() => book.seriesId && api.saveReaderSettings(book.seriesId, clean).catch(() => {}), 600);
+  }
   function openSettings() {
     // Audiobooks only have the behaviour settings.
     const show = book.engine === 'text' ? 'text' : book.engine === 'audio' ? 'none' : 'pages';
@@ -175,10 +193,7 @@ function createShell(data, tracker) {
           if (key === 'direction') settings.resolvedDir = value === 'auto' ? (book.kind === 'manga' ? 'rtl' : 'ltr') : value;
           shell.applyBehaviour();
           shell.engine?.applySetting?.(key, value);
-          overridden = true;
-          clearTimeout(saveTimer);
-          const { resolvedDir, ...clean } = settings;
-          saveTimer = setTimeout(() => book.seriesId && api.saveReaderSettings(book.seriesId, clean).catch(() => {}), 600);
+          persistSettings();
           if (key === 'layout') render(fonts);
         }, { show, fonts }));
       const enabled = data.enabledFonts;
@@ -382,6 +397,27 @@ function createShell(data, tracker) {
     applyBehaviour() {
       root.classList.toggle('immersive', Boolean(settings.immersive));
     },
+    /** Change one setting from inside the reader (like the settings sheet does). */
+    changeSetting(key, value) {
+      settings[key] = value;
+      shell.applyBehaviour();
+      shell.engine?.applySetting?.(key, value);
+      persistSettings();
+    },
+    /** Engines say whether auto-scroll is available (webtoon mode) after building. */
+    setAutoScrollAvailable(on) {
+      autoRow.hidden = !on;
+      shell.autoScrollChanged(false);
+    },
+    autoScrollChanged(on) {
+      autoBtn.querySelector('.icon').textContent = on ? 'pause' : 'play_arrow';
+      autoBtn.title = on ? t('Pause auto-scroll (P)') : t('Auto-scroll (P)');
+      autoBtn.setAttribute('aria-label', autoBtn.title);
+      autoBtn.classList.toggle('selected', on);
+      autoSpeed.textContent = String(Math.max(1, Math.min(10, Number(settings.autoScrollSpeed) || 3)));
+      root.classList.toggle('auto-scrolling', on);
+      if (on && autoHide()) shell.showChrome(false);
+    },
     showChrome(on) {
       clearTimeout(hideTimer);
       root.classList.toggle('chrome-hidden', !on);
@@ -447,6 +483,9 @@ function createShell(data, tracker) {
         case 'settings': return openSettings();
         case 'fullscreen': return toggleFullscreen();
         case 'nextBook': return book.next && openBook(book.next);
+        case 'autoScroll': return eng?.toggleAutoScroll?.();
+        case 'scrollFaster': return eng?.autoScrollSpeed?.(1);
+        case 'scrollSlower': return eng?.autoScrollSpeed?.(-1);
         case 'prevBook': return book.prev && openBook(book.prev);
         case 'close': return document.fullscreenElement ? document.exitFullscreen() : exit();
       }
@@ -459,20 +498,60 @@ function createShell(data, tracker) {
       else eng?.right();
     },
     swipeEnabled: () => settings.swipeToPaginate !== false,
-    /** Called by engines when the reader moves past the last page. */
+    endLabel: t('End'),
+    /** Open the next volume or chapter (from the end screen). */
+    openNext() {
+      if (book.next) return openBook(book.next);
+      shell.toast(t('That’s the last one in this series'));
+    },
+    /**
+     * The chapter end screen: what you finished, and the next volume or chapter with its cover.
+     * Page engines show it as a page after the last one; webtoon mode at the bottom of the strip.
+     */
+    endPanel({ paged = false, onStay } = {}) {
+      const nextB = book.next;
+      const where = book.label || book.title;
+      const art = (b) => {
+        const box = h('div.ce-cover', h('span.ce-cover-label', b.label));
+        if (b.coverUrl) {
+          const img = h('img', { src: b.coverUrl, alt: '', loading: 'lazy', decoding: 'async' });
+          img.addEventListener('load', () => box.classList.add('loaded'));
+          img.addEventListener('error', () => img.remove());
+          box.prepend(img);
+        }
+        return box;
+      };
+      const nextInfo = nextB && [
+        nextB.pageCount ? plural(nextB.pageCount, '{n} page', '{n} pages') : null,
+        nextB.progress?.finished ? t('read before') : nextB.progress?.page ? t('continue from page {n}', { n: nextB.progress.page + 1 }) : null,
+      ].filter(Boolean).join(' · ');
+      const panel = h('div.chapter-end',
+        h('div.ce-done', icon('check_circle', 'filled'), h('div', h('div.ce-kicker', t('Finished')), h('div.ce-title', where))),
+        nextB
+          ? h('button.ce-next.state', { type: 'button', onclick: () => openBook(nextB) },
+            art(nextB),
+            h('div.ce-next-text',
+              h('div.ce-kicker', book.readingList ? t('Up next in {list}', { list: book.readingList.name }) : t('Up next')),
+              h('div.ce-next-title', nextB.label),
+              nextInfo && h('div.ce-next-meta', nextInfo),
+              h('span.btn.filled.ce-read', icon('skip_next'), t('Read next'))))
+          : h('div.ce-last', icon('done_all'), h('div', h('div.ce-next-title', t('You’re all caught up')), h('div.ce-next-meta', book.series ? t('That’s the last one in {series}.', { series: book.series }) : book.title))),
+        h('div.ce-actions',
+          onStay && h('button.btn.text.state', { type: 'button', onclick: onStay }, t('Stay here')),
+          h('button.btn.text.state', { type: 'button', onclick: () => exit() }, icon('arrow_back'), book.seriesId ? t('Back to series') : t('Close book'))),
+        paged && nextB && h('div.ce-hint', t('Turn the page again to keep reading')),
+      );
+      // Taps on the panel are for its buttons, not page turns.
+      panel.addEventListener('click', (e) => e.stopPropagation());
+      panel.addEventListener('pointerdown', (e) => e.stopPropagation());
+      return panel;
+    },
+    /** Called by engines (ebooks, audiobooks) when the reader moves past the end. */
     showEnd() {
       shell.showChrome(true);
       if (root.querySelector('.end-card')) return;
-      const nextB = book.next;
-      const card = h('dialog.dialog.end-card',
-        h('div.dialog-head', icon('celebration'), h('h2.headline-small', 'You finished it!')),
-        h('div.dialog-body', nextB ? h('p', `Up next in ${book.series}: ${nextB.label}`) : h('p', book.title)),
-        h('div.dialog-actions',
-          h('button.btn.text.state', { type: 'button', onclick: () => card.close() }, 'Stay here'),
-          h('button.btn.text.state', { type: 'button', onclick: () => { card.close(); exit(); } }, t('Close book')),
-          nextB && h('button.btn.filled.state', { type: 'button', onclick: () => { card.close(); openBook(nextB); } }, icon('skip_next'), 'Read next'),
-        ),
-      );
+      const card = h('dialog.dialog.end-card');
+      card.append(shell.endPanel({ onStay: () => card.close() }));
       card.addEventListener('close', () => card.remove());
       root.append(card);
       card.showModal();

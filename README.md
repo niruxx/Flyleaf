@@ -100,6 +100,15 @@
 
 ## 🆕 What's new
 
+- 👀 **New files show up within seconds** – library folders are watched for changes, so files you copy in, rename or delete appear without waiting for the next scan (`WATCH_FOLDERS`). Network shares that don't report changes still get the scheduled scan.
+- 🗂️ **Smart shelves** – set filters on any list (unread + ongoing + Action, say) and save them as a shelf on Home and in the side menu. Shelves stay up to date as your library changes.
+- 📚 **Reading lists** – read across series in order (comic events, crossovers): add books or whole series from their menus, reorder them, and the reader's *Next* follows the list. Import and export **ComicRack .cbl** files.
+- 🎯 **Pages-per-year goal** – set a page goal alongside your books goal. Comic and PDF pages count as you turn them; ebook pages are estimated from their length.
+
+- 📜 **Webtoon auto-scroll** – press play in the reader menu (or `P`) and the strip scrolls by itself at one of ten speeds (`-` / `=`). Touching the screen pauses it while your finger is down.
+- 🏁 **Chapter end screen** – after the last page you get a page showing the next volume or chapter with its cover, page count and where you left off; turn the page again (or tap *Read next*) to carry on.
+- 📖 **Smart double pages** – in double-page mode, wide two-page scans are shown on their own and the pages after them stay paired correctly. *Cover on its own* is a setting too.
+
 - 📋 **Activity log** – *Settings → Activity* shows who signed in, downloaded, uploaded, deleted or changed what, and when, filtered by person or kind, with a CSV export.
 - 🚨 **Failed sign-in alerts** – the same page lists failed sign-ins by address and account name and lets you unblock an address; admins get a notification when someone keeps guessing.
 - 💽 **Storage limits** – a storage quota for each personal folder (a server default, overridable per user), the largest upload, and how much free disk space to keep. Users see how much room they have left.
@@ -290,6 +299,8 @@ Set these in `/etc/flyleaf/flyleaf.env` (service install) or a `.env` file next 
 | `HOST` | `0.0.0.0` | Interface to bind (`127.0.0.1` = this machine only) |
 | `FLYLEAF_DATA_DIR` | `./data` | Database, covers, caches and logs |
 | `SCAN_INTERVAL_MINUTES` | `60` | Automatic rescans (`0` = only on start / manual) |
+| `WATCH_FOLDERS` | `1` | Watch library folders and pick up changes within seconds (`0` turns it off) |
+| `WATCH_DELAY_SECONDS` | `5` | How long a folder must be quiet before it is scanned (so copies can finish) |
 | `FULLTEXT` | `1` | Index book text for *search inside books* (`0` turns it off) |
 | `FOLLOW_CHECK_HOURS` | `6` | How often followed series are checked for new chapters (`0` = only when you press *Check now*) |
 | `SESSION_DAYS` | `30` | How long sign-ins last |

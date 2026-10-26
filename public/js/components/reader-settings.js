@@ -70,10 +70,19 @@ export function readerSettingsForm(settings, onChange, { show = 'all', fonts = [
           { value: 'split-reverse', label: 'Split reversed' },
           { value: 'fit', label: 'Fit' },
         ], settings.pageSplit, set('pageSplit'))),
+      settings.layout === 'double' || show === 'all'
+        ? h('div.sheet-section', h('h3', 'Double pages'),
+          toggle('Smart spreads', 'Show wide pages (two-page scans) on their own and keep the pages after them paired correctly', settings.smartSpreads !== false, set('smartSpreads')),
+          toggle('Cover on its own', 'Start pairing from the second page, like a printed book', settings.coverAlone !== false, set('coverAlone')))
+        : '',
       section('Background colour', bgRow),
       settings.layout === 'webtoon' || show === 'all'
         ? section('Webtoon page gap', h('div.row', rangeInput(0, 40, 2, settings.webtoonGap, set('webtoonGap'), (v) => `${v}px`)))
-        : null,
+        : '',
+      settings.layout === 'webtoon' || show === 'all'
+        ? section('Auto-scroll speed', h('p.body-small.muted', { style: { margin: '-4px 0 8px' } }, 'Start it with the play button in the reader menu or P. Touching the screen pauses it while your finger is down.'),
+          h('div.row', icon('slow_motion_video'), rangeInput(1, 10, 1, Number(settings.autoScrollSpeed) || 3, set('autoScrollSpeed'), (v) => String(v)), icon('speed')))
+        : '',
     );
   }
 

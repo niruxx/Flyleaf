@@ -122,7 +122,7 @@ export const api = {
 
   book: (id) => GET(`/api/books/${id}`),
   bookInfo: (id) => GET(`/api/books/${id}/info`),
-  reader: (id) => GET(`/api/books/${id}/reader`),
+  reader: (id, list) => GET(`/api/books/${id}/reader${qs({ list })}`),
   updateBook: (id, b) => PATCH(`/api/books/${id}`, b),
   deleteBook: (id) => DEL(`/api/books/${id}`),
   moveTargets: ({ book, series }) => GET(`/api/move-targets?${book ? `book=${book}` : `series=${series}`}`),
@@ -149,6 +149,25 @@ export const api = {
   deleteCollection: (id) => DEL(`/api/collections/${id}`),
   addToCollection: (id, seriesIds) => POST(`/api/collections/${id}/items`, { seriesIds }),
   removeFromCollection: (id, seriesId) => DEL(`/api/collections/${id}/items/${seriesId}`),
+  smartFilters: () => GET('/api/filters'),
+  createSmartFilter: (b) => POST('/api/filters', b),
+  updateSmartFilter: (id, b) => PATCH(`/api/filters/${id}`, b),
+  deleteSmartFilter: (id) => DEL(`/api/filters/${id}`),
+  readingLists: () => GET('/api/reading-lists'),
+  readingList: (id) => GET(`/api/reading-lists/${id}`),
+  createReadingList: (b) => POST('/api/reading-lists', b),
+  updateReadingList: (id, b) => PATCH(`/api/reading-lists/${id}`, b),
+  deleteReadingList: (id) => DEL(`/api/reading-lists/${id}`),
+  addToReadingList: (id, b) => POST(`/api/reading-lists/${id}/items`, b),
+  removeFromReadingList: (id, bookId) => DEL(`/api/reading-lists/${id}/items/${bookId}`),
+  rematchReadingList: (id) => POST(`/api/reading-lists/${id}/rematch`),
+  readingListCblUrl: (id) => `/api/reading-lists/${id}/export.cbl`,
+  importCbl: async (file, name) => {
+    const res = await fetch(`/api/reading-lists/import${qs({ name })}`, { method: 'POST', headers: { 'X-Flyleaf': '1', 'Content-Type': 'application/xml' }, body: await file.text(), credentials: 'same-origin' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(data.error || 'Import failed.', res.status);
+    return data;
+  },
 
   profiles: () => GET('/api/profiles'),
   createProfile: (b) => POST('/api/profiles', b),
@@ -175,7 +194,7 @@ export const api = {
 
   stats: (days) => GET(`/api/stats${qs({ days, today: localDay() })}`),
   statsYear: (year) => GET(`/api/stats/year${qs({ year })}`),
-  setReadingGoal: (year, books) => PUT('/api/stats/goal', { year, books }),
+  setReadingGoal: (year, goals) => PUT('/api/stats/goal', { year, ...goals }),
 
   reviews: (seriesId) => GET(`/api/series/${seriesId}/reviews`),
   saveReview: (seriesId, b) => PUT(`/api/series/${seriesId}/review`, b),

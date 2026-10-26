@@ -69,6 +69,57 @@ export async function addToCollection(seriesIds, label = 'this series') {
 }
 
 // ---------------------------------------------------------------------------
+// Reading lists
+
+export async function newReadingList({ bookIds = [], seriesId = null } = {}) {
+  const name = field('Reading list name', { required: true, support: 'For example an event: “Civil War reading order”' });
+  const summary = field('Description', { multiline: true });
+  const shared = h('input', { type: 'checkbox' });
+  let id = null;
+  await formDialog({
+    title: 'New reading list',
+    icon: 'format_list_numbered',
+    fields: [name, summary, isAdmin() && h('label.check', shared, 'Share with all users')],
+    submit: 'Create',
+    onSubmit: async () => {
+      id = (await api.createReadingList({ name: name.input.value, summary: summary.input.value, promoted: shared.checked, bookIds, seriesId })).id;
+    },
+  });
+  if (id) {
+    snackbar(bookIds.length || seriesId ? 'Added to the new reading list' : 'Reading list created');
+    refreshShell();
+  }
+  return id;
+}
+
+/** Add a book, or a whole series in order, to the end of one of your reading lists. */
+export async function addToReadingList({ bookIds = [], seriesId = null }, label = 'this book') {
+  const lists = (await api.readingLists()).filter((l) => l.owned);
+  let picked = lists[0]?.id ?? null;
+  const rows = lists.map((l) => {
+    const input = h('input', { type: 'radio', name: 'rl', checked: l.id === picked, onchange: () => (picked = l.id) });
+    return h('label.check', input, h('span', l.name), h('span.muted', { style: { marginLeft: 'auto', fontSize: '12px' } }, String(l.count)));
+  });
+  const result = await dialog({
+    title: 'Add to reading list',
+    icon: 'format_list_numbered',
+    content: h('div',
+      h('p', { style: { marginBottom: '8px' } }, `Add ${label} to the end of a reading list.`),
+      rows.length ? h('div', rows) : h('p.muted', 'You have no reading lists yet.')),
+    actions: [
+      { label: 'New list', icon: 'add', value: 'new' },
+      { label: 'Cancel' },
+      rows.length > 0 && { label: 'Add', variant: 'filled', value: 'add' },
+    ].filter(Boolean),
+  });
+  if (result === 'new') return newReadingList({ bookIds, seriesId });
+  if (result !== 'add' || !picked) return;
+  const r = await api.addToReadingList(picked, { bookIds, seriesId });
+  snackbar(r.added ? `Added ${r.added === 1 ? '1 book' : `${r.added} books`} to “${lists.find((l) => l.id === picked).name}”` : 'Already in that list');
+  refreshShell();
+}
+
+// ---------------------------------------------------------------------------
 // Downloads & Send to
 
 /** The admin can turn off downloading (and Send to) per user. */
@@ -251,6 +302,7 @@ export function seriesActions(anchor, s, { onChange, at } = {}) {
     { label: 'Mark as read', icon: 'done_all', onClick: async () => { await api.setSeriesFinished(s.id, true); snackbar('Marked as read'); changed(); } },
     { label: 'Mark as unread', icon: 'remove_done', onClick: async () => { await api.setSeriesFinished(s.id, false); snackbar('Marked as unread'); changed(); } },
     { label: 'Add to category', icon: 'playlist_add', onClick: () => addToCollection([s.id], `“${s.name}”`).then(changed) },
+    { label: 'Add to reading list', icon: 'format_list_numbered', onClick: () => addToReadingList({ seriesId: s.id }, `every book of “${s.name}”`) },
     canDownload() && { label: 'Send to…', icon: 'send_to_mobile', onClick: () => sendTo({ series: s }) },
     '-',
     {
@@ -335,6 +387,7 @@ export function bookActions(anchor, b, { onChange, series, at } = {}) {
     { label: 'Mark as read', icon: 'done_all', disabled: done, onClick: async () => { await api.setFinished(b.id, true); snackbar('Marked as read'); changed(); } },
     { label: 'Mark as unread', icon: 'remove_done', disabled: !b.progress, onClick: async () => { await api.setFinished(b.id, false); snackbar('Marked as unread'); changed(); } },
     b.seriesId && { label: 'Add to category', icon: 'playlist_add', onClick: () => addToCollection([b.seriesId], `“${series?.name || b.series}”`).then(changed) },
+    { label: 'Add to reading list', icon: 'format_list_numbered', onClick: () => addToReadingList({ bookIds: [b.id] }, `“${b.label || b.title}”`) },
     canDownload() && { label: 'Send to…', icon: 'send_to_mobile', onClick: () => sendTo({ book: b }) },
     canDownload() && { label: 'Download', icon: 'download', onClick: () => download(downloadUrl(b), b.label || b.title, b.size) },
     offlineItem(b),

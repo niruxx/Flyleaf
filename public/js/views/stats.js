@@ -123,6 +123,12 @@ function goalsRow(s, reload) {
   const dayOfYear = (now - new Date(now.getFullYear(), 0, 1)) / 86400_000 + 1;
   const expected = goal.books ? Math.floor((goal.books * dayOfYear) / 365) : 0;
   const pace = !goal.books ? null : goal.finished >= goal.books ? 'Goal reached 🎉' : goal.finished >= expected ? `On track · ${goal.books - goal.finished} to go` : `${expected - goal.finished} behind pace`;
+  const pagesRead = goal.pagesRead || 0;
+  const expectedPages = goal.pages ? Math.floor((goal.pages * dayOfYear) / 365) : 0;
+  const pagesPace = !goal.pages ? null : pagesRead >= goal.pages ? 'Goal reached 🎉' : pagesRead >= expectedPages
+    ? `On track · ${(goal.pages - pagesRead).toLocaleString()} to go`
+    : `${(expectedPages - pagesRead).toLocaleString()} pages behind pace`;
+  const compact = (n) => (n >= 10_000 ? `${Math.round(n / 1000)}k` : n.toLocaleString());
 
   const edit = button('Set goals', { variant: 'text', icon: 'flag', onclick: () => goalDialog(s, reload) });
   return h('section.goals',
@@ -132,6 +138,13 @@ function goalsRow(s, reload) {
         h('div.title-medium', `${goal.year} reading goal`),
         h('div.body-medium.muted', goal.books ? `${goal.finished} of ${goal.books} books finished` : 'Set a number of books to finish this year.'),
         pace && h('div.label-large.goal-pace', pace)),
+    ),
+    h('div.goal-card',
+      ring(goal.pages ? pagesRead / goal.pages : 0, goal.pages ? [h('strong', compact(pagesRead)), h('span', `of ${compact(goal.pages)}`)] : [h('strong', compact(pagesRead)), h('span', 'pages')]),
+      h('div.goal-text',
+        h('div.title-medium', `${goal.year} pages`),
+        h('div.body-medium.muted', goal.pages ? `${pagesRead.toLocaleString()} of ${goal.pages.toLocaleString()} pages read` : `${pagesRead.toLocaleString()} pages read this year`),
+        pagesPace && h('div.label-large.goal-pace', pagesPace)),
     ),
     h('div.goal-card',
       ring(dailyMin ? todayMin / dailyMin : 0, [h('strong', String(todayMin)), h('span', 'min')]),
@@ -146,13 +159,14 @@ function goalsRow(s, reload) {
 
 async function goalDialog(s, reload) {
   const books = field(`Books to finish in ${s.goal.year}`, { type: 'number', value: s.goal.books ?? '', min: 0, max: 10000, support: 'Leave empty for no yearly goal.' });
+  const pages = field(`Pages to read in ${s.goal.year}`, { type: 'number', value: s.goal.pages ?? '', min: 0, max: 1000000, support: 'Comic and PDF pages count as they are; ebook pages are estimated from their length (about 300 words a page). Leave empty for no page goal.' });
   const minutes = field('Minutes a day', { type: 'number', value: s.dailyGoalMinutes || '', min: 0, max: 1440, support: 'Leave empty for no daily goal.' });
   await formDialog({
     title: 'Reading goals',
     icon: 'flag',
-    fields: [books, minutes],
+    fields: [books, pages, minutes],
     onSubmit: async () => {
-      await api.setReadingGoal(s.goal.year, books.input.value === '' ? null : Number(books.input.value));
+      await api.setReadingGoal(s.goal.year, { books: books.input.value === '' ? null : Number(books.input.value), pages: pages.input.value === '' ? null : Number(pages.input.value) });
       const m = Math.max(0, Math.min(1440, Math.round(Number(minutes.input.value) || 0)));
       session.user.prefs = await api.savePrefs({ dailyGoalMinutes: m });
       snackbar('Goals saved');
@@ -307,7 +321,7 @@ export async function yearReviewView(view, params, stale) {
     stagger(h('div.stat-grid',
       stat('hourglass_top', formatDuration(r.totalSeconds, { short: true }), 'Time reading'),
       stat('task_alt', String(r.finished), r.goal ? `Finished · goal ${r.goal}` : 'Books finished'),
-      stat('description', r.pages ? r.pages.toLocaleString() : '–', 'Pages in finished books'),
+      stat('description', r.pages ? r.pages.toLocaleString() : '–', r.pagesGoal ? `Pages read · goal ${r.pagesGoal.toLocaleString()}` : 'Pages read'),
       stat('local_fire_department', `${r.longestStreak.days} ${r.longestStreak.days === 1 ? 'day' : 'days'}`, 'Longest streak'),
       stat('calendar_month', String(r.activeDays), 'Reading days'),
       stat('today', new Date(2000, 0, 2 + favDay).toLocaleDateString(undefined, { weekday: 'long' }), 'Favourite day'),

@@ -35,6 +35,11 @@ api.use(express.json({ limit: '512kb' }));
 api.use(auth.sessionMiddleware);
 // Who did what (Settings → Activity); see activity.js for what's recorded.
 api.use(require('./activity').middleware);
+// Libraries added, moved or removed: watch the right folders straight away.
+api.use((req, res, next) => {
+  if (req.method !== 'GET' && /^(\/me)?\/libraries(\/\d+)?$/.test(req.path)) res.on('finish', () => res.statusCode < 400 && require('./watcher').sync());
+  next();
+});
 api.use(auth.csrfGuard);
 api.use((req, res, next) => {
   res.set('Cache-Control', 'no-store');
@@ -68,6 +73,7 @@ api.use(require('./routes/series').router);
 api.use(require('./routes/books').router);
 api.use(require('./routes/reading').router);
 api.use(require('./routes/personal').router);
+api.use(require('./routes/lists').router);
 api.use(require('./routes/notifications').router);
 
 api.use((req, res) => res.status(404).json({ error: 'Not found.' }));
@@ -146,6 +152,7 @@ require('./push').wire();
 require('./follows').start();
 require('./backup').startSchedule();
 require('./activity').start();
+require('./watcher').start();
 // Catch up on full-text indexing a little after start-up.
 setTimeout(() => require('./fulltext').indexPending().catch(() => {}), 20_000).unref();
 if (config.scanInterval > 0) {
@@ -157,6 +164,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, () => {
     log.info('Shutting down');
     require('./plugins/suwayomi-host').shutdown();
+    require('./watcher').stop();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();
   });

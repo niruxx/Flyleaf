@@ -125,6 +125,71 @@ router.delete('/collections/:id/items/:seriesId', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// Smart filters: a saved series-list query (genres + status + unread…) shown as a shelf on
+// Home and/or in the drawer. The query is the same one GET /series takes.
+
+const FILTER_KEYS = {
+  library: 'id', kind: 'str', genre: 'list', tag: 'str', userTag: 'str', person: 'str', status: 'str', userStatus: 'str',
+  want: 'flag', collection: 'id', read: 'str', sort: 'str', q: 'str',
+};
+function cleanFilter(f) {
+  const out = {};
+  for (const [k, type] of Object.entries(FILTER_KEYS)) {
+    const v = f?.[k];
+    if (v == null || v === '' || v === false || (Array.isArray(v) && !v.length)) continue;
+    if (type === 'id') out[k] = Number(v) || undefined;
+    else if (type === 'flag') out[k] = 1;
+    else if (type === 'list') out[k] = [].concat(v).map((x) => String(x).slice(0, 100)).slice(0, 20);
+    else out[k] = String(v).slice(0, 200);
+  }
+  return JSON.parse(JSON.stringify(out));
+}
+const filterRow = (f) => ({ id: f.id, name: f.name, filter: JSON.parse(f.filter), onHome: Boolean(f.on_home), inDrawer: Boolean(f.in_drawer), position: f.position });
+const ownFilter = (req) => {
+  const f = q('SELECT * FROM smart_filters WHERE id = ? AND user_id = ?').get(Number(req.params.id), req.user.id);
+  if (!f) throw Object.assign(new Error('Shelf not found.'), { status: 404, expose: true });
+  return f;
+};
+
+router.get('/filters', (req, res) => {
+  res.json(q('SELECT * FROM smart_filters WHERE user_id = ? ORDER BY position, id').all(req.user.id).map(filterRow));
+});
+
+router.post('/filters', (req, res) => {
+  const name = String(req.body?.name || '').trim().slice(0, 80);
+  if (!name) return res.status(400).json({ error: 'Give the shelf a name.' });
+  const filter = cleanFilter(req.body?.filter);
+  if (!Object.keys(filter).some((k) => k !== 'sort')) return res.status(400).json({ error: 'Pick at least one filter first.' });
+  const pos = q('SELECT COALESCE(MAX(position), -1) + 1 AS p FROM smart_filters WHERE user_id = ?').get(req.user.id).p;
+  const id = Number(q('INSERT INTO smart_filters (user_id, name, filter, on_home, in_drawer, position, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+    req.user.id, name, JSON.stringify(filter), req.body?.onHome === false ? 0 : 1, req.body?.inDrawer === false ? 0 : 1, pos, Date.now(),
+  ).lastInsertRowid);
+  res.status(201).json(filterRow(q('SELECT * FROM smart_filters WHERE id = ?').get(id)));
+});
+
+router.patch('/filters/:id', (req, res) => {
+  const f = ownFilter(req);
+  const b = req.body || {};
+  const name = b.name !== undefined ? String(b.name).trim().slice(0, 80) : f.name;
+  if (!name) return res.status(400).json({ error: 'Give the shelf a name.' });
+  q('UPDATE smart_filters SET name = ?, filter = ?, on_home = ?, in_drawer = ?, position = ? WHERE id = ?').run(
+    name,
+    b.filter !== undefined ? JSON.stringify(cleanFilter(b.filter)) : f.filter,
+    b.onHome !== undefined ? (b.onHome ? 1 : 0) : f.on_home,
+    b.inDrawer !== undefined ? (b.inDrawer ? 1 : 0) : f.in_drawer,
+    Number.isInteger(b.position) ? b.position : f.position,
+    f.id,
+  );
+  res.json(filterRow(q('SELECT * FROM smart_filters WHERE id = ?').get(f.id)));
+});
+
+router.delete('/filters/:id', (req, res) => {
+  const f = ownFilter(req);
+  q('DELETE FROM smart_filters WHERE id = ?').run(f.id);
+  res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
 // Annotations: highlights (with optional notes) and bookmarks
 
 const COLORS = ['yellow', 'green', 'blue', 'pink', 'purple', 'underline'];

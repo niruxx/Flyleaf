@@ -9,6 +9,23 @@ const router = express.Router();
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// Pages read: comics and PDFs count real pages; ebooks have no fixed pages, so their length is
+// estimated from the indexed text (about 1,800 characters a page) or, before indexing, the file
+// size. Each save counts at most MAX_PAGES_PER_SAVE, so jumping to the end with the slider
+// doesn't count as reading the whole book.
+const CHARS_PER_PAGE = 1800;
+const MAX_PAGES_PER_SAVE = 40;
+const IMAGE_FORMATS = new Set(['cbz', 'cbr', 'cb7', 'cbt', 'folder', 'pdf']);
+
+/** How many pages a book has, for counting pages read (0 for audiobooks). */
+function bookPages(row) {
+  if (row.format === 'audio') return 0;
+  if (IMAGE_FORMATS.has(row.format)) return row.page_count || 0;
+  const chars = q('SELECT chars FROM book_text_state WHERE book_id = ?').get(row.id)?.chars;
+  if (chars) return Math.max(1, Math.round(chars / CHARS_PER_PAGE));
+  return Math.max(1, Math.round((row.size || 0) / 4000));
+}
+
 function serverDay() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -32,7 +49,17 @@ router.put('/books/:id/progress', (req, res) => {
   const day = typeof body.day === 'string' && DAY_RE.test(body.day) ? body.day : serverDay();
   const finished = body.finished === true || (percent != null && percent >= 0.999) ? 1 : null;
 
-  const wasFinished = Boolean(q('SELECT finished FROM progress WHERE user_id = ? AND book_id = ?').get(req.user.id, bookId)?.finished);
+  const before = q('SELECT finished, page, percent FROM progress WHERE user_id = ? AND book_id = ?').get(req.user.id, bookId);
+  const wasFinished = Boolean(before?.finished);
+  // Pages read since the last save (forwards only).
+  const row = getBook(bookId, req.user);
+  const total = bookPages(row);
+  let pages = 0;
+  if (total) {
+    if (IMAGE_FORMATS.has(row.format) && page != null) pages = page - (before?.page ?? -1);
+    else if (percent != null) pages = Math.round((percent - (before?.percent ?? 0)) * total);
+    pages = Math.max(0, Math.min(pages, MAX_PAGES_PER_SAVE));
+  }
   tx(() => {
     q(`INSERT INTO progress (user_id, book_id, position, page, percent, finished, started_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -52,9 +79,9 @@ router.put('/books/:id/progress', (req, res) => {
       now,
       percent,
     );
-    if (seconds > 0) {
-      q(`INSERT INTO reading_log (user_id, book_id, day, seconds) VALUES (?, ?, ?, ?)
-         ON CONFLICT (user_id, book_id, day) DO UPDATE SET seconds = seconds + excluded.seconds`).run(req.user.id, bookId, day, seconds);
+    if (seconds > 0 || pages > 0) {
+      q(`INSERT INTO reading_log (user_id, book_id, day, seconds, pages) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (user_id, book_id, day) DO UPDATE SET seconds = seconds + excluded.seconds, pages = pages + excluded.pages`).run(req.user.id, bookId, day, seconds, pages);
     }
   });
   const p = q('SELECT page, percent, finished FROM progress WHERE user_id = ? AND book_id = ?').get(req.user.id, bookId);
@@ -109,7 +136,7 @@ router.get('/stats', (req, res) => {
 
   const allDays = readingDays(uid);
   const year = Number(today.slice(0, 4));
-  const goal = q('SELECT books FROM reading_goals WHERE user_id = ? AND year = ?').get(uid, year);
+  const goal = q('SELECT books, pages FROM reading_goals WHERE user_id = ? AND year = ?').get(uid, year);
   const todaySeconds = q('SELECT COALESCE(SUM(seconds), 0) AS s FROM reading_log WHERE user_id = ? AND day = ?').get(uid, today).s;
 
   // A year of days for the heat map, starting on a Sunday so the columns line up as weeks.
@@ -122,7 +149,7 @@ router.get('/stats', (req, res) => {
 
   res.json({
     longestStreak: longestStreak(allDays),
-    goal: { year, books: goal?.books ?? null, finished: finishedInYear(uid, year) },
+    goal: { year, books: goal?.books ?? null, finished: finishedInYear(uid, year), pages: goal?.pages ?? null, pagesRead: pagesInYear(uid, year) },
     dailyGoalMinutes: Number(req.user.prefs.dailyGoalMinutes) || 0,
     todaySeconds,
     heatmap,
@@ -189,18 +216,32 @@ function finishedInYear(uid, year) {
   return q('SELECT COUNT(*) AS n FROM progress WHERE user_id = ? AND finished = 1 AND finished_at >= ? AND finished_at < ?').get(uid, from, to).n;
 }
 
+/** Pages read during a calendar year (counted as you read; see bookPages). */
+function pagesInYear(uid, year) {
+  return q('SELECT COALESCE(SUM(pages), 0) AS n FROM reading_log WHERE user_id = ? AND day BETWEEN ? AND ?').get(uid, `${year}-01-01`, `${year}-12-31`).n;
+}
+
+/** Set this year's goals: { year, books?, pages? } – a field left out stays as it is, null or 0 removes it. */
 router.put('/stats/goal', (req, res) => {
-  const year = Number(req.body?.year) || new Date().getFullYear();
+  const b = req.body || {};
+  const year = Number(b.year) || new Date().getFullYear();
   if (year < 2000 || year > 2200) return res.status(400).json({ error: 'Pick a year.' });
-  const books = req.body?.books == null || req.body.books === '' ? null : Math.round(Number(req.body.books));
-  if (books == null || books <= 0) {
-    q('DELETE FROM reading_goals WHERE user_id = ? AND year = ?').run(req.user.id, year);
-  } else {
-    if (!Number.isFinite(books) || books > 10000) return res.status(400).json({ error: 'Pick a goal between 1 and 10,000 books.' });
-    q(`INSERT INTO reading_goals (user_id, year, books) VALUES (?, ?, ?)
-       ON CONFLICT (user_id, year) DO UPDATE SET books = excluded.books`).run(req.user.id, year, books);
+  const cur = q('SELECT books, pages FROM reading_goals WHERE user_id = ? AND year = ?').get(req.user.id, year) || {};
+  const read = (v, max, what) => {
+    if (v === undefined) return undefined;
+    if (v == null || v === '' || Number(v) <= 0) return null;
+    const n = Math.round(Number(v));
+    if (!Number.isFinite(n) || n > max) throw Object.assign(new Error(`Pick a goal between 1 and ${max.toLocaleString('en-US')} ${what}.`), { status: 400, expose: true });
+    return n;
+  };
+  const books = read(b.books, 10_000, 'books') ?? (b.books === undefined ? cur.books ?? null : null);
+  const pages = read(b.pages, 1_000_000, 'pages') ?? (b.pages === undefined ? cur.pages ?? null : null);
+  if (books == null && pages == null) q('DELETE FROM reading_goals WHERE user_id = ? AND year = ?').run(req.user.id, year);
+  else {
+    q(`INSERT INTO reading_goals (user_id, year, books, pages) VALUES (?, ?, ?, ?)
+       ON CONFLICT (user_id, year) DO UPDATE SET books = excluded.books, pages = excluded.pages`).run(req.user.id, year, books, pages);
   }
-  res.json({ year, books, finished: finishedInYear(req.user.id, year) });
+  res.json({ year, books, pages, finished: finishedInYear(req.user.id, year), pagesRead: pagesInYear(req.user.id, year) });
 });
 
 // ---------------------------------------------------------------------------
@@ -235,7 +276,7 @@ router.get('/stats/year', (req, res) => {
       return row ? { ...toBook(row, false, req.user), finishedAt: r.finished_at } : null;
     })
     .filter(Boolean);
-  const pages = finishedBooks.reduce((a, b) => a + (b.pageCount || 0), 0);
+  const pages = pagesInYear(uid, year) || finishedBooks.reduce((a, b) => a + (b.pageCount || 0), 0);
 
   // Series, genres and creators, weighted by time spent reading them this year.
   const perSeries = q(`SELECT b.series_id AS id, SUM(r.seconds) AS seconds FROM reading_log r JOIN books b ON b.id = r.book_id
@@ -258,7 +299,7 @@ router.get('/stats/year', (req, res) => {
                     JOIN books b ON b.id = r.book_id JOIN libraries l ON l.id = b.library_id
                     WHERE r.user_id = ? AND r.day BETWEEN ? AND ? GROUP BY l.kind ORDER BY seconds DESC`).all(uid, from, to);
   const highlights = q("SELECT COUNT(*) AS n FROM annotations WHERE user_id = ? AND kind = 'highlight' AND created_at >= ? AND created_at < ?").get(uid, fromMs, toMs).n;
-  const goal = q('SELECT books FROM reading_goals WHERE user_id = ? AND year = ?').get(uid, year);
+  const goal = q('SELECT books, pages FROM reading_goals WHERE user_id = ? AND year = ?').get(uid, year);
   const years = q("SELECT DISTINCT substr(day, 1, 4) AS y FROM reading_log WHERE user_id = ? ORDER BY y DESC").all(uid).map((r) => Number(r.y));
 
   res.json({
@@ -280,6 +321,7 @@ router.get('/stats/year', (req, res) => {
     topCreators: top(people, 5),
     highlights,
     goal: goal?.books ?? null,
+    pagesGoal: goal?.pages ?? null,
   });
 });
 

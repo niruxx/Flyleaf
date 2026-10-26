@@ -453,6 +453,55 @@ const migrations = [
 
   ALTER TABLE users ADD COLUMN quota_mb INTEGER;     -- storage limit for the personal folder; NULL = the server default
   `,
+
+  // v10: smart filters, reading lists, pages-per-year goals.
+  `
+  CREATE TABLE smart_filters (
+    id          INTEGER PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    filter      TEXT NOT NULL,                         -- JSON: the series-list query (library, genres, read, status, sort…)
+    on_home     INTEGER NOT NULL DEFAULT 1,
+    in_drawer   INTEGER NOT NULL DEFAULT 1,
+    position    INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL
+  );
+  CREATE INDEX smart_filters_user ON smart_filters(user_id, position);
+
+  -- Reading lists: books from any series in a set order (comic events, imported from ComicRack .cbl).
+  CREATE TABLE reading_lists (
+    id          INTEGER PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    summary     TEXT,
+    promoted    INTEGER NOT NULL DEFAULT 0,            -- shared with everyone (admin)
+    source      TEXT,                                  -- 'cbl' when imported
+    unmatched   TEXT,                                  -- JSON: CBL entries no book matched
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  );
+  CREATE TABLE reading_list_items (
+    list_id     INTEGER NOT NULL REFERENCES reading_lists(id) ON DELETE CASCADE,
+    book_id     INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    position    INTEGER NOT NULL,
+    PRIMARY KEY (list_id, book_id)
+  );
+  CREATE INDEX reading_list_items_pos ON reading_list_items(list_id, position);
+
+  -- Goals can be books, pages or both, so books may be empty now.
+  CREATE TABLE reading_goals_v10 (
+    user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    year     INTEGER NOT NULL,
+    books    INTEGER,
+    pages    INTEGER,
+    PRIMARY KEY (user_id, year)
+  );
+  INSERT INTO reading_goals_v10 (user_id, year, books) SELECT user_id, year, books FROM reading_goals;
+  DROP TABLE reading_goals;
+  ALTER TABLE reading_goals_v10 RENAME TO reading_goals;
+
+  ALTER TABLE reading_log ADD COLUMN pages INTEGER NOT NULL DEFAULT 0;   -- pages read that day
+  `,
 ];
 
 function migrate() {

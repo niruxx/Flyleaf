@@ -135,6 +135,11 @@ router.get('/books/:id/reader', (req, res) => {
     book.prev = siblings[i - 1] || null;
     book.next = siblings[i + 1] || null;
   }
+  // Opened from a reading list: previous and next follow the list, across series.
+  if (req.query.list) {
+    const n = require('./lists').neighbours(req.query.list, row.id, req.user);
+    if (n) Object.assign(book, { prev: n.prev, next: n.next, readingList: n.list });
+  }
   const resolved = profiles.resolve(req.user.id, row);
   const annotations = q('SELECT * FROM annotations WHERE user_id = ? AND book_id = ? ORDER BY COALESCE(page, 0), created_at').all(req.user.id, row.id);
   res.json({

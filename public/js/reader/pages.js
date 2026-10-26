@@ -4,6 +4,9 @@ import { api, pageUrl, fileUrl } from '../api.js';
 import { h, resolveColor } from '../ui.js';
 
 const MAX_CANVAS_PIXELS = 12_000_000; // stay well under iOS Safari's canvas limits
+// Auto-scroll speeds (levels 1–10) in pixels per second on an 800px-tall screen.
+const AUTO_SPEEDS = [0, 25, 40, 60, 85, 115, 150, 195, 250, 320, 400];
+const isWide = (el) => (el.naturalWidth || el.width) > (el.naturalHeight || el.height) * 1.1;
 
 // ---------------------------------------------------------------------------
 // Sources
@@ -167,6 +170,9 @@ export class PageEngine {
     this.renderSeq = 0;
     this.cleanups = [];
     this.toc = [];
+    this.wide = new Map(); // page → wide (a two-page scan), once it has loaded
+    this.spreadList = null;
+    this.atEnd = false; // showing the chapter end screen after the last page
   }
 
   get dir() {
@@ -213,6 +219,7 @@ export class PageEngine {
   }
 
   destroy() {
+    this.stopAutoScroll();
     this.cleanups.forEach((fn) => fn());
     this.source.destroy();
   }
@@ -234,21 +241,60 @@ export class PageEngine {
 
   applySetting(key) {
     this.applyTheme();
-    if (['layout', 'direction', 'scaling', 'pageSplit', 'webtoonGap'].includes(key)) {
+    if (['layout', 'direction', 'scaling', 'pageSplit', 'webtoonGap', 'smartSpreads', 'coverAlone'].includes(key)) {
       this.half = 0;
+      this.spreadList = null;
       this.build();
     }
+    if (key === 'autoScrollSpeed') this.shell.autoScrollChanged(this.autoScrolling);
   }
 
   // ----- navigation -----
 
-  spreadOf(p) {
-    if (this.s.layout !== 'double' || p === 0) return [p];
-    const start = p % 2 === 1 ? p : p - 1;
-    return [start, start + 1].filter((x) => x < this.count);
+  /**
+   * Double-page spreads. The cover can sit alone, and with smart spreads a wide page (a scan
+   * of two pages) is shown on its own and pairing starts again after it, so the spreads that
+   * follow stay aligned. Pages count as narrow until they've loaded.
+   */
+  spreads() {
+    if (this.spreadList) return this.spreadList;
+    const smart = this.s.smartSpreads !== false;
+    const wide = (i) => smart && this.wide.get(i) === true;
+    const list = [];
+    const index = [];
+    let i = 0;
+    if (this.s.coverAlone !== false && this.count) {
+      list.push([0]);
+      i = 1;
+    }
+    while (i < this.count) {
+      if (!wide(i) && i + 1 < this.count && !wide(i + 1)) {
+        list.push([i, i + 1]);
+        i += 2;
+      } else list.push([i++]);
+    }
+    list.forEach((sp, n) => sp.forEach((p) => (index[p] = n)));
+    this.spreadIndex = index;
+    return (this.spreadList = list);
   }
+  spreadOf(p) {
+    if (this.s.layout !== 'double') return [p];
+    const list = this.spreads();
+    return list[this.spreadIndex[p] ?? 0] || [p];
+  }
+  /** Remember whether a page is wide; true when that changes the spreads. */
+  noteSize(i, el) {
+    const wide = isWide(el);
+    if (this.wide.get(i) === wide) return false;
+    this.wide.set(i, wide);
+    if (this.s.layout !== 'double' || this.s.smartSpreads === false) return false;
+    this.spreadList = null;
+    return true;
+  }
+
   next() {
     if (this.scrollMode()) return this.scrollBy(1);
+    if (this.atEnd) return this.shell.openNext();
     if (this.container && this.s.scaling !== 'screen' && !this.wideFit) {
       const c = this.container;
       if (c.scrollTop + c.clientHeight < c.scrollHeight - 4) {
@@ -262,12 +308,16 @@ export class PageEngine {
     }
     const spread = this.spreadOf(this.page);
     const nextPage = spread[spread.length - 1] + 1;
-    if (nextPage >= this.count) return this.shell.showEnd();
+    if (nextPage >= this.count) return this.showEndPage();
     this.half = 0;
     this.go(nextPage, { dir: 'next' });
   }
   prev() {
     if (this.scrollMode()) return this.scrollBy(-1);
+    if (this.atEnd) {
+      this.atEnd = false;
+      return this.renderPaged('prev');
+    }
     if (this.container && this.s.scaling !== 'screen' && this.container.scrollTop > 4) {
       this.container.scrollBy({ top: -this.container.clientHeight * 0.85, behavior: 'smooth' });
       return;
@@ -314,6 +364,7 @@ export class PageEngine {
 
   go(p, { dir } = {}) {
     p = Math.max(0, Math.min(this.count - 1, p));
+    this.atEnd = false;
     if (this.scrollMode()) {
       this.page = p;
       this.stripJump(p);
@@ -350,6 +401,7 @@ export class PageEngine {
     });
     if (this.scrollMode()) this.buildStrip();
     else this.buildPaged();
+    this.shell.setAutoScrollAvailable(this.canAutoScroll);
   }
 
   buildPaged() {
@@ -362,6 +414,7 @@ export class PageEngine {
 
   async renderPaged(dir) {
     const seq = ++this.renderSeq;
+    this.atEnd = false;
     const spread = this.spreadOf(this.page);
     this.report();
     const loadingTimer = setTimeout(() => this.shell.setLoading(true), 150);
@@ -378,6 +431,14 @@ export class PageEngine {
     clearTimeout(loadingTimer);
     if (seq !== this.renderSeq) return;
     this.shell.setLoading(false);
+    // A page turned out to be wide: the spreads changed, so show the right pair instead.
+    if (els.map((el, n) => this.noteSize(spread[n], el)).some(Boolean)) {
+      const now = this.spreadOf(this.page);
+      if (now.join() !== spread.join()) {
+        this.page = now[0];
+        return this.renderPaged(dir);
+      }
+    }
 
     // Wide (double-page) scans: split into halves or force-fit, per the page-splitting setting.
     const el0 = els[0];
@@ -400,7 +461,8 @@ export class PageEngine {
       els = [c];
     }
 
-    const wrap = h(`div.spread${this.wideFit ? '.fit-wide' : ''}${dir ? `.turn-${dir}` : ''}`, els);
+    const solo = this.s.layout === 'double' && spread.length === 1;
+    const wrap = h(`div.spread${this.wideFit ? '.fit-wide' : ''}${solo ? '.solo' : ''}${dir ? `.turn-${dir}` : ''}`, els);
     this.container.replaceChildren(wrap);
     this.container.scrollTop = dir === 'prev' && this.s.scaling !== 'screen' ? this.container.scrollHeight : 0;
     this.container.scrollLeft = this.dir === 'rtl' ? this.container.scrollWidth : 0;
@@ -428,7 +490,12 @@ export class PageEngine {
     (async () => {
       for (const i of tasks) {
         try {
-          await this.source.load(i, await this.sizeOpts(this.spreadOf(i)));
+          const el = await this.source.load(i, await this.sizeOpts(this.spreadOf(i)));
+          const shown = this.spreadOf(this.page).join();
+          if (this.noteSize(i, el) && !this.atEnd && !this.scrollMode() && this.spreadOf(this.page).join() !== shown) {
+            this.page = this.spreadOf(this.page)[0];
+            this.renderPaged();
+          }
         } catch {}
       }
     })();
@@ -473,6 +540,17 @@ export class PageEngine {
     }, { passive: false });
   }
 
+  /** The chapter end screen, one "page" after the last. */
+  showEndPage() {
+    this.atEnd = true;
+    this.renderSeq++;
+    this.container.replaceChildren(h('div.spread.end-spread.turn-next', this.shell.endPanel({ paged: true })));
+    this.container.scrollTop = 0;
+    this.shell.setPosition(this.shell.endLabel, this.shell.endLabel);
+    this.shell.setSliderValue(this.count - 1);
+    this.shell.pageTurned();
+  }
+
   // ----- webtoon (continuous scroll) -----
 
   buildStrip() {
@@ -482,7 +560,7 @@ export class PageEngine {
     strip.style.setProperty('--strip-width', this.s.scaling === 'width' || this.isPdf ? '100%' : '800px');
     const pages = [];
     for (let i = 0; i < this.count; i++) pages.push(h('div.pg', { dataset: { i: String(i) } }));
-    strip.append(...pages);
+    strip.append(...pages, h('div.strip-end', this.shell.endPanel({ paged: false })));
     this.shell.stage.append(strip);
     this.stripPages = pages;
     this.shell.setLoading(false);
@@ -541,10 +619,10 @@ export class PageEngine {
           for (const j of loaded) if (Math.abs(j - i) > 12) unloadPage(j);
           this.source.trim(i, 14);
         }
-        if (userScrolled && strip.scrollTop + strip.clientHeight >= strip.scrollHeight - 2 && this.page >= this.count - 1 && !this.endShown) {
+        // Reached the end screen at the bottom: the chapter's finished.
+        if ((userScrolled || this.autoScrolling) && this.page >= this.count - 1 && !this.endShown && strip.scrollTop + strip.clientHeight >= pages[pages.length - 1].offsetTop + pages[pages.length - 1].offsetHeight) {
           this.endShown = true;
           this.report();
-          this.shell.showEnd();
         }
       });
     }, { passive: true });
@@ -556,7 +634,12 @@ export class PageEngine {
       moved = false;
       sx = e.clientX;
       sy = e.clientY;
+      this.autoHeldUntil = Infinity; // auto-scroll waits while a finger (or mouse button) is down
     });
+    const release = () => (this.autoHeldUntil = performance.now() + 700);
+    strip.addEventListener('pointerup', release);
+    strip.addEventListener('pointercancel', release);
+    strip.addEventListener('wheel', () => (this.autoHeldUntil = performance.now() + 1200), { passive: true });
     strip.addEventListener('pointermove', (e) => {
       if (Math.hypot(e.clientX - sx, e.clientY - sy) > 10) moved = true;
     });
@@ -571,10 +654,64 @@ export class PageEngine {
     this.stripCleanup = () => {
       io.disconnect();
       cancelAnimationFrame(raf);
+      this.stopAutoScroll();
     };
     this.cleanups.push(() => this.stripCleanup?.());
     this.report();
     this.stripJump(this.page, true);
+  }
+
+  // ----- auto-scroll (webtoon) -----
+
+  get canAutoScroll() {
+    return this.scrollMode();
+  }
+  toggleAutoScroll(on = !this.autoScrolling) {
+    if (on) this.startAutoScroll();
+    else this.stopAutoScroll();
+  }
+  startAutoScroll() {
+    const c = this.container;
+    if (!this.scrollMode() || this.autoScrolling || !c) return;
+    if (c.scrollTop + c.clientHeight >= c.scrollHeight - 2) return this.shell.toast('End of chapter');
+    this.autoScrolling = true;
+    this.autoHeldUntil = 0;
+    let pos = c.scrollTop;
+    let last = performance.now();
+    let lastActivity = last;
+    const step = (now) => {
+      if (!this.autoScrolling) return;
+      const dt = Math.min(now - last, 100) / 1000; // a stalled tab doesn't jump ahead
+      last = now;
+      if (!c.isConnected) return this.stopAutoScroll();
+      const held = now < this.autoHeldUntil || document.querySelector('dialog[open]');
+      if (held || Math.abs(c.scrollTop - pos) > 3) pos = c.scrollTop; // scrolled by hand: carry on from there
+      if (!held) {
+        const level = Math.max(1, Math.min(10, Number(this.s.autoScrollSpeed) || 3));
+        pos += AUTO_SPEEDS[level] * Math.max(0.6, Math.min(1.6, c.clientHeight / 800)) * dt;
+        c.scrollTop = pos;
+        if (now - lastActivity > 20_000) {
+          this.tracker.activity(); // reading hands-free still counts as reading
+          lastActivity = now;
+        }
+        if (c.scrollTop + c.clientHeight >= c.scrollHeight - 1) return this.stopAutoScroll();
+      }
+      this.autoRaf = requestAnimationFrame(step);
+    };
+    this.autoRaf = requestAnimationFrame(step);
+    this.shell.autoScrollChanged(true);
+  }
+  stopAutoScroll() {
+    if (!this.autoScrolling) return;
+    this.autoScrolling = false;
+    cancelAnimationFrame(this.autoRaf);
+    this.shell.autoScrollChanged(false);
+  }
+  /** Faster (+1) or slower (-1); saved with the reader settings. */
+  autoScrollSpeed(delta) {
+    const level = Math.max(1, Math.min(10, (Number(this.s.autoScrollSpeed) || 3) + delta));
+    this.shell.changeSetting('autoScrollSpeed', level);
+    this.shell.toast(`Speed ${level}`);
   }
 
   async stripJump(p, initial = false) {

@@ -1399,3 +1399,215 @@ body.is-offline .app-search {
     animation: none;
   }
 }
+
+/* Settings → Libraries: watching for new files */
+.watch-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.watch-line .icon {
+  font-size: 15px;
+}
+.watch-line.on .icon {
+  color: var(--md-primary);
+}
+.watch-line.off {
+  color: var(--md-error);
+}
+
+/* Reading lists */
+.rl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+.rl-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--shape-lg);
+  background: var(--md-surface-container);
+  border: 1px solid var(--md-outline-variant);
+  overflow: hidden;
+  color: inherit;
+  text-decoration: none;
+  transition: transform var(--dur-short) var(--ease-standard), box-shadow var(--dur-short);
+}
+.rl-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.25);
+}
+.rl-art {
+  position: relative;
+  height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--md-primary-container), var(--md-tertiary-container));
+  color: var(--md-on-primary-container);
+  overflow: hidden;
+}
+.rl-art > .icon {
+  font-size: 48px;
+  opacity: 0.6;
+}
+/* Covers fanned like a stack of issues */
+.rl-art > span {
+  position: absolute;
+  top: 18px;
+  left: calc(50% - 50px + (var(--i) - 1.5) * 44px);
+  width: 82px;
+  aspect-ratio: 2 / 3;
+  border-radius: 8px;
+  background: center / cover no-repeat;
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.35);
+  transform: rotate(calc((var(--i) - 1.5) * 5deg));
+}
+.rl-body {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px 16px;
+}
+.rl-name {
+  font-size: 16px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.rl-name .icon {
+  font-size: 18px;
+  color: var(--md-primary);
+}
+.rl-meta {
+  font-size: 13px;
+  color: var(--md-on-surface-variant);
+}
+.rl-progress {
+  margin-top: 6px;
+}
+.rl-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.rl-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 8px 12px;
+  border-radius: var(--shape-md);
+  background: var(--md-surface-container-low);
+  border: 1px solid transparent;
+}
+.rl-item.next {
+  border-color: color-mix(in srgb, var(--md-primary) 60%, transparent);
+  background: color-mix(in srgb, var(--md-primary-container) 30%, var(--md-surface-container-low));
+}
+.rl-item.done .rl-title {
+  color: var(--md-on-surface-variant);
+}
+.rl-item.dragging {
+  opacity: 0.5;
+}
+.rl-item[draggable='true'] {
+  cursor: grab;
+}
+.rl-num {
+  flex: none;
+  width: 28px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--md-on-surface-variant);
+}
+.rl-num .icon {
+  font-size: 18px;
+  color: var(--md-primary);
+}
+.rl-cover {
+  flex: none;
+  width: 44px;
+}
+.rl-text {
+  flex: 1;
+  min-width: 0;
+}
+.rl-title {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rl-sub {
+  font-size: 12px;
+  color: var(--md-on-surface-variant);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rl-move {
+  display: flex;
+}
+.rl-unmatched {
+  margin: 0 0 16px;
+  padding: 10px 16px;
+  border-radius: var(--shape-md);
+  background: color-mix(in srgb, var(--md-tertiary-container) 50%, transparent);
+  color: var(--md-on-tertiary-container);
+  font-size: 14px;
+}
+.rl-unmatched summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.rl-unmatched ul {
+  margin: 8px 0 0;
+  padding-left: 32px;
+  max-height: 220px;
+  overflow: auto;
+  columns: 2 220px;
+}
+.rl-unmatched-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+}
+@media (max-width: 599px) {
+  .rl-move .icon-btn {
+    width: 32px;
+  }
+  .rl-item > .icon-btn:not(:last-child) {
+    display: none;
+  }
+}
+@media (max-width: 599px) {
+  .rl-item {
+    gap: 8px;
+    padding: 6px 4px 6px 6px;
+  }
+  .rl-num {
+    width: 20px;
+  }
+  .rl-cover {
+    width: 36px;
+  }
+  .rl-item .icon-btn {
+    width: 34px;
+    height: 34px;
+  }
+  .rl-move {
+    flex-direction: column;
+  }
+  .rl-move .icon-btn {
+    height: 28px;
+  }
+}

@@ -14,6 +14,9 @@ export const ACTIONS = [
   { id: 'fullscreen', label: 'Full screen' },
   { id: 'nextBook', label: 'Next volume / chapter' },
   { id: 'prevBook', label: 'Previous volume / chapter' },
+  { id: 'autoScroll', label: 'Start / pause auto-scroll', hint: 'Webtoon mode' },
+  { id: 'scrollFaster', label: 'Auto-scroll faster' },
+  { id: 'scrollSlower', label: 'Auto-scroll slower' },
   { id: 'close', label: 'Close the book' },
 ];
 
@@ -31,6 +34,9 @@ export const DEFAULT_KEYBINDS = {
   fullscreen: ['F'],
   nextBook: ['Shift+N'],
   prevBook: ['Shift+P'],
+  autoScroll: ['P'],
+  scrollFaster: ['=', '+'],
+  scrollSlower: ['-'],
   close: ['Escape'],
 };
 

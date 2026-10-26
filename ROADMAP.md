@@ -50,7 +50,7 @@ for metadata, so the series IDs are already there.
 
 ---
 
-## 📖 Reader (0 of 11 done)
+## 📖 Reader (3 of 11 done)
 
 - ⬜ **Text-to-speech / read aloud** with the Web Speech API: highlight the current sentence,
   a speed control and a sleep timer (Readest and KOReader have it)
@@ -61,9 +61,10 @@ for metadata, so the series IDs are already there.
   correction for yellowed scans (Mihon's custom filter)
 - ⬜ **Proper pinch and double-tap zoom** inside the page reader, not just the browser's own
   zoom, with pan and reset (Mihon, Panels)
-- ⬜ **Auto-scroll** for webtoon mode with adjustable speed
-- ⬜ **Chapter end screen**: "Next chapter" with a cover preview instead of just turning the page
-- ⬜ **Smart dual-page**: detect wide pages and show them alone, keep spreads aligned
+- ✅ **Auto-scroll** for webtoon mode with adjustable speed (play/pause in the reader menu or `P`,
+  `-`/`=` for speed; touching the screen pauses it)
+- ✅ **Chapter end screen**: "Next chapter" with a cover preview instead of just turning the page
+- ✅ **Smart dual-page**: detect wide pages and show them alone, keep spreads aligned
   (Kavita, Mihon)
 - ⬜ **Footnote pop-ups** in EPUBs instead of jumping to the notes page
 - ⬜ **Custom fonts**: upload your own TTF/OTF next to the bundled ones
@@ -71,17 +72,17 @@ for metadata, so the series IDs are already there.
 
 ---
 
-## 🗂️ Library & organisation (4 of 8 done)
+## 🗂️ Library & organisation (7 of 8 done)
 
-- ⬜ **Smart filters / saved searches**: save a filter (genre + status + unread, …) as a shelf
+- ✅ **Smart filters / saved searches**: save a filter (genre + status + unread, …) as a shelf
   on Home or in the drawer (Kavita's Smart Filters, Komga's saved filters)
-- ⬜ **Reading lists across series**: import **ComicRack `.cbl`** files for comic events in
+- ✅ **Reading lists across series**: import **ComicRack `.cbl`** files for comic events in
   reading order (Kavita, Komga)
 - ✅ **Duplicate detection**: identical files, the same book in two formats or libraries, and the
   same volume or chapter twice; keep one copy and merge everyone's reading data into it
 - ✅ **Missing volumes or chapters**: gaps shown on the series page ("Volumes 1–4, 6 · missing 5")
 - ⬜ **Bulk edit**: select many series and set genres, tags, age rating or collection in one go
-- ⬜ **Watch folders for changes** instead of rescanning every `SCAN_INTERVAL_MINUTES`, so new
+- ✅ **Watch folders for changes** instead of rescanning every `SCAN_INTERVAL_MINUTES`, so new
   files show up within seconds
 - ✅ **Calibre library import**: `metadata.db` brings over titles, series, tags, descriptions,
   identifiers, covers and ratings, again whenever it changes
@@ -104,13 +105,13 @@ for metadata, so the series IDs are already there.
 
 ---
 
-## 📊 Stats & social (4 of 5 done)
+## ✅ 📊 Stats & social (5 of 5 done)
 
 - ✅ **Reading goals**: a yearly books goal and a daily minutes goal, with progress rings
 - ✅ **Year in review**, with a shareable summary card
 - ✅ **Streaks** (current and longest) and a reading-time heat map
 - ✅ **Ratings and reviews** per series, visible to other users on the server
-- ⬜ **Pages-per-year goal** as well as books
+- ✅ **Pages-per-year goal** as well as books
 
 ---
 

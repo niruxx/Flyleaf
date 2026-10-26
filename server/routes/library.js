@@ -49,6 +49,8 @@ function libraryRow(l, user) {
     lastScanAt: l.last_scan_at,
     // Admin only: the folder is a Calibre library (has metadata.db).
     calibre: admin ? require('../calibre').hasCalibre(l) : undefined,
+    // Admin only: whether new files show up straight away (see watcher.js).
+    watch: admin ? require('../watcher').status(l.id) : undefined,
     bookCount: l.book_count,
     seriesCount: l.series_count,
   };

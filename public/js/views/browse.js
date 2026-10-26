@@ -36,6 +36,8 @@ function browse(kind) {
     let title = 'All series';
     let sub = null;
     const headActions = [];
+    let initial = {}; // a smart filter's saved choices
+    let shelf = null;
 
     switch (kind) {
       case 'library': {
@@ -85,6 +87,23 @@ function browse(kind) {
         fixed.q = params.query.get('q') || '';
         title = `Results for “${fixed.q}”`;
         break;
+      case 'shelf': {
+        shelf = (await api.smartFilters()).find((x) => x.id === Number(params.id));
+        if (!shelf) return page.append(emptyState('search_off', 'Shelf not found', 'It may have been deleted.'));
+        const f = shelf.filter;
+        for (const k of ['library', 'kind', 'tag', 'userTag', 'person', 'want', 'collection', 'q']) if (f[k] != null) fixed[k] = f[k];
+        initial = { read: f.read || '', status: f.status || '', userStatus: f.userStatus || '', genres: f.genre || [], sort: f.sort };
+        title = shelf.name;
+        sub = describeFilter(f);
+        headActions.push(iconButton('edit', 'Edit shelf', () => editShelf(shelf)));
+        headActions.push(iconButton('delete', 'Delete shelf', async () => {
+          if (!(await confirmDialog({ title: `Delete “${shelf.name}”?`, message: 'Only the shelf goes – the series stay in your library.', confirm: 'Delete', danger: true }))) return;
+          await api.deleteSmartFilter(shelf.id);
+          refreshShell();
+          navigate('/', { replace: true });
+        }));
+        break;
+      }
       case 'collection': {
         const c = await api.collection(params.id).catch(() => null);
         if (!c) return page.append(emptyState('search_off', 'Collection not found'));
@@ -121,15 +140,15 @@ function browse(kind) {
     const sorts = SORTS.filter((s) => !s.search || kind === 'search');
     const state = {
       // Search results start with the best matches; other lists remember the last sort.
-      sort: params.query.get('sort') || (kind === 'search' ? 'relevance' : saved.sort) || (kind === 'want' ? 'want' : 'name'),
+      sort: params.query.get('sort') || initial.sort || (kind === 'search' ? 'relevance' : saved.sort) || (kind === 'want' ? 'want' : 'name'),
       letter: '',
-      read: '',
-      status: '',
-      userStatus: '',
-      genres: [],
+      read: initial.read || '',
+      status: initial.status || '',
+      userStatus: initial.userStatus || '',
+      genres: initial.genres || [],
       offset: 0,
     };
-    const persist = () => kind !== 'search' && store.set(prefKey, JSON.stringify({ sort: state.sort }));
+    const persist = () => kind !== 'search' && kind !== 'shelf' && store.set(prefKey, JSON.stringify({ sort: state.sort }));
 
     const BANNER = {
       library: params.id ? ['local_library', 'Library'] : ['collections_bookmark', 'Everything you can read'],
@@ -139,6 +158,7 @@ function browse(kind) {
       tag: ['sell', 'Your tag'],
       search: ['search', 'Search'],
       collection: ['collections_bookmark', 'Collection'],
+      shelf: ['filter_alt', 'Smart shelf'],
     }[kind];
     // The eyebrow already names genres, people and tags, so their detail line is the count.
     const banner = pageBanner({ icon: BANNER[0], eyebrow: BANNER[1], title, sub: ['genre', 'person', 'tag'].includes(kind) ? null : sub, actions: headActions });
@@ -153,7 +173,7 @@ function browse(kind) {
       } }, f.label),
     ));
     const filterChip = (label, getLabel, items, onPick) => {
-      const chip = h('button.chip.state.has-menu', { type: 'button' }, h('span', label), icon('arrow_drop_down'));
+      const chip = h('button.chip.state.has-menu', { type: 'button', 'aria-pressed': String(getLabel() !== label) }, h('span', getLabel()), icon('arrow_drop_down'));
       chip.addEventListener('click', () => menu(chip, items().map((it) => ({ ...it, onClick: () => {
         onPick(it.value);
         chip.firstChild.textContent = getLabel();
@@ -191,6 +211,22 @@ function browse(kind) {
       genreChip.firstChild.textContent = state.genres.length ? `Genres · ${state.genres.length}` : 'Genres';
       genreChip.setAttribute('aria-pressed', String(state.genres.length > 0));
     };
+    updateGenreChip();
+    // The current choices as a saved query (what GET /series takes).
+    const currentFilter = () => ({
+      ...fixed,
+      read: state.read || undefined,
+      status: state.status || undefined,
+      userStatus: state.userStatus || undefined,
+      genre: fixed.genre ? [fixed.genre, ...state.genres] : state.genres,
+      sort: state.sort,
+    });
+    const saveShelf = shelf
+      ? iconButton('save', 'Save these filters to the shelf', async () => {
+        await api.updateSmartFilter(shelf.id, { filter: { ...currentFilter(), genre: state.genres } });
+        snackbar('Shelf updated');
+      })
+      : iconButton('bookmark_add', 'Save as a shelf on Home', () => newShelf(currentFilter(), title));
     // The label is its own node: clicks append a ripple, so lastChild isn't the text.
     const sortLabel = h('span', (sorts.find((s) => s.value === state.sort) || { label: 'Date added' }).label);
     const sortBtn = button(sortLabel, { variant: 'text', icon: 'sort' });
@@ -208,7 +244,7 @@ function browse(kind) {
       }))),
     );
     const count = h('span.label-large.muted');
-    page.append(h('div.toolbar.enter', readRow, statusChip, userStatusChip, kind !== 'genre' && genreChip, h('div.spacer'), count, sortBtn));
+    page.append(h('div.toolbar.enter', readRow, statusChip, userStatusChip, kind !== 'genre' && genreChip, h('div.spacer'), count, sortBtn, saveShelf));
 
     // A–Z jump bar, shown while sorted by title.
     const letterBar = h('nav.letter-bar.enter', { 'aria-label': 'Jump to letter' },
@@ -343,6 +379,65 @@ function insideBooks(term) {
   return section;
 }
 
+// ---------------------------------------------------------------------------
+// Smart filters ("shelves"): a saved list query, shown on Home and in the drawer.
+
+const READ_LABEL = { unread: 'Unread', reading: 'In progress', completed: 'Completed' };
+
+/** "Unread · Ongoing · Action, Comedy" */
+function describeFilter(f) {
+  return [
+    f.q && `“${f.q}”`,
+    f.want && 'Want to read',
+    f.person,
+    f.userTag && `#${f.userTag}`,
+    READ_LABEL[f.read],
+    STATUS_LABEL[f.status],
+    USER_STATUS.find((u) => u.value === f.userStatus)?.label,
+    f.genre?.length && f.genre.join(', '),
+  ].filter(Boolean).join(' · ') || 'Everything';
+}
+
+async function shelfFields(s) {
+  const name = field('Shelf name', { value: s.name, required: true });
+  const home = h('input', { type: 'checkbox', checked: s.onHome });
+  const drawer = h('input', { type: 'checkbox', checked: s.inDrawer });
+  return { name, home, drawer, fields: [name, h('label.check', home, 'Show on Home'), h('label.check', drawer, 'Show in the side menu')] };
+}
+
+async function newShelf(filter, title) {
+  const hasFilter = Object.entries(filter).some(([k, v]) => k !== 'sort' && v != null && v !== '' && !(Array.isArray(v) && !v.length));
+  if (!hasFilter) return snackbar('Pick some filters first – unread, a status or genres – then save them as a shelf.', { duration: 5000 });
+  const suggested = [title !== 'All series' ? title : null, READ_LABEL[filter.read], STATUS_LABEL[filter.status], filter.genre?.length ? filter.genre.slice(0, 2).join(' & ') : null].filter(Boolean).join(' · ');
+  const f = await shelfFields({ name: suggested.slice(0, 80), onHome: true, inDrawer: true });
+  let created = null;
+  await formDialog({
+    title: 'Save as a shelf',
+    icon: 'bookmark_add',
+    fields: [h('p.body-medium.muted', `Keeps this list – ${describeFilter(filter)} – up to date as your library changes.`), ...f.fields],
+    submit: 'Save',
+    onSubmit: async () => {
+      created = await api.createSmartFilter({ name: f.name.input.value, filter, onHome: f.home.checked, inDrawer: f.drawer.checked });
+    },
+  });
+  if (!created) return;
+  refreshShell();
+  snackbar('Shelf saved', { action: 'Open', onAction: () => navigate(`/shelf/${created.id}`) });
+}
+
+async function editShelf(s) {
+  const f = await shelfFields(s);
+  await formDialog({
+    title: 'Edit shelf',
+    icon: 'edit',
+    fields: f.fields,
+    onSubmit: () => api.updateSmartFilter(s.id, { name: f.name.input.value, onHome: f.home.checked, inDrawer: f.drawer.checked }),
+  });
+  refreshShell();
+  render();
+}
+
+export const shelfView = browse('shelf');
 export const libraryView = browse('library');
 export const wantView = browse('want');
 export const genreView = browse('genre');

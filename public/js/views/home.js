@@ -142,6 +142,24 @@ export async function homeView(view, params, stale) {
     }).catch(() => {});
   }
 
+  // Smart shelves (saved filters) set to show on Home, each loaded on its own.
+  const shelves = h('div');
+  api.smartFilters().then((list) => {
+    if (!shelves.isConnected) return;
+    for (const f of list.filter((x) => x.onHome)) {
+      const sec = h('section.section.enter', { hidden: true });
+      shelves.append(sec);
+      api.seriesList({ ...f.filter, limit: 18 }).then((r) => {
+        if (!r.items.length || !sec.isConnected) return;
+        sec.append(
+          sectionHead(f.name, 'filter_alt', `${r.items.length}${r.hasMore ? '+' : ''}`, `#/shelf/${f.id}`),
+          stagger(h('div.shelf', r.items.map((s) => seriesCard(s, { onChange: reload })))),
+        );
+        sec.hidden = false;
+      }).catch(() => {});
+    }
+  }).catch(() => {});
+
   page.append(...[
     updates,
     data.continueReading.length > 0 &&
@@ -149,6 +167,7 @@ export async function homeView(view, params, stale) {
     recs,
     discover,
     shelf(t('Want to read'), 'bookmark_heart', data.wantToRead, '#/want-to-read'),
+    shelves,
     shelf(t('Recently added'), 'new_releases', data.recentlyAdded, '#/library?sort=added'),
     shelf(t('Recently updated'), 'update', data.recentlyUpdated, '#/library?sort=updated'),
     genres,
@@ -231,8 +250,12 @@ function fillGlance(el, s, data) {
       h('div.flames', Array.from({ length: Math.min(7, s.streak || 0) }, () => icon('local_fire_department', 'filled')))),
     tile('schedule', formatDuration(week, { short: true }), t('This week'),
       h('div.spark', days.map((d) => h(`span${d.today ? '.today' : ''}`, { style: { height: `${d.sec ? Math.max(12, (d.sec / max) * 100) : 6}%` }, title: d.label })))),
-    tile('flag', goal.books ? `${goal.finished} / ${goal.books}` : String(goal.finished), goal.books ? t('{year} goal', { year: goal.year }) : t('Finished in {year}', { year: goal.year }),
-      goal.books && h('div.mini-ring', { style: { '--p': String(Math.min(1, goal.finished / goal.books)) } })),
+    // A pages goal on its own shows pages; otherwise books.
+    !goal.books && goal.pages
+      ? tile('flag', `${(goal.pagesRead || 0).toLocaleString()} / ${goal.pages.toLocaleString()}`, t('{year} pages goal', { year: goal.year }),
+        h('div.mini-ring', { style: { '--p': String(Math.min(1, (goal.pagesRead || 0) / goal.pages)) } }))
+      : tile('flag', goal.books ? `${goal.finished} / ${goal.books}` : String(goal.finished), goal.books ? t('{year} goal', { year: goal.year }) : t('Finished in {year}', { year: goal.year }),
+        goal.books && h('div.mini-ring', { style: { '--p': String(Math.min(1, goal.finished / goal.books)) } })),
     tile('today', t('{n} min', { n: todayMin }), s.dailyGoalMinutes ? t('Today · goal {n} min', { n: s.dailyGoalMinutes }) : t('Read today'),
       s.dailyGoalMinutes > 0 && h('div.mini-ring', { style: { '--p': String(Math.min(1, todayMin / s.dailyGoalMinutes)) } })),
   );

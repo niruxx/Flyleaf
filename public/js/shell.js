@@ -9,7 +9,7 @@ import { themeReveal } from './motion.js';
 import { offlineSupported } from './offline.js';
 import { t } from './i18n.js';
 
-let drawerData = { libraries: [], collections: [], genres: [] };
+let drawerData = { libraries: [], collections: [], genres: [], filters: [] };
 let showAllGenres = false;
 
 /** `again`: the language changed – redraw the shell's text without adding listeners twice. */
@@ -63,8 +63,8 @@ export async function refreshDrawer() {
   if (!session.user) return;
   lastDrawerCheck = Date.now();
   try {
-    const [libraries, collections, genres] = await Promise.all([api.libraries(), api.collections(), api.genres()]);
-    const next = { libraries, collections, genres };
+    const [libraries, collections, genres, filters] = await Promise.all([api.libraries(), api.collections(), api.genres(), api.smartFilters().catch(() => [])]);
+    const next = { libraries, collections, genres, filters };
     if (JSON.stringify(next) === JSON.stringify(drawerData)) return;
     drawerData = next;
     buildDrawer();
@@ -83,8 +83,8 @@ export async function refreshShell() {
   buildEnd(document.querySelector('.app-bar .end'));
   lastDrawerCheck = Date.now();
   try {
-    const [libraries, collections, genres] = await Promise.all([api.libraries(), api.collections(), api.genres()]);
-    drawerData = { libraries, collections, genres };
+    const [libraries, collections, genres, filters] = await Promise.all([api.libraries(), api.collections(), api.genres(), api.smartFilters().catch(() => [])]);
+    drawerData = { libraries, collections, genres, filters };
   } catch {}
   buildDrawer();
   highlight(location.hash.replace(/^#/, '') || '/');
@@ -364,6 +364,7 @@ function buildDrawer() {
     navItem('/', 'home', t('Home')),
     navItem('/library', 'local_library', t('All series')),
     navItem('/want-to-read', 'bookmark_heart', t('Want to read')),
+    navItem('/reading-lists', 'format_list_numbered', t('Reading lists')),
     navItem('/bookmarks', 'bookmarks', t('Bookmarks & notes')),
     offlineSupported() && navItem('/offline', 'offline_pin', t('Saved offline')),
     navItem('/stats', 'insights', t('Reading stats')),
@@ -387,6 +388,10 @@ function buildDrawer() {
       ? d.collections.map((c) => navItem(`/collection/${c.id}`, c.promoted ? 'public' : 'collections_bookmark', c.name, c.count))
       : h('a.nav-item', { href: '#/collections' }, icon('library_add'), h('span.label', t('Create a collection'))),
     d.collections.length > 0 && navItem('/collections', 'grid_view', t('All collections')),
+
+    // Smart shelves: saved filters.
+    d.filters.some((f) => f.inDrawer) && h('div.section-label', t('Shelves')),
+    d.filters.filter((f) => f.inDrawer).map((f) => navItem(`/shelf/${f.id}`, 'filter_alt', f.name)),
 
     d.genres.length && h('div.section-label', t('Genres')),
     genres.map((g) => navItem(`/genre/${encodeURIComponent(g.name)}`, null, g.name, g.count, { style: { '--dot': `oklch(0.7 0.13 ${hue(g.name)})` } })),
@@ -437,7 +442,7 @@ function highlight(path) {
     if (on) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   }
-  const navKey = { '': 'home', library: 'library', series: 'library', genre: 'library', person: 'library', collection: 'library', collections: 'library', search: 'library', recommended: 'home', 'want-to-read': 'want', bookmarks: 'bookmarks' }[root];
+  const navKey = { '': 'home', library: 'library', series: 'library', genre: 'library', person: 'library', collection: 'library', collections: 'library', shelf: 'library', 'reading-lists': 'library', 'reading-list': 'library', search: 'library', recommended: 'home', 'want-to-read': 'want', bookmarks: 'bookmarks' }[root];
   for (const a of document.querySelectorAll('.bottom-nav a')) {
     if (a.dataset.nav === navKey) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');

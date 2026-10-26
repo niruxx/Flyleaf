@@ -512,3 +512,198 @@
   width: auto !important;
   height: auto !important;
 }
+
+/* Double pages: a page shown on its own (the cover, or a wide two-page scan) may use the full width. */
+.reader.fit-screen.double .paged .spread.solo img,
+.reader.fit-screen.double .paged .spread.solo canvas {
+  max-width: 100vw;
+}
+.reader.fit-width.double .paged .spread.solo img,
+.reader.fit-width.double .paged .spread.solo canvas {
+  width: auto;
+  max-width: 100vw;
+}
+
+/* Auto-scroll controls (webtoon mode) */
+.reader .chrome-bottom .auto-row {
+  justify-content: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.reader .chrome-bottom .auto-row[hidden] {
+  display: none;
+}
+.reader .auto-label {
+  margin-right: 8px;
+  color: var(--md-on-surface-variant);
+}
+.reader .auto-speed {
+  min-width: 24px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.reader .auto-row .icon-btn.selected {
+  background: var(--md-primary);
+  color: var(--md-on-primary);
+}
+
+/* Chapter end screen: a page after the last one, or the bottom of a webtoon strip */
+.reader .paged .spread.end-spread {
+  width: 100%;
+  min-height: 100%;
+  padding: calc(72px + var(--safe-top)) 16px calc(96px + var(--safe-bottom));
+  box-sizing: border-box;
+}
+.reader .strip .strip-end {
+  display: flex;
+  justify-content: center;
+  padding: 48px 16px calc(120px + var(--safe-bottom));
+}
+.chapter-end {
+  width: min(460px, 100%);
+  display: grid;
+  gap: 16px;
+  color: var(--md-on-surface);
+  pointer-events: auto;
+  animation: ce-in 420ms var(--ease-emphasized-decel) both;
+}
+@keyframes ce-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.98); }
+}
+.chapter-end .ce-done {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--reader-fg, var(--md-on-surface));
+}
+.end-card .chapter-end .ce-done {
+  color: var(--md-on-surface);
+}
+.chapter-end .ce-done > .icon {
+  font-size: 32px;
+  color: var(--md-primary);
+}
+.chapter-end .ce-kicker {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.chapter-end .ce-title {
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 26px;
+}
+.chapter-end .ce-next {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--shape-xl, 28px);
+  background: color-mix(in srgb, var(--md-surface-container-high) 92%, transparent);
+  backdrop-filter: blur(14px);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 18px 48px rgb(0 0 0 / 0.35);
+  transition: transform var(--dur-short, 150ms) var(--ease-standard);
+}
+.chapter-end .ce-next:hover {
+  transform: translateY(-2px);
+}
+.chapter-end .ce-cover {
+  position: relative;
+  flex: none;
+  width: 108px;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--shape-md);
+  overflow: hidden;
+  background: linear-gradient(160deg, var(--md-primary-container), var(--md-tertiary-container));
+  box-shadow: 0 8px 20px rgb(0 0 0 / 0.35);
+}
+.chapter-end .ce-cover img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity var(--dur-medium, 300ms);
+}
+.chapter-end .ce-cover.loaded img {
+  opacity: 1;
+}
+.chapter-end .ce-cover-label {
+  position: absolute;
+  inset: auto 8px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--md-on-primary-container);
+}
+.chapter-end .ce-next-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px 0;
+}
+.chapter-end .ce-next-title {
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 24px;
+  overflow-wrap: anywhere;
+}
+.chapter-end .ce-next-meta {
+  font-size: 13px;
+  color: var(--md-on-surface-variant);
+}
+.chapter-end .ce-read {
+  margin-top: auto;
+  align-self: flex-start;
+  pointer-events: none;
+}
+.chapter-end .ce-last {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  border-radius: var(--shape-xl, 28px);
+  background: color-mix(in srgb, var(--md-surface-container-high) 92%, transparent);
+}
+.chapter-end .ce-last > .icon {
+  font-size: 28px;
+  color: var(--md-primary);
+}
+.chapter-end .ce-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.reader .chapter-end .ce-actions .btn.text {
+  color: var(--reader-fg, var(--md-primary));
+}
+.chapter-end .ce-hint {
+  text-align: center;
+  font-size: 12px;
+  color: var(--reader-fg, var(--md-on-surface-variant));
+  opacity: 0.6;
+}
+.end-card .chapter-end {
+  padding: 24px;
+}
+.end-card .chapter-end .ce-actions .btn.text {
+  color: var(--md-primary);
+}
+@media (prefers-reduced-motion: reduce) {
+  .chapter-end {
+    animation: none;
+  }
+}
+.chapter-end .ce-cover.loaded .ce-cover-label {
+  display: none;
+}
