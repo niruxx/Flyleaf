@@ -59,11 +59,32 @@ export async function finderView(view, params, stale) {
   let pageNo = 1;
   let token = 0;
 
+  // Find a source by name (handy with dozens of Mihon extensions). "All sources" then searches
+  // just the matching ones.
+  let sourceFilter = '';
+  const matchesFilter = (s) => !sourceFilter || `${s.name} ${s.description || ''} ${s.language || ''}`.toLowerCase().includes(sourceFilter);
+  const searchable = () => ready.filter(matchesFilter);
+  const sourceFind = h('input.source-find', { type: 'search', placeholder: `Find a source (${sources.length})…`, 'aria-label': 'Find a source', autocomplete: 'off',
+    oninput: () => {
+      sourceFilter = sourceFind.value.trim().toLowerCase();
+      renderChips();
+      if (current === ALL) run(true);
+    },
+    onkeydown: (e) => {
+      // Enter with a single match opens that source.
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const hits = sources.filter(matchesFilter);
+      if (hits.length === 1) pick(hits[0].id);
+    } });
   const chips = h('div.source-chips', { role: 'tablist' });
   function renderChips() {
+    const shownSources = sources.filter((s) => matchesFilter(s) || s.id === current);
     chips.replaceChildren(...[
-      ready.length > 1 && h('button.chip.state', { type: 'button', role: 'tab', 'aria-pressed': String(current === ALL), onclick: () => pick(ALL) }, icon('travel_explore'), 'All sources'),
-      ...sources.map((s) => h('button.chip.state', { type: 'button', role: 'tab', 'aria-pressed': String(current === s.id), title: s.description || s.name, onclick: () => pick(s.id) },
+      ready.length > 1 && h('button.chip.state', { type: 'button', role: 'tab', 'aria-pressed': String(current === ALL), onclick: () => pick(ALL) }, icon('travel_explore'),
+        sourceFilter ? `All matching (${searchable().length})` : 'All sources'),
+      !shownSources.length && h('span.body-small.muted', 'No source matches.'),
+      ...shownSources.map((s) => h('button.chip.state', { type: 'button', role: 'tab', 'aria-pressed': String(current === s.id), title: s.description || s.name, onclick: () => pick(s.id) },
         sourceIcon(s), s.name, (s.needsSetup || s.error) && icon('warning'))),
     ].filter(Boolean));
   }
@@ -94,6 +115,7 @@ export async function finderView(view, params, stale) {
 
   view.append(h('div.page.finder', head,
     h('p.body-medium.muted.enter', { style: { margin: '-8px 0 16px' } }, 'Search the sources your admin has installed and download straight into a library. Only download books you’re allowed to.'),
+    sources.length > 6 && h('div.source-find-wrap', icon('filter_list'), sourceFind),
     chips, searchBar, crumbs, results, more));
   renderChips();
 
@@ -139,18 +161,23 @@ export async function finderView(view, params, stale) {
       more.replaceChildren();
     }
     renderCrumbs();
-    input.placeholder = current === ALL ? 'Search every source…' : `Search ${sourceById(current)?.name || ''}…`;
+    input.placeholder = current === ALL ? (sourceFilter ? `Search ${searchable().length} matching sources…` : 'Search every source…') : `Search ${sourceById(current)?.name || ''}…`;
 
     if (current === ALL) {
+      const pool = searchable();
+      if (!pool.length) {
+        results.replaceChildren(emptyState('search_off', 'No source matches', 'Clear the source filter to search everything.'));
+        return;
+      }
       if (!query) {
-        results.replaceChildren(h('div.source-cards', ready.map((s) => h('button.source-card.state', { type: 'button', onclick: () => pick(s.id) },
+        results.replaceChildren(h('div.source-cards', pool.map((s) => h('button.source-card.state', { type: 'button', onclick: () => pick(s.id) },
           h('div.source-card-head', sourceIcon(s, 32), h('div', h('div.title-medium', s.name), h('div.body-small.muted', (s.kinds || []).map((k) => KIND_LABEL[k]).join(' · ')))),
           s.description && h('p.body-medium.muted', s.description)))));
         return;
       }
       // Search every ready source in parallel; each gets its own row.
       results.replaceChildren();
-      for (const s of ready) {
+      for (const s of pool) {
         const section = h('section.finder-section', h('div.finder-section-head', sourceIcon(s), h('h2.title-medium', s.name),
           h('button.btn.text.state', { type: 'button', onclick: () => pick(s.id) }, 'See all', icon('chevron_right'))), loading());
         results.append(section);

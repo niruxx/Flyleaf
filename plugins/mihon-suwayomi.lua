@@ -9,7 +9,7 @@
 plugin = {
   id = "mihon",
   name = "Mihon extensions",
-  version = "1.1.2",
+  version = "1.2.0",
   author = "Flyleaf",
   description = "Use Mihon/Tachiyomi extensions as sources, through Flyleaf’s extension runtime or a Suwayomi-Server you run.",
   site = "https://github.com/Suwayomi/Suwayomi-Server",
@@ -19,8 +19,10 @@ plugin = {
     { key = "url", label = "Suwayomi URL", type = "text", required = true, default = "http://localhost:4567", help = "Where Suwayomi-Server runs, as seen from the Flyleaf server" },
     { key = "username", label = "Username", type = "text", help = "Only if Suwayomi uses basic authentication" },
     { key = "password", label = "Password", type = "password" },
-    { key = "languages", label = "Languages", type = "text", default = "en", help = "Comma-separated language codes to show, e.g. en,ja. Leave empty for all." },
-    { key = "nsfw", label = "Show NSFW sources", type = "toggle", default = false },
+    -- Nothing is hidden unless you ask: every installed extension is a source. (Older versions
+    -- used "languages" = "en" and "nsfw" = off; new names, so those saved values no longer apply.)
+    { key = "onlyLanguages", label = "Only these languages", type = "text", default = "", help = "Comma-separated language codes, e.g. en,ja. Leave empty to show sources in every language." },
+    { key = "hideNsfw", label = "Hide 18+ sources", type = "toggle", default = false, help = "18+ sources are listed unless you turn this on." },
   },
 }
 
@@ -52,7 +54,7 @@ end
 
 local function wanted_languages()
   local set, any = {}, false
-  for code in (settings.languages or ""):gmatch("[^,%s]+") do set[code:lower()] = true; any = true end
+  for code in (settings.onlyLanguages or ""):gmatch("[^,%s]+") do set[code:lower()] = true; any = true end
   return any and set or nil
 end
 
@@ -63,7 +65,7 @@ function sources()
   for _, s in ipairs(api("/source/list")) do
     local lang = (s.lang or ""):lower()
     local language_ok = not langs or langs[lang] or lang == "all" or lang == "localsourcelang"
-    if language_ok and (settings.nsfw or not s.isNsfw) then
+    if language_ok and not (settings.hideNsfw and s.isNsfw) then
       local label = s.displayName or s.name
       if lang ~= "" and lang ~= "all" and lang ~= "localsourcelang" and not label:lower():find("(" .. lang .. ")", 1, true) then
         label = label .. " (" .. lang .. ")"

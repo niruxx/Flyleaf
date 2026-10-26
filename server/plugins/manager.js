@@ -198,9 +198,32 @@ async function update(id) {
   return install(await sourceFromOrigin(p.origin), p.origin);
 }
 
+const newer = (a, b) => {
+  const pa = String(a).split('.').map(Number);
+  const pb = String(b).split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  return false;
+};
+
+/** Built-in plugins that are installed get the version shipped with this Flyleaf (settings are kept). */
+async function upgradeBuiltins() {
+  for (const p of q("SELECT id, version, origin FROM plugins WHERE origin LIKE 'builtin:%'").all()) {
+    try {
+      const source = await sourceFromOrigin(p.origin);
+      const m = await validate(source);
+      if (m.id === p.id && newer(m.version, p.version)) {
+        await install(source, p.origin);
+        refreshSources(p.id);
+      }
+    } catch (e) {
+      log.file(`Couldn't update built-in plugin ${p.id}: ${e.message}`);
+    }
+  }
+}
+
 /** Install the built-in sources on first start so Content Finder isn't empty. */
 async function seedBuiltins() {
-  if (q('SELECT COUNT(*) AS n FROM plugins').get().n) return;
+  if (q('SELECT COUNT(*) AS n FROM plugins').get().n) return upgradeBuiltins();
   try {
     // Some built-ins need setting up first (e.g. a server to connect to); those are offered, not installed.
     for (const entry of await repoIndex({ id: BUILTIN_REPO })) if (entry.seed !== false) await install(entry.source, entry.origin);

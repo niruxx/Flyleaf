@@ -1817,3 +1817,29 @@ body.is-offline .app-search {
   min-width: 76px;
   font-size: 14px;
 }
+
+/* Content Finder: find a source by name */
+.source-find-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 360px;
+  margin: 0 0 10px;
+  padding: 0 12px;
+  height: 40px;
+  border-radius: var(--shape-full);
+  background: var(--md-surface-container);
+  border: 1px solid var(--md-outline-variant);
+}
+.source-find-wrap .icon {
+  color: var(--md-on-surface-variant);
+}
+.source-find {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--md-on-surface);
+  font: inherit;
+  outline: none;
+}
