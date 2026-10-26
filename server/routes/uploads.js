@@ -22,7 +22,7 @@ const log = require('../log').logger('uploads');
 const router = express.Router();
 router.use(requirePermission('upload', 'Uploading isn’t enabled for your account. Ask the admin.'));
 
-const MAX_BYTES = Number(process.env.MAX_UPLOAD_MB || 4096) * 1024 * 1024;
+const storage = require('../storage');
 const err = (message, status = 400) => Object.assign(new Error(message), { status, expose: true });
 
 /** A library the user may upload into. */
@@ -98,7 +98,10 @@ router.put('/file', async (req, res) => {
   const fileName = nameSegs[nameSegs.length - 1];
   if (!supported(fileName)) throw err(`“${fileName}” isn’t a format Flyleaf reads.`);
   const declared = Number(req.get('content-length'));
+  const MAX_BYTES = storage.maxUploadBytes();
   if (declared > MAX_BYTES) throw err(`Files can be at most ${Math.round(MAX_BYTES / 1048576)} MB.`, 413);
+  // Personal folders have a quota, and the disk keeps some free space (see storage.js).
+  await storage.check(req.user.id, lib.id, declared || 0);
 
   const dir = inside(lib, ...cleanSegments(req.query.folder), ...nameSegs.slice(0, -1));
   try {
@@ -123,6 +126,7 @@ router.put('/file', async (req, res) => {
     if (e.status) throw e;
     throw err(['EROFS', 'EACCES', 'EPERM', 'ENOSPC'].includes(e.code) ? (e.code === 'ENOSPC' ? 'The server is out of disk space.' : fsMessage(e, dir)) : e.message);
   }
+  storage.forget(req.user.id);
   const rel = path.relative(lib.path, dest).split(path.sep).join('/');
   q('INSERT INTO uploads (user_id, library_id, file, size, created_at) VALUES (?, ?, ?, ?, ?)').run(req.user.id, lib.id, dest, received, Date.now());
   log.file(`${req.user.username} uploaded ${rel} to "${lib.name}"`);
@@ -164,6 +168,6 @@ router.post('/done', (req, res) => {
   res.json({ ok: true, scanning: true });
 });
 
-router.get('/limits', (req, res) => res.json({ maxBytes: MAX_BYTES }));
+router.get('/limits', async (req, res) => res.json({ maxBytes: storage.maxUploadBytes(), storage: await storage.summary(req.user.id) }));
 
 module.exports = { router };

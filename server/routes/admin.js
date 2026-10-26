@@ -8,6 +8,14 @@ const mailer = require('../mailer');
 const router = express.Router();
 router.use(requireAdmin);
 
+// Storage limits (see storage.js): defaults for personal folders, upload size, free space to keep.
+router.get('/storage', (req, res) => {
+  const storage = require('../storage');
+  const config = require('../config');
+  res.json({ ...storage.limits(), envMaxUploadMb: Number(process.env.MAX_UPLOAD_MB) || 4096, disk: { free: storage.diskFree(config.dataDir), total: storage.diskTotal(config.dataDir) } });
+});
+router.put('/storage', (req, res) => res.json(require('../storage').setLimits(req.body || {})));
+
 router.get('/settings', (req, res) => {
   const s = settings.all();
   // Never send the SMTP password back to the browser.
@@ -61,6 +69,33 @@ router.post('/smtp/test', async (req, res) => {
   } catch (e) {
     res.status(502).json({ error: e.message });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Activity log and failed sign-ins (see activity.js)
+
+const activity = require('../activity');
+
+router.get('/activity', (req, res) => {
+  const { user, group, action, q: text, before, limit } = req.query;
+  res.json({ entries: activity.list({ user, group, action, q: text, before, limit }), actions: activity.ACTIONS, groups: Object.keys(activity.GROUPS), keepDays: activity.KEEP_DAYS });
+});
+
+router.get('/activity.csv', (req, res) => {
+  const { user, group, action, q: text } = req.query;
+  const rows = activity.list({ user, group, action, q: text, limit: 500 });
+  const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines = [['Time', 'User', 'Action', 'About', 'IP', 'Details'].map(cell).join(',')];
+  for (const r of rows) lines.push([new Date(r.at).toISOString(), r.username, r.label, r.target, r.ip, r.details ? JSON.stringify(r.details) : ''].map(cell).join(','));
+  res.attachment(`flyleaf-activity-${new Date().toISOString().slice(0, 10)}.csv`).type('text/csv').send(`${lines.join('\n')}\n`);
+});
+
+router.get('/activity/security', (req, res) => res.json(activity.security()));
+
+/** Let a blocked address try signing in again straight away. */
+router.post('/activity/unblock', (req, res) => {
+  require('../auth').loginThrottle(String(req.body?.ip || '')).reset();
+  res.json(activity.security());
 });
 
 // ---------------------------------------------------------------------------

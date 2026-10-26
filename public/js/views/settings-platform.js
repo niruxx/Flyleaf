@@ -96,6 +96,7 @@ export async function notificationsPanel(panel, stale) {
         kind('downloads', 'download_done', 'My downloads', 'When a Content Finder download finishes or fails'),
         kind('newBooks', 'library_add', 'New books', 'When a scan adds books to a library you can see (one notification per library)'),
         isAdmin() && kind('admin', 'admin_panel_settings', 'Sign-ups and uploads', 'When someone creates an account or uploads files'),
+        isAdmin() && kind('security', 'gpp_maybe', 'Failed sign-ins', 'When someone keeps getting a password wrong, for one address or one account'),
       ),
       devices.length > 0 && h('div.sub-head', 'Your devices'),
       devices.length > 0 && group(...devices.map((d) => row(

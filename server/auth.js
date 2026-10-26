@@ -65,7 +65,7 @@ const PREF_DEFAULTS = {
   dailyGoalMinutes: 0,
   // Which push notifications to send: new chapters of followed series, your downloads, new books in
   // your libraries, and (admins) sign-ups & uploads.
-  notify: { newChapters: true, downloads: true, newBooks: false, admin: true },
+  notify: { newChapters: true, downloads: true, newBooks: false, admin: true, security: true },
   // Content Finder: follow every series you download, and check downloads for newer chapters.
   watchDownloads: true,
   // App language (a code from public/locales/index.json); null follows the browser.
@@ -260,13 +260,21 @@ function csrfGuard(req, res, next) {
 // Simple in-memory login throttle: 10 failures per IP per 15 minutes.
 const failures = new Map();
 const WINDOW = 15 * 60_000;
+const LOGIN_LIMIT = 10;
+
+/** Addresses currently blocked from signing in: [{ ip, failures, until }] (for the admin panel). */
+function blockedIps() {
+  const now = Date.now();
+  return [...failures].filter(([, e]) => now - e.first <= WINDOW && e.count >= LOGIN_LIMIT)
+    .map(([ip, e]) => ({ ip, failures: e.count, until: e.first + WINDOW }));
+}
 function loginThrottle(ip) {
   const now = Date.now();
   const entry = failures.get(ip);
   if (entry && now - entry.first > WINDOW) failures.delete(ip);
   const e = failures.get(ip);
   return {
-    blocked: Boolean(e && e.count >= 10),
+    blocked: Boolean(e && e.count >= LOGIN_LIMIT),
     retryAfter: e ? Math.ceil((e.first + WINDOW - now) / 1000) : 0,
     fail() {
       const cur = failures.get(ip) || { first: now, count: 0 };
@@ -301,5 +309,6 @@ module.exports = {
   requireAdmin,
   csrfGuard,
   loginThrottle,
+  blockedIps,
   pruneSessions,
 };

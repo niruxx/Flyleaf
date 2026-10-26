@@ -164,7 +164,7 @@ function setBadge(n) {
   }
 }
 
-const NOTE_ICON = { newChapters: 'auto_stories', downloads: 'download_done', downloadFailed: 'error', newBooks: 'library_add', admin: 'admin_panel_settings' };
+const NOTE_ICON = { newChapters: 'auto_stories', downloads: 'download_done', downloadFailed: 'error', newBooks: 'library_add', admin: 'admin_panel_settings', security: 'gpp_maybe' };
 
 async function openNotes() {
   const list = h('div.note-list', h('div.note-empty', h('div.spinner')));

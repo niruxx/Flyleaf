@@ -33,6 +33,8 @@ app.use('/api/opds', require('./opds').router);
 const api = express.Router();
 api.use(express.json({ limit: '512kb' }));
 api.use(auth.sessionMiddleware);
+// Who did what (Settings → Activity); see activity.js for what's recorded.
+api.use(require('./activity').middleware);
 api.use(auth.csrfGuard);
 api.use((req, res, next) => {
   res.set('Cache-Control', 'no-store');
@@ -143,6 +145,7 @@ require('./plugins/suwayomi-host').boot();
 require('./push').wire();
 require('./follows').start();
 require('./backup').startSchedule();
+require('./activity').start();
 // Catch up on full-text indexing a little after start-up.
 setTimeout(() => require('./fulltext').indexPending().catch(() => {}), 20_000).unref();
 if (config.scanInterval > 0) {

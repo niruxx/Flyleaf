@@ -33,6 +33,7 @@ const PANELS = [
   { group: N_('Server'), admin: true },
   { id: 'libraries', label: N_('Libraries'), icon: 'folder_managed', admin: true },
   { id: 'users', label: N_('Users'), icon: 'group', admin: true },
+  { id: 'activity', label: N_('Activity'), icon: 'history', admin: true },
   { id: 'metadata', label: N_('Metadata sources'), icon: 'travel_explore', admin: true },
   { id: 'plugins', label: N_('Content Finder plugins'), icon: 'extension', admin: true },
   { id: 'server', label: N_('Server & email'), icon: 'dns', admin: true },

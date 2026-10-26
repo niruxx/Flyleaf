@@ -1,10 +1,10 @@
 // Series overview: artwork, title, creators, links, actions, status, tags,
 // genres, people, publication info, summary, related series and volumes.
 
-import { api, seriesDownloadUrl } from '../api.js';
-import { isAdmin, navigate, render } from '../router.js';
+import { api, can, seriesDownloadUrl } from '../api.js';
+import { isAdmin, navigate, render, session } from '../router.js';
 import { prefs } from '../prefs.js';
-import { h, icon, iconButton, button, cover, menu, snackbar, stagger, emptyState, skeleton, STATUS_LABEL, USER_STATUS, timeAgo, formatBytes, formatDuration, segmented } from '../ui.js';
+import { h, icon, iconButton, button, cover, menu, snackbar, stagger, emptyState, skeleton, STATUS_LABEL, USER_STATUS, timeAgo, formatBytes, formatDuration, segmented, toggleSwitch } from '../ui.js';
 import { volumeCard, seriesCard } from '../components/cards.js';
 import { seriesActions, bookActions, addToCollection, sendTo, download, canDownload } from '../components/actions.js';
 import { RELATION_LABEL } from '../components/editors.js';
@@ -214,6 +214,9 @@ export async function seriesView(view, params, stale) {
   const scape = h('div.scape');
   page.append(h('div.series-view', scape, h('section.series-hero.enter', h('div.cover-col', art), info)));
   if (p.colorScape) applyColorScape(art, scape, page);
+
+  // ----- New chapters (series downloaded with Content Finder) -----
+  if (can(session.user, 'contentFinder')) page.append(followPanel(s));
 
   // ----- Related -----
   if (s.relations.length) {
@@ -511,3 +514,117 @@ async function pickProfile(s) {
   return m;
 }
 
+
+// ---------------------------------------------------------------------------
+// New chapters: follow the series on the source it was downloaded from, switch auto-download on
+// or off, and watch what's downloading for it right now.
+
+function followPanel(s) {
+  const box = h('section.section.follow-panel', { hidden: true });
+  let timer = null;
+  let wasActive = false;
+
+  async function load() {
+    clearTimeout(timer);
+    let d;
+    try {
+      d = await api.seriesFollow(s.id);
+    } catch {
+      return;
+    }
+    if (!d.source) return (box.hidden = true);
+    draw(d);
+    // Poll while something is downloading; once it all finishes, offer to show the new files.
+    if (d.active.length) timer = setTimeout(() => box.isConnected && load(), 3000);
+    else if (wasActive) snackbar('New chapters downloaded', { action: 'Show', onAction: () => render() });
+    wasActive = d.active.length > 0;
+  }
+
+  function draw(d) {
+    const f = d.follow;
+    const head = h('div.section-head', h('h2', 'New chapters'), h('span.mini-chip', icon('extension'), d.source.name));
+    let body;
+    if (!f) {
+      let auto = true;
+      const follow = button('Follow', { icon: 'add_alert', onclick: async () => {
+        follow.disabled = true;
+        try {
+          const r = await api.followSeries(s.id, auto);
+          snackbar(r.found ? `Following – found ${r.found} new ${r.found === 1 ? 'chapter' : 'chapters'}${auto ? ', downloading now' : ''}` : 'Following – you’ll get new chapters as they come out');
+          load();
+        } catch (err) {
+          snackbar(err.message, { duration: 6000 });
+          follow.disabled = false;
+        }
+      } });
+      body = h('div.follow-card',
+        icon('notifications_none'),
+        h('div.text',
+          h('div.body-large', 'Get new chapters automatically'),
+          h('div.body-small.muted', `This series came from ${d.source.name}. Follow it to check for new chapters every few hours.`),
+          h('label.follow-auto', toggleSwitch(true, (v) => (auto = v), 'Download new chapters automatically'), h('span.body-medium', 'Download them automatically'))),
+        h('div.follow-actions', follow));
+    } else {
+      const status = [
+        f.lastCheckedAt ? `checked ${timeAgo(f.lastCheckedAt)}` : 'not checked yet',
+        f.lastNewAt && `last new chapter ${timeAgo(f.lastNewAt)}`,
+        f.library && `saves to ${f.library}`,
+      ].filter(Boolean).join(' · ');
+      const check = button('Check now', { variant: 'text', icon: 'refresh', onclick: async () => {
+        check.disabled = true;
+        try {
+          const r = await api.checkFollow(f.id);
+          snackbar(r.found ? `Found ${r.found} new ${r.found === 1 ? 'chapter' : 'chapters'}` : 'No new chapters yet');
+          load();
+        } catch (err) {
+          snackbar(err.message, { duration: 6000 });
+        } finally {
+          check.disabled = false;
+        }
+      } });
+      body = h('div.follow-card.following',
+        icon('notifications_active', 'filled'),
+        h('div.text',
+          h('div.body-large', 'Following'),
+          h('div.body-small.muted', status),
+          f.lastError && h('div.body-small', { style: { color: 'var(--md-error)' } }, `Last check failed: ${f.lastError}`),
+          h('label.follow-auto',
+            toggleSwitch(f.autoDownload, async (v) => {
+              try {
+                await api.updateFollow(f.id, { autoDownload: v });
+                snackbar(v ? 'New chapters will download automatically' : 'New chapters will show in Updates without downloading');
+              } catch (err) {
+                snackbar(err.message, { duration: 6000 });
+              }
+            }, 'Download new chapters automatically'),
+            h('span.body-medium', 'Download new chapters automatically'))),
+        h('div.follow-actions', check,
+          iconButton('notifications_off', 'Unfollow', async () => {
+            await api.unfollow(f.id);
+            snackbar('Unfollowed');
+            load();
+          })));
+    }
+
+    const active = d.active.length > 0 && h('div.follow-downloads',
+      h('div.label-large', h('span.pulse-dot'), `Downloading ${d.active.length} ${d.active.length === 1 ? 'file' : 'files'}`),
+      ...d.active.map((a) => {
+        const pct = a.total ? Math.round((a.received / a.total) * 100) : null;
+        const state = a.status === 'queued' ? 'Waiting in the queue' : pct != null ? `${pct}% · ${formatBytes(a.received)} of ${formatBytes(a.total)}` : formatBytes(a.received || 0);
+        return h('div.follow-dl',
+          h('div.text',
+            h('div.body-medium', a.label),
+            h('div.body-small.muted', [state, !a.mine && a.by && `for ${a.by}`].filter(Boolean).join(' · '))),
+          h('div.progress', { class: pct == null ? 'indeterminate' : '' }, h('span', { style: { width: pct != null ? `${pct}%` : '' } })));
+      }));
+    const recent = f && d.updates.length > 0 && h('div.follow-updates',
+      h('div.label-large', 'Recently found'),
+      ...d.updates.map((u) => h('div.body-small', icon(u.queued ? 'download_done' : 'new_releases'), `${u.label} · ${timeAgo(u.foundAt)}${u.queued ? '' : ' · not downloaded'}`)));
+
+    box.replaceChildren(...[head, body, active, recent].filter(Boolean));
+    box.hidden = false;
+  }
+
+  load();
+  return box;
+}

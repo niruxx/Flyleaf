@@ -6,7 +6,7 @@ import { api } from '../api.js';
 import { session, navigate } from '../router.js';
 import { h, icon, iconButton, button, field, snackbar, confirmDialog, formDialog, loading, menu, timeAgo, emptyState } from '../ui.js';
 import { refreshShell } from '../shell.js';
-import { MODE_LABEL, modeCards } from './settings-admin.js';
+import { MODE_LABEL, modeCards, storageLine } from './settings-admin.js';
 
 const KIND_ICON = { books: 'menu_book', manga: 'auto_stories', comics: 'photo_library' };
 const KIND_OPTIONS = [
@@ -22,7 +22,7 @@ export async function mylibsPanel(panel, stale) {
     panel.lastChild.replaceWith(emptyState('folder_off', 'No personal folder', 'Ask the admin to give you a personal folder. You can then create your own libraries in it.'));
     return;
   }
-  const { home, libraries } = await api.myLibraries();
+  const [{ home, libraries }, storage] = await Promise.all([api.myLibraries(), api.myStorage().catch(() => null)]);
   if (stale()) return;
   panel.lastChild.remove();
 
@@ -53,7 +53,8 @@ export async function mylibsPanel(panel, stale) {
     h('div.home-card',
       icon('folder_special', 'filled'),
       h('div', h('div.title-small', 'Your personal folder'), h('div.body-small.mono', home),
-        h('div.body-small.muted', 'Libraries you create here are private to you. Books you download with Content Finder or upload go into them.'))),
+        h('div.body-small.muted', 'Libraries you create here are private to you. Books you download with Content Finder or upload go into them.'),
+        storage && storageLine(storage))),
     libraries.length
       ? h('div.settings-group', ...rows)
       : h('p.note', 'You don’t have a library yet. Create one to start adding books.'),

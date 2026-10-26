@@ -99,6 +99,9 @@ async function runDownload(d) {
   let part = null;
   try {
     if (!lib) throw new Error('The target library no longer exists.');
+    // Storage limits: the downloader's quota (personal libraries) and the disk's reserve.
+    const storage = require('../storage');
+    if (d.user_id) await storage.check(d.user_id, lib.id, 0);
     q("UPDATE downloads SET status = 'downloading', error = NULL WHERE id = ?").run(d.id);
     const spec = await manager.run(d.plugin_id, 'download', [item.fileId]);
     if (Array.isArray(spec?.pages)) {
@@ -116,6 +119,7 @@ async function runDownload(d) {
     if (type.startsWith('text/html')) throw new Error('The source sent a web page instead of a file. It may need you to log in or accept terms first.');
     const total = Number(res.headers.get('content-length')) || null;
     if (total && total > MAX_FILE) throw new Error('That file is larger than 2 GB.');
+    if (total && d.user_id) await storage.check(d.user_id, lib.id, total);
     const filename = filenameFrom(res, spec, item);
     if (!filename) throw new Error('That file type isn’t supported by Flyleaf.');
 

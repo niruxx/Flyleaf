@@ -409,6 +409,7 @@ export async function usersPanel(panel, stale) {
         h('div.s', `@${u.username}${u.email ? ` · ${u.email}` : ''} · ${u.role === 'admin' ? 'Admin' : 'Guest · read-only'}`),
         h('div.s', `${u.maxAgeRating == null ? 'No age restriction' : `Up to ${age?.label}`} · ${!u.libraryIds ? 'All libraries' : u.libraryIds.length ? `${u.libraryIds.length} shared ${u.libraryIds.length === 1 ? 'library' : 'libraries'}` : 'No shared libraries'} · active ${timeAgo(u.lastSeenAt)} · ${formatDuration(u.secondsRead, { short: true })} read · ${u.finished} finished`),
         u.homeDir && h('div.s', h('span.mono', `📁 ${u.homeDir}`)),
+        u.storage && storageLine(u.storage),
         !isSelf && (u.downloaded > 0 || u.uploaded > 0) && h('a.contrib-line.s', { href: `#/admin/users/${u.id}/files`, title: 'Review downloads & uploads' },
           icon('folder_open'),
           `${u.downloaded} downloaded · ${u.uploaded} uploaded`,
@@ -528,6 +529,15 @@ export async function userFilesView(view, params, stale) {
   draw();
 }
 
+/** "1.2 GB of 5 GB" with a bar, for a personal folder. */
+export function storageLine(st) {
+  const pct = st.quota ? Math.min(100, (st.used / st.quota) * 100) : 0;
+  return h('div.storage-line',
+    h('div.s', st.quota ? `${formatBytes(st.used)} of ${formatBytes(st.quota)} used` : `${formatBytes(st.used)} used · no storage limit`,
+      st.files ? ` · ${st.files.toLocaleString()} ${st.files === 1 ? 'file' : 'files'}` : ''),
+    st.quota > 0 && h('div.storage-bar', { class: pct >= 90 ? 'full' : '' }, h('span', { style: { width: `${pct}%` } })));
+}
+
 const PERMISSIONS = [
   { key: 'download', icon: 'download', label: 'Download & Send to', sub: 'Download original files and zips, and email books to e-readers.' },
   { key: 'contentFinder', icon: 'travel_explore', label: 'Content Finder', sub: 'Search plugin sources and download new books into the libraries they can see.' },
@@ -578,6 +588,13 @@ export async function userDialog(user, { onSaved } = {}) {
       }));
     }
   } });
+  const quotaField = field('Storage limit (GB)', {
+    value: user?.quotaMb == null ? '' : user.quotaMb === 0 ? '0' : String(+(user.quotaMb / 1024).toFixed(2)),
+    type: 'number',
+    min: 0,
+    step: 'any',
+    support: 'How much their personal folder may hold. Empty uses the server default (Server & email → Storage); 0 means no limit.',
+  });
   const perms = { download: true, contentFinder: false, apiAccess: true, upload: false, deleteBooks: true, ...(user?.permissions || {}) };
   const permRows = PERMISSIONS.map((p) => {
     const input = h('input', { type: 'checkbox', checked: perms[p.key] });
@@ -604,6 +621,8 @@ export async function userDialog(user, { onSaved } = {}) {
       homeField,
       homeBrowse,
       homeBrowser,
+      user?.storage && storageLine(user.storage),
+      quotaField,
       h('p.label-large', { style: { margin: '16px 0 4px' } }, 'Permissions'),
       h('div.perm-list', permRows),
       h('p.body-small.muted', 'Guests always have their own progress, collections, bookmarks and stats, and can never change libraries, metadata or other users.'),
@@ -620,6 +639,7 @@ export async function userDialog(user, { onSaved } = {}) {
         ageIncludeUnknown: unknown.checked,
         libraryIds,
         homeDir: homeField.input.value.trim() || null,
+        quotaMb: quotaField.input.value === '' ? null : Math.round(Number(quotaField.input.value) * 1024),
         permissions: Object.fromEntries(permRows.map((r) => r.querySelector('input')).map((i) => [i.dataset.key, i.checked])),
       };
       if (user) {
@@ -719,10 +739,40 @@ export async function serverPanel(panel, stale) {
         } }),
       ),
     )),
+    h('div.sub-head', 'Storage'),
+    storageGroup(),
     h('div.sub-head', 'Sign-up'),
     registrationGroup(s),
     h('p.note', 'Run as a service with install.sh, and see the README for HTTPS reverse-proxy examples. Logs live in data/logs/flyleaf.log.'),
   );
+}
+
+/** Storage limits: personal folder quota, largest upload, free space to keep on the disk. */
+function storageGroup() {
+  const wrap = h('div.settings-group', h('div.setting-row', loading()));
+  api.storageLimits().then((s) => {
+    const gb = (mb) => (mb == null ? '' : String(+(mb / 1024).toFixed(2)));
+    const quota = field('Default storage per personal folder (GB)', { value: gb(s.defaultQuotaMb), type: 'number', min: 0, step: 'any', support: 'For users with a personal folder. Empty or 0 means no limit; you can override it per user in Users → Edit. Admins are never limited.' });
+    const upload = field('Largest upload (MB)', { value: s.maxUploadMb ?? '', type: 'number', min: 1, support: `Per file. Empty uses MAX_UPLOAD_MB (${s.envMaxUploadMb.toLocaleString()} MB).` });
+    const reserve = field('Keep free on the disk (GB)', { value: gb(s.reserveFreeMb), type: 'number', min: 0, step: 'any', support: 'Uploads and downloads stop before the disk gets fuller than this, so the database never runs out of room.' });
+    const err = h('div');
+    const disk = s.disk.total ? `${formatBytes(s.disk.free)} free of ${formatBytes(s.disk.total)} on the data disk` : 'Free space unknown';
+    wrap.replaceChildren(
+      row('hard_drive', disk, s.disk.total ? h('div.storage-bar', { class: s.disk.free / s.disk.total < 0.1 ? 'full' : '' }, h('span', { style: { width: `${100 - (s.disk.free / s.disk.total) * 100}%` } })) : null),
+      h('div.setting-row.stack', err, quota, upload, reserve,
+        h('div', button('Save storage limits', { icon: 'save', onclick: async () => {
+          err.replaceChildren();
+          const mb = (v) => (v === '' ? null : Math.round(Number(v) * 1024));
+          try {
+            await api.saveStorageLimits({ defaultQuotaMb: mb(quota.input.value), maxUploadMb: upload.input.value === '' ? null : Number(upload.input.value), reserveFreeMb: mb(reserve.input.value) ?? 0 });
+            snackbar('Saved');
+          } catch (e) {
+            err.append(formError(e.message));
+          }
+        } }))),
+    );
+  }).catch((e) => wrap.replaceChildren(row('error', 'Couldn’t load storage limits', e.message)));
+  return wrap;
 }
 
 /** Let people create their own accounts (for a publicly hosted Flyleaf). */
@@ -780,3 +830,97 @@ function registrationGroup(s) {
   ));
 }
 
+
+// ---------------------------------------------------------------------------
+// Activity: who signed in, downloaded or deleted what, and failed sign-ins
+
+const ACTIVITY_ICON = {
+  login: 'login', 'login.failed': 'gpp_bad', 'login.blocked': 'block', logout: 'logout', signup: 'person_add', setup: 'rocket_launch', 'password.changed': 'key',
+  'book.downloaded': 'download', 'series.downloaded': 'download', 'opds.download': 'download', 'finder.download': 'travel_explore', 'follow.added': 'bookmark_add',
+  'book.sent': 'send_to_mobile', 'series.sent': 'send_to_mobile', upload: 'upload', 'book.deleted': 'delete', 'series.deleted': 'delete', 'moderation.deleted': 'delete_sweep',
+  'book.moved': 'drive_file_move', 'series.moved': 'drive_file_move', 'duplicates.merged': 'merge',
+};
+const GROUP_LABEL = { '': 'Everything', security: 'Sign-ins & security', downloads: 'Downloads', changes: 'Uploads & deletions', admin: 'Admin changes' };
+
+export async function activityPanel(panel, stale) {
+  panel.append(h('h2', 'Activity'), loading());
+  const [data, sec, users] = await Promise.all([api.activity(), api.activitySecurity(), api.users()]);
+  if (stale()) return;
+  panel.lastChild.remove();
+
+  const filters = { group: '', user: '', q: '' };
+  const list = h('div.list.card.activity-list');
+  const more = button('Show older', { variant: 'text', icon: 'expand_more', onclick: () => load(true) });
+  let entries = data.entries;
+
+  const entryRow = (e) => {
+    const bad = e.action === 'login.failed' || e.action === 'login.blocked';
+    const extra = e.details && Object.entries(e.details).filter(([, v]) => v != null && v !== '').map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · ');
+    return h(`div.list-item.static.activity-row${bad ? '.bad' : ''}`,
+      icon(ACTIVITY_ICON[e.action] || 'history'),
+      h('div.text',
+        h('div.headline', h('strong', e.username || 'Someone'), ` ${e.label.toLowerCase()}`, e.target && e.target !== e.username ? h('span', ' · ', e.target) : ''),
+        h('div.supporting', [new Date(e.at).toLocaleString(), e.ip, extra].filter(Boolean).join(' · '))),
+      h('span.label-small.muted', { title: new Date(e.at).toLocaleString() }, timeAgo(e.at)));
+  };
+  function draw() {
+    list.replaceChildren(...(entries.length ? entries.map(entryRow) : [h('div.list-item.static.muted', 'Nothing logged yet.')]));
+    more.hidden = entries.length === 0 || entries.length % 100 !== 0;
+  }
+  async function load(older = false) {
+    const r = await api.activity({ ...filters, before: older ? entries.at(-1)?.id : undefined });
+    entries = older ? [...entries, ...r.entries] : r.entries;
+    draw();
+    if (older && r.entries.length < 100) more.hidden = true;
+  }
+
+  const group = field('Show', { value: '', options: Object.entries(GROUP_LABEL).map(([value, label]) => ({ value, label })) });
+  const who = field('User', { value: '', options: [{ value: '', label: 'Everyone' }, ...users.map((u) => ({ value: u.id, label: `${u.displayName} (@${u.username})` }))] });
+  const text = field('Search', { value: '', support: 'Title, name or IP address' });
+  group.input.addEventListener('change', () => { filters.group = group.input.value; load(); });
+  who.input.addEventListener('change', () => { filters.user = who.input.value; load(); });
+  let timer;
+  text.input.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { filters.q = text.input.value.trim(); load(); }, 300);
+  });
+
+  const secWrap = h('div');
+  const drawSecurity = (s) => secWrap.replaceChildren(...[
+    h('div.settings-group',
+      row(s.failed24h ? 'gpp_maybe' : 'verified_user', s.failed24h ? `${s.failed24h} failed ${s.failed24h === 1 ? 'sign-in' : 'sign-ins'} in the last day` : 'No failed sign-ins in the last day',
+        `${s.signins24h} successful ${s.signins24h === 1 ? 'sign-in' : 'sign-ins'} · an address is blocked for 15 minutes after 10 wrong passwords, and admins get a notification after 5`),
+      ...s.blocked.map((b) => row('block', `${b.ip} is blocked`, `${b.failures} wrong passwords · unblocks itself at ${new Date(b.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+        button('Unblock', { variant: 'tonal', icon: 'lock_open', onclick: async () => {
+          drawSecurity(await api.unblockIp(b.ip));
+          snackbar(`${b.ip} can sign in again`);
+        } }))),
+    ),
+    (s.byIp.length > 0 || s.byUsername.length > 0) && h('div.security-grid',
+      s.byIp.length > 0 && h('div.settings-group',
+        h('div.setting-row', h('div.text', h('div.label-large', 'By address'))),
+        ...s.byIp.map((r) => row('lan', r.ip || 'unknown', `${r.count} failed · last ${timeAgo(r.last)}${r.usernames.length ? ` · tried ${r.usernames.join(', ')}` : ''}`))),
+      s.byUsername.length > 0 && h('div.settings-group',
+        h('div.setting-row', h('div.text', h('div.label-large', 'By account name'))),
+        ...s.byUsername.map((r) => row(r.exists ? 'person' : 'person_off', r.username, `${r.count} failed · last ${timeAgo(r.last)}${r.exists ? ' · a real account' : ' · no such account'}`))),
+    ),
+  ].filter(Boolean));
+  drawSecurity(sec);
+
+  panel.append(
+    h('div.sub-head', 'Failed sign-ins'),
+    secWrap,
+    h('div.sub-head', 'Activity log'),
+    h('div.activity-filters', group, who, text,
+      button('Export CSV', { variant: 'text', icon: 'download', onclick: () => {
+        const a = h('a', { href: api.activityCsvUrl(filters), download: '' });
+        document.body.append(a);
+        a.click();
+        a.remove();
+      } })),
+    list,
+    h('div', { style: { textAlign: 'center', marginTop: '8px' } }, more),
+    h('p.note', `Sign-ins, downloads, uploads, deletions and admin changes are kept for ${data.keepDays} days (ACTIVITY_DAYS).`),
+  );
+  draw();
+}

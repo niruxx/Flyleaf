@@ -20,13 +20,14 @@ for metadata, so the series IDs are already there.
 - ⬜ Update the chapter/volume count and status (Reading / Completed) when a book is finished
 - ⬜ Optionally pull the score and status back in
 
-### Follow series for new chapters (3 of 5 done)
+### Follow series for new chapters (4 of 5 done)
 - ✅ **Follow** button in Content Finder, scheduled checks (`FOLLOW_CHECK_HOURS`), auto-download
   into the chosen library, an Updates list (*Following*) and a *New chapters* shelf on Home
 - ✅ **Watch my downloads**: downloaded series are matched to their source (by id, or by title for
   older downloads) and newer chapters are reported
 - ✅ Webhook event `series.updated`, push notifications and the notifications bell
-- ⬜ **Follow from the series page** for series that came from Content Finder
+- ✅ **Follow from the series page** for series that came from Content Finder, with an
+  auto-download switch and the chapters downloading right now
 - ⬜ **Per-source schedules** (some sources update hourly, others weekly)
 
 ### Real offline reading in the web app (3 of 4 done)
@@ -90,14 +91,16 @@ for metadata, so the series IDs are already there.
 
 ---
 
-## 👥 Accounts & security (0 of 5 done)
+## 👥 Accounts & security (3 of 5 done)
 
 - ⬜ **Single sign-on** with OpenID Connect (Authelia, Authentik, Keycloak): Kavita and Komga
   have it, and it's the most-requested feature for shared servers
 - ⬜ **Two-factor authentication** (TOTP) for the admin account
-- ⬜ **Failed-login alerts** in the admin panel (login rate limiting is already built in)
-- ⬜ **Activity log**: who logged in, downloaded or deleted what, and when
-- ⬜ **Per-user storage quota** for personal folders
+- ✅ **Failed-login alerts** in the admin panel: failed sign-ins by address and account name,
+  blocked addresses with *Unblock*, and a notification after 5 wrong passwords
+- ✅ **Activity log**: who logged in, downloaded or deleted what, and when (with CSV export)
+- ✅ **Per-user storage quota** for personal folders, plus server-wide storage limits (largest
+  upload, free space to keep on the disk)
 
 ---
 

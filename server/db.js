@@ -434,6 +434,25 @@ const migrations = [
     indexed_at  INTEGER NOT NULL
   );
   `,
+
+  // v9: activity log and per-user storage limits.
+  `
+  CREATE TABLE activity_log (
+    id        INTEGER PRIMARY KEY,
+    at        INTEGER NOT NULL,
+    user_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    username  TEXT,                                  -- kept after the user is deleted, and for failed sign-ins
+    ip        TEXT,
+    action    TEXT NOT NULL,                         -- login, login.failed, book.downloaded, book.deleted…
+    target    TEXT,                                  -- what it was about, in words ("Berserk · Volume 1")
+    details   TEXT                                   -- JSON
+  );
+  CREATE INDEX activity_at ON activity_log(at DESC);
+  CREATE INDEX activity_user ON activity_log(user_id, at DESC);
+  CREATE INDEX activity_action ON activity_log(action, at DESC);
+
+  ALTER TABLE users ADD COLUMN quota_mb INTEGER;     -- storage limit for the personal folder; NULL = the server default
+  `,
 ];
 
 function migrate() {

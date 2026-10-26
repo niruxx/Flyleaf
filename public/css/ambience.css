@@ -1229,3 +1229,173 @@ body.is-offline .app-search {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* Storage used by a personal folder (users list, My libraries) */
+.storage-line {
+  margin-top: 4px;
+}
+.storage-bar {
+  height: 6px;
+  max-width: 320px;
+  margin-top: 4px;
+  border-radius: var(--shape-full);
+  background: var(--md-surface-container-highest);
+  overflow: hidden;
+}
+.storage-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--md-primary);
+  transition: width var(--dur-medium, 300ms) var(--ease-standard);
+}
+.storage-bar.full > span {
+  background: var(--md-error);
+}
+
+/* Settings → Activity */
+.activity-filters {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(160px, 1fr) minmax(180px, 1.4fr) auto;
+  gap: 0 12px;
+  align-items: start;
+  margin-bottom: 8px;
+}
+.activity-filters > .btn {
+  margin-top: 8px;
+}
+.activity-row > .text {
+  min-width: 0;
+}
+.activity-row .headline {
+  overflow-wrap: anywhere;
+}
+.activity-row .supporting {
+  overflow-wrap: anywhere;
+}
+.activity-row > .icon {
+  color: var(--md-on-surface-variant);
+}
+.activity-row.bad > .icon {
+  color: var(--md-error);
+}
+.security-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.security-grid .settings-group {
+  margin: 0;
+}
+@media (max-width: 719px) {
+  .activity-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+  .activity-filters > .field:nth-child(3) {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Series page → New chapters */
+.follow-panel .section-head {
+  justify-content: flex-start;
+  gap: 12px;
+}
+.follow-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: var(--shape-lg);
+  background: var(--md-surface-container);
+  border: 1px solid var(--md-outline-variant);
+}
+.follow-card > .icon {
+  flex: none;
+  font-size: 28px;
+  color: var(--md-on-surface-variant);
+}
+.follow-card.following > .icon {
+  color: var(--md-primary);
+}
+.follow-card > .text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.follow-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  cursor: pointer;
+  width: fit-content;
+}
+.follow-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.follow-downloads,
+.follow-updates {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 14px 20px;
+  border-radius: var(--shape-lg);
+  background: color-mix(in srgb, var(--md-primary-container) 45%, transparent);
+}
+.follow-updates {
+  background: var(--md-surface-container-low);
+  gap: 6px;
+}
+.follow-downloads > .label-large {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.follow-dl {
+  display: grid;
+  gap: 6px;
+}
+.follow-updates .body-small {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.follow-updates .icon {
+  font-size: 18px;
+  color: var(--md-on-surface-variant);
+}
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--md-primary);
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.7); }
+}
+@media (max-width: 599px) {
+  .follow-card {
+    flex-wrap: wrap;
+    padding: 14px 16px;
+  }
+  .follow-card > .icon {
+    display: none;
+  }
+  .follow-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-dot {
+    animation: none;
+  }
+}

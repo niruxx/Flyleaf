@@ -149,6 +149,9 @@ me.patch('/', (req, res) => {
   res.json(publicUser(auth.toUser(q('SELECT * FROM users WHERE id = ?').get(req.user.id))));
 });
 
+/** Your personal folder: { used, quota, free, files } (bytes; quota null = no limit). */
+me.get('/storage', async (req, res) => res.json(await require('../storage').summary(req.user.id)));
+
 me.put('/prefs', (req, res) => {
   const incoming = req.body && typeof req.body === 'object' ? req.body : {};
   const next = { ...req.user.prefs };
@@ -178,7 +181,7 @@ me.post('/password', (req, res) => {
 const users = express.Router();
 users.use(auth.requireAdmin);
 
-users.get('/', (req, res) => {
+users.get('/', async (req, res) => {
   const rows = q(`
     SELECT u.*,
       (SELECT COALESCE(SUM(seconds), 0) FROM reading_log r WHERE r.user_id = u.id) AS seconds_read,
@@ -195,6 +198,10 @@ users.get('/', (req, res) => {
     if (!perLibrary.has(r.user_id)) perLibrary.set(r.user_id, []);
     perLibrary.get(r.user_id).push({ id: r.library_id, name: r.name, downloads: r.downloads, uploads: r.uploads });
   }
+  // Personal folder usage and limits (folder sizes are cached, see storage.js).
+  const storage = require('../storage');
+  const usage = new Map();
+  for (const u of rows) if (u.home_dir) usage.set(u.id, await storage.summary(u.id));
   res.json(
     rows.map((u) => ({
       ...publicUser(auth.toUser(u)),
@@ -206,6 +213,8 @@ users.get('/', (req, res) => {
       downloaded: u.downloaded,
       uploaded: u.uploaded,
       contributions: perLibrary.get(u.id) || [],
+      quotaMb: u.quota_mb,
+      storage: usage.get(u.id) || null,
     })),
   );
 });
@@ -250,6 +259,12 @@ function ageFields(body) {
       if (!fs.statSync(resolved).isDirectory()) throw new Error(`${resolved} isn’t a folder.`);
       out.home_dir = resolved;
     }
+  }
+  // Storage limit for the personal folder, in MB: null = the server default, 0 = no limit.
+  if (body.quotaMb !== undefined) {
+    const v = body.quotaMb === null || body.quotaMb === '' ? null : Math.round(Number(body.quotaMb));
+    if (v != null && !(v >= 0)) throw new Error('Storage limit must be a number of MB.');
+    out.quota_mb = v;
   }
   if (body.permissions !== undefined) {
     if (!body.permissions || typeof body.permissions !== 'object') throw new Error('Invalid permissions.');
@@ -298,7 +313,7 @@ async function createGuest({ username, password, displayName, email }, access = 
       home = null;
     }
   }
-  applyAccess(id, { library_ids: access.library_ids ?? null, home_dir: home, permissions: access.permissions ?? {} });
+  applyAccess(id, { library_ids: access.library_ids ?? null, home_dir: home, permissions: access.permissions ?? {}, ...(access.quota_mb !== undefined ? { quota_mb: access.quota_mb } : {}) });
   const libraries = home ? await require('./my-libraries').createDefaultLibraries(id, home) : [];
   return { id, homeDir: home, libraries: libraries.length };
 }

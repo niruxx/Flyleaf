@@ -100,6 +100,11 @@
 
 ## 🆕 What's new
 
+- 📋 **Activity log** – *Settings → Activity* shows who signed in, downloaded, uploaded, deleted or changed what, and when, filtered by person or kind, with a CSV export.
+- 🚨 **Failed sign-in alerts** – the same page lists failed sign-ins by address and account name and lets you unblock an address; admins get a notification when someone keeps guessing.
+- 💽 **Storage limits** – a storage quota for each personal folder (a server default, overridable per user), the largest upload, and how much free disk space to keep. Users see how much room they have left.
+- 🔔 **Follow from the series page** – series that came from Content Finder get a *New chapters* panel: follow, switch auto-download on or off, and watch new chapters download.
+
 - 🔎 **Search inside every book** – the search page also finds words and phrases inside EPUB, FB2, TXT, DOCX, RTF and text PDFs across your libraries, with the matching passages; open one and the book jumps to that chapter.
 - 🎧 **Audiobooks** – M4B, M4A, MP3, OGG, OPUS and FLAC in book libraries (a folder of tracks is one audiobook), with chapters, speed, a sleep timer, lock-screen controls, synced progress and offline listening. An audiobook with the same title and author as an ebook sits in the same series.
 - 📚 **Calibre libraries** – point a library at a Calibre folder and its titles, series, tags, descriptions, covers and ratings come with it (and stay in sync when `metadata.db` changes).
@@ -291,7 +296,8 @@ Set these in `/etc/flyleaf/flyleaf.env` (service install) or a `.env` file next 
 | `TRUST_PROXY` | `false` | Set to `true` behind an HTTPS reverse proxy |
 | `SECURE_COOKIES` | `false` | Set to `true` when served over HTTPS |
 | `LOG_LEVEL` | `info` | Terminal verbosity: `debug`, `info`, `warn`, `error` |
-| `MAX_UPLOAD_MB` | `4096` | Largest file the Upload page accepts |
+| `MAX_UPLOAD_MB` | `4096` | Largest file the Upload page accepts (*Settings → Server & email → Storage* can set a lower limit) |
+| `ACTIVITY_DAYS` | `180` | How long the activity log keeps entries |
 
 > 🤫 **Quiet console.** The terminal only shows one line per scan and real errors. Everything else (unreadable files, metadata lookups, library noise) goes to `data/logs/flyleaf.log`.
 

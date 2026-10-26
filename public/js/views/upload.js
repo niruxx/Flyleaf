@@ -154,7 +154,7 @@ export async function uploadView(view, params, stale) {
       button('Choose files', { icon: 'note_add', onclick: (e) => { e.stopPropagation(); filesInput.click(); } }),
       button('Choose a folder', { variant: 'tonal', icon: 'drive_folder_upload', onclick: (e) => { e.stopPropagation(); dirInput.click(); } }),
     ),
-    limits.maxBytes ? h('p.body-small.muted', `Up to ${formatBytes(limits.maxBytes)} per file.`) : null,
+    limits.maxBytes ? h('p.body-small.muted', `Up to ${formatBytes(limits.maxBytes)} per file.${limits.storage?.quota ? ` Your personal folder has ${formatBytes(Math.max(0, limits.storage.quota - limits.storage.used))} left of ${formatBytes(limits.storage.quota)}.` : ''}`) : null,
     filesInput, dirInput,
   );
   zone.addEventListener('click', () => filesInput.click());

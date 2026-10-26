@@ -227,6 +227,7 @@ router.get(['/:key/books/:id/download', '/:key/books/:id/download/:name'], async
   const b = getBook(req.params.id, req.user);
   if (!b || b.missing) return res.status(404).end();
   if (!req.user.permissions.download) return res.status(403).end();
+  require('./activity').record(req.user, 'opds.download', b.series && b.series !== b.title ? `${b.series} · ${b.title}` : b.title, null, req.ip);
   if (b.format === 'folder' || (b.format === 'audio' && require('./audio').isDirSync(b.path))) {
     const { ZipArchive } = require('archiver');
     const zip = new ZipArchive({ store: true });

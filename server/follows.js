@@ -117,6 +117,35 @@ async function findOnSource(pluginId, title) {
 }
 
 /**
+ * Follow one downloaded series: g = { pluginId, sourceId, title, items (the downloads' items),
+ * libraryId }. Files newer than the newest one downloaded become updates straight away (and
+ * download, with auto-download on). Returns { id, found }.
+ */
+async function followGroup(userId, g, { autoDownload = false } = {}) {
+  const details = await manager.run(g.pluginId, 'details', [g.sourceId]);
+  const files = (Array.isArray(details?.files) ? details.files : []).filter((f) => f && f.id != null).map(cleanFile);
+  const have = new Set(g.items.map((i) => i.fileId).filter(Boolean).map(String));
+  const newest = Math.max(-Infinity, ...g.items.map(numberOf).filter((n) => n != null));
+  // Already have it, or it's older than what they have: seen. Newer and not downloaded: an update.
+  const fresh = Number.isFinite(newest) ? files.filter((f) => !have.has(f.id) && numberOf(f) != null && numberOf(f) > newest) : [];
+  const freshIds = new Set(fresh.map((f) => f.id));
+  const last = g.items.at(-1) || {};
+  const book = { title: last.bookTitle || last.title || g.title, author: last.author || null, series: last.series || null, ageRating: last.ageRating ?? null, layout: last.layout || null };
+  const { lastInsertRowid } = q(`INSERT INTO follows (user_id, plugin_id, source_id, library_id, title, cover, book, known, auto_download, created_at, last_checked_at)
+                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 ON CONFLICT (user_id, plugin_id, source_id) DO UPDATE SET auto_download = excluded.auto_download, library_id = COALESCE(excluded.library_id, library_id)`).run(
+    userId, g.pluginId, g.sourceId, g.libraryId ?? null, String(details?.series || details?.title || g.title).slice(0, 300),
+    typeof details?.cover === 'string' ? details.cover.slice(0, 4000) : null, JSON.stringify(book),
+    // Unseen newer files stay out of "known" so check() reports them as updates right away.
+    JSON.stringify(files.filter((f) => !freshIds.has(f.id)).map((f) => f.id)),
+    autoDownload ? 1 : 0, Date.now(), Date.now(),
+  );
+  const row = q('SELECT * FROM follows WHERE user_id = ? AND plugin_id = ? AND source_id = ?').get(userId, g.pluginId, g.sourceId);
+  const found = fresh.length ? (await check(row)).length : 0;
+  return { id: row?.id ?? Number(lastInsertRowid), found };
+}
+
+/**
  * Turn a user's downloaded series into follows. For each one, files newer than the newest
  * chapter (or volume) they downloaded become updates; older files they skipped don't.
  * Returns { series, followed, found, unmatched: [titles] }.
@@ -148,27 +177,10 @@ async function syncDownloads(userId, { autoDownload = false } = {}) {
         g.sourceId = hit.id;
       }
       if (q('SELECT 1 FROM follows WHERE user_id = ? AND plugin_id = ? AND source_id = ?').get(userId, g.pluginId, g.sourceId)) continue;
-
-      const details = await manager.run(g.pluginId, 'details', [g.sourceId]);
-      const files = (Array.isArray(details?.files) ? details.files : []).filter((f) => f && f.id != null).map(cleanFile);
-      const have = new Set(g.items.map((i) => i.fileId).filter(Boolean).map(String));
-      const newest = Math.max(-Infinity, ...g.items.map(numberOf).filter((n) => n != null));
-      // Already have it, or it's older than what they have: seen. Newer and not downloaded: an update.
-      const fresh = Number.isFinite(newest) ? files.filter((f) => !have.has(f.id) && numberOf(f) != null && numberOf(f) > newest) : [];
-      const freshIds = new Set(fresh.map((f) => f.id));
-      const last = g.items.at(-1);
-      const book = { title: last.bookTitle || last.title || g.title, author: last.author || null, series: last.series || null, ageRating: last.ageRating ?? null, layout: last.layout || null };
-      const { lastInsertRowid } = q(`INSERT INTO follows (user_id, plugin_id, source_id, library_id, title, cover, book, known, auto_download, created_at, last_checked_at)
-                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-        userId, g.pluginId, g.sourceId, g.libraryId ?? null, String(details?.series || details?.title || g.title).slice(0, 300),
-        typeof details?.cover === 'string' ? details.cover.slice(0, 4000) : null, JSON.stringify(book),
-        // Unseen newer files stay out of "known" so check() reports them as updates right away.
-        JSON.stringify(files.filter((f) => !freshIds.has(f.id)).map((f) => f.id)),
-        autoDownload ? 1 : 0, Date.now(), Date.now(),
-      );
+      const r = await followGroup(userId, g, { autoDownload });
       result.followed++;
-      result.created.push(Number(lastInsertRowid));
-      if (fresh.length) result.found += (await check(q('SELECT * FROM follows WHERE id = ?').get(Number(lastInsertRowid)))).length;
+      result.created.push(r.id);
+      result.found += r.found;
     } catch (e) {
       log.file(`Couldn't match ${g.title} on ${g.pluginId}: ${e.message}`);
       result.unmatched.push(g.title);
@@ -229,4 +241,4 @@ function start() {
   setInterval(() => checkAll().catch(() => {}), CHECK_HOURS * 3600_000).unref();
 }
 
-module.exports = { check, checkAll, syncDownloads, start, cleanFile, fileLabel, CHECK_HOURS, isRunning: () => Boolean(running) };
+module.exports = { check, checkAll, syncDownloads, followGroup, start, cleanFile, fileLabel, CHECK_HOURS, isRunning: () => Boolean(running) };

@@ -223,6 +223,70 @@ router.post('/updates/:id/download', (req, res) => {
   res.json({ ok: true, downloadId: id });
 });
 
+// ---------------------------------------------------------------------------
+// The series page's "New chapters" panel: where a series came from, whether you follow it, and
+// what's downloading for it right now.
+
+/** The Content Finder source of a series (from downloads of its files), with those downloads' items. */
+function seriesSource(seriesId, userId) {
+  const paths = new Set(q('SELECT path FROM books WHERE series_id = ?').all(seriesId).map((b) => b.path));
+  const rows = q("SELECT user_id, plugin_id, library_id, item, file FROM downloads WHERE status = 'done' AND file IS NOT NULL ORDER BY id").all()
+    .filter((d) => paths.has(d.file));
+  // Prefer the user's own downloads, and ones that remember the item's id at the source.
+  const withSource = rows.filter((d) => json(d.item, {}).sourceId);
+  const pick = withSource.find((d) => d.user_id === userId) || withSource[0] || rows.find((d) => d.user_id === userId) || rows[0];
+  if (!pick) return null;
+  const item = json(pick.item, {});
+  const same = rows.filter((d) => d.plugin_id === pick.plugin_id && (json(d.item, {}).sourceId || null) === (item.sourceId || null));
+  return { pluginId: pick.plugin_id, sourceId: item.sourceId || null, title: item.series || item.bookTitle || item.title, items: same.map((d) => json(d.item, {})), libraryId: pick.library_id };
+}
+
+router.get('/series/:id/follow', (req, res) => {
+  const s = q('SELECT id, library_id FROM series WHERE id = ?').get(Number(req.params.id));
+  if (!s || !require('../serialize').getSeries(s.id, req.user)) return res.status(404).json({ error: 'Series not found.' });
+  const src = seriesSource(s.id, req.user.id);
+  const f = src?.sourceId ? q('SELECT * FROM follows WHERE user_id = ? AND plugin_id = ? AND source_id = ?').get(req.user.id, src.pluginId, src.sourceId) : null;
+  // Downloads in progress for this series, from anyone (so you can see it's on its way).
+  const active = src
+    ? q("SELECT d.id, d.title, d.status, d.received, d.total, d.item, d.created_at, COALESCE(u.display_name, u.username) AS who FROM downloads d LEFT JOIN users u ON u.id = d.user_id WHERE d.plugin_id = ? AND d.status IN ('queued', 'downloading') ORDER BY d.id").all(src.pluginId)
+      .filter((d) => {
+        const it = json(d.item, {});
+        return src.sourceId ? it.sourceId === src.sourceId : (it.series || it.bookTitle || it.title) === src.title;
+      })
+      .map((d) => {
+        const it = json(d.item, {});
+        return { id: d.id, title: d.title, label: follows.fileLabel({ title: it.fileTitle, chapter: it.chapter, volume: it.volume }), status: d.status, received: d.received, total: d.total, by: d.who, mine: d.who === (req.user.displayName || req.user.username) };
+      })
+    : [];
+  const updates = f ? q('SELECT * FROM follow_updates WHERE follow_id = ? ORDER BY found_at DESC LIMIT 5').all(f.id).map((u) => ({ id: u.id, label: follows.fileLabel(json(u.file, {})), foundAt: u.found_at, queued: Boolean(u.queued) })) : [];
+  res.json({
+    source: src ? { plugin: src.pluginId, sourceId: src.sourceId, name: src.pluginId.split('~').pop() } : null,
+    follow: f ? followRow(f) : null,
+    active,
+    updates,
+  });
+});
+
+/** Follow from the series page: { autoDownload } */
+router.post('/series/:id/follow', async (req, res) => {
+  const s = q('SELECT id, library_id FROM series WHERE id = ?').get(Number(req.params.id));
+  if (!s || !require('../serialize').getSeries(s.id, req.user)) return res.status(404).json({ error: 'Series not found.' });
+  const src = seriesSource(s.id, req.user.id);
+  if (!src) return res.status(400).json({ error: 'This series didn’t come from Content Finder, so there’s no source to check for new chapters.' });
+  if (!src.sourceId) {
+    // Older downloads didn't keep the item's id: find it by title (as "Watch my downloads" does).
+    const r = await manager.run(src.pluginId, 'search', [src.title, 1]);
+    const { similarity } = require('../util');
+    const best = (r?.items || []).filter((i) => i && i.id != null).map((i) => ({ id: String(i.id), score: similarity(i.title, src.title) })).sort((a, b) => b.score - a.score)[0];
+    if (!best || best.score < 0.85) return res.status(400).json({ error: `Couldn’t find “${src.title}” on its source any more.` });
+    src.sourceId = best.id;
+  }
+  // New chapters go into the series' own library when you may write there.
+  const libraryId = canWriteLibrary(req.user, s.library_id) ? s.library_id : canWriteLibrary(req.user, src.libraryId) ? src.libraryId : null;
+  const r = await follows.followGroup(req.user.id, { ...src, libraryId }, { autoDownload: req.body?.autoDownload !== false });
+  res.status(201).json({ follow: followRow(q('SELECT * FROM follows WHERE id = ?').get(r.id)), found: r.found });
+});
+
 router.get('/:plugin/search', async (req, res) => {
   const query = String(req.query.q || '').trim().slice(0, 200);
   if (!query) return res.json({ items: [], hasMore: false });
@@ -273,6 +337,8 @@ router.post('/:plugin/download', async (req, res) => {
   const clean = files.map((f) => f && f.id != null && {
     id: String(f.id).slice(0, 2000), title: str(f.title, 200), format: str(f.format, 20), volume: num(f.volume), chapter: num(f.chapter),
   }).filter(Boolean);
+  // Tell them now if their storage is already full, rather than failing every file later.
+  await require('../storage').check(req.user.id, lib.id, 0);
   const ids = downloads.enqueue({
     userId: req.user.id,
     pluginId: req.params.plugin,
