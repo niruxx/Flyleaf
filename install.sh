@@ -217,6 +217,12 @@ info "Installing npm packages (this can take a minute)…"
 # runuser (util-linux) is always there; sudo may not be on a minimal system run as root.
 runuser -u "$SERVICE_USER" -- env HOME="$DATA_DIR" PATH="$(dirname "$NODE_BIN"):$PATH" \
   "$NPM_BIN" --prefix "$INSTALL_DIR" install --allow-git=all --omit=dev --no-audit --no-fund --loglevel=error
+# npm rewrites package-lock.json, and file modes can differ: keep the checkout clean so
+# update.sh can pull later.
+if [[ -d $INSTALL_DIR/.git ]]; then
+  runuser -u "$SERVICE_USER" -- git -C "$INSTALL_DIR" config core.fileMode false || true
+  runuser -u "$SERVICE_USER" -- git -C "$INSTALL_DIR" checkout --quiet -- package-lock.json 2>/dev/null || true
+fi
 ok "Dependencies installed"
 
 # ---------------------------------------------------------------------------

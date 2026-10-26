@@ -5,8 +5,18 @@
 #
 #   sudo ./update.sh            # installed with install.sh (systemd service)
 #   ./update.sh                 # a manual checkout run with `npm start`
+#   sudo ./update.sh --stash    # set aside files you changed by hand (git stash), then update
 
 set -euo pipefail
+
+STASH=no
+for arg in "$@"; do
+  case $arg in
+    --stash) STASH=yes ;;
+    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+    *) printf 'Unknown option: %s (try --help)\n' "$arg" >&2; exit 2 ;;
+  esac
+done
 
 APP=flyleaf
 CONF_DIR=/etc/flyleaf
@@ -56,8 +66,19 @@ printf '\n  %s🔄  Updating Flyleaf%s in %s\n\n' "$c_blue" "$c_off" "$APP_DIR"
 # 1. Make sure there's something to update (and no local edits in the way).
 cd "$APP_DIR"
 git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
-if [[ -n $(as_owner git status --porcelain --untracked-files=no) ]]; then
-  die "There are local changes in $APP_DIR. Commit or stash them first (git stash)."
+# Things the install itself changes aren't local edits: npm rewrites package-lock.json on every
+# install, and the scripts' executable bits get set. Put them back / ignore them.
+as_owner git config core.fileMode false
+as_owner git checkout --quiet -- package-lock.json 2>/dev/null || true
+changes=$(as_owner git status --porcelain --untracked-files=no)
+if [[ -n $changes ]]; then
+  if [[ $STASH == yes ]]; then
+    as_owner git stash push --quiet --message "update.sh $(date +%F_%T)"
+    warn "Your local changes were stashed – bring them back with: git -C $APP_DIR stash pop"
+  else
+    printf '%s\n' "$changes" | sed 's/^/     /' >&2
+    die "These files in $APP_DIR were changed by hand. Run 'sudo $0 --stash' to set them aside and update, or undo them with: git -C $APP_DIR checkout -- ."
+  fi
 fi
 before=$(git rev-parse HEAD)
 info "Fetching updates…"
@@ -97,6 +118,8 @@ as_owner git merge --quiet --ff-only "$upstream"
 info "Installing npm packages…"
 # --allow-git: the EPUB reader (foliate-js) is installed straight from GitHub.
 as_owner "$NPM_BIN" install --allow-git=all --omit=dev --no-audit --no-fund --loglevel=error
+# npm rewrites the lock file; keep the checkout clean so the next update can pull.
+as_owner git checkout --quiet -- package-lock.json 2>/dev/null || true
 trap - ERR
 
 # 4. Restart.
