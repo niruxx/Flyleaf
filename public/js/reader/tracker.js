@@ -1,4 +1,5 @@
-import { api } from '../api.js';
+import { api, localDay } from '../api.js';
+import { queueProgress, flushProgress } from '../offline.js';
 
 const HEARTBEAT = 30_000;
 const IDLE_AFTER = 3 * 60_000; // stop counting after 3 minutes without interaction
@@ -76,8 +77,15 @@ export class Tracker {
     this.pendingSeconds -= seconds;
     this.dirty = false;
     try {
-      return await api.saveProgress(this.bookId, body, { keepalive });
-    } catch {
+      const r = await api.saveProgress(this.bookId, body, { keepalive });
+      flushProgress();
+      return r;
+    } catch (e) {
+      if (e.status === 0) {
+        // Offline: keep it on this device and send it when the connection's back.
+        queueProgress(this.bookId, { ...body, day: localDay() });
+        return;
+      }
       // Put the time back so it's retried on the next heartbeat.
       this.pendingSeconds += seconds;
       this.dirty = true;

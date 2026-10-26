@@ -100,6 +100,11 @@
 
 ## 🆕 What's new
 
+- 🔔 **Follow series for new chapters** – tap *Follow* on a manga or comic in Content Finder and Flyleaf checks it every few hours, downloading new chapters into your library (or just telling you). *Watch my downloads* matches everything you've already downloaded to its source too, so you hear about newer chapters. See *Content Finder → Following*.
+- 🛎️ **Notifications bell** in the top bar (desktop and phone): new chapters, finished or failed downloads, and for admins sign-ups and uploads.
+- 📴 **Read offline** – *Save for offline* on any book (or *Save next 3* on a series) keeps it on your phone or computer. It opens without a connection, and your progress syncs when you're back online. Needs HTTPS.
+- 🔍 **Search inside a book** – the search button in the reader (or `/`, Ctrl+F) finds every match in an EPUB, MOBI, FB2 or text-based PDF, with the text around it.
+
 - 🎯 **Reading goals & year in review** – a yearly books goal and a daily minutes goal with progress rings, a year-long reading heat map, your longest streak, and a *Year in review* page with your top series, genres and writers, month-by-month time and a card you can share.
 - ⭐ **Ratings & reviews** – rate series in half stars and write reviews (with spoiler blur) that everyone on your server can read. The admin can remove any review.
 - 💾 **Backup & restore** – *Settings → Backup & restore* downloads the database on its own or together with every book file, and restores either one. A fresh install can start from a backup on its setup page.
@@ -272,6 +277,7 @@ Set these in `/etc/flyleaf/flyleaf.env` (service install) or a `.env` file next 
 | `HOST` | `0.0.0.0` | Interface to bind (`127.0.0.1` = this machine only) |
 | `FLYLEAF_DATA_DIR` | `./data` | Database, covers, caches and logs |
 | `SCAN_INTERVAL_MINUTES` | `60` | Automatic rescans (`0` = only on start / manual) |
+| `FOLLOW_CHECK_HOURS` | `6` | How often followed series are checked for new chapters (`0` = only when you press *Check now*) |
 | `SESSION_DAYS` | `30` | How long sign-ins last |
 | `TRUST_PROXY` | `false` | Set to `true` behind an HTTPS reverse proxy |
 | `SECURE_COOKIES` | `false` | Set to `true` when served over HTTPS |

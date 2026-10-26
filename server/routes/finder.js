@@ -82,6 +82,147 @@ router.get('/recommendations', async (req, res) => {
   res.json(await require('../discover').forUser(req.user, { refresh: req.query.refresh === '1', imager }));
 });
 
+// ---------------------------------------------------------------------------
+// Following series for new chapters (see follows.js)
+
+const follows = require('../follows');
+
+const followRow = (f) => {
+  const counts = q(`SELECT COUNT(*) AS n, SUM(found_at > ?) AS recent FROM follow_updates WHERE follow_id = ?`).get(Date.now() - 7 * 86400_000, f.id);
+  return {
+    id: f.id,
+    plugin: f.plugin_id,
+    sourceId: f.source_id,
+    title: f.title,
+    cover: f.cover,
+    libraryId: f.library_id,
+    library: f.library_id ? q('SELECT name FROM libraries WHERE id = ?').get(f.library_id)?.name ?? null : null,
+    autoDownload: Boolean(f.auto_download),
+    known: json(f.known, []).length,
+    updates: counts.n || 0,
+    recentUpdates: counts.recent || 0,
+    createdAt: f.created_at,
+    lastCheckedAt: f.last_checked_at,
+    lastNewAt: f.last_new_at,
+    lastError: f.last_error,
+  };
+};
+const ownFollow = (req) => {
+  const f = q('SELECT * FROM follows WHERE id = ? AND user_id = ?').get(Number(req.params.id), req.user.id);
+  if (!f) throw Object.assign(new Error('You’re not following that.'), { status: 404, expose: true });
+  return f;
+};
+
+router.get('/follows', (req, res) => {
+  const list = q('SELECT * FROM follows WHERE user_id = ? ORDER BY COALESCE(last_new_at, created_at) DESC').all(req.user.id).map(followRow);
+  res.json({ follows: list, checkHours: follows.CHECK_HOURS, checking: follows.isRunning() });
+});
+
+// Is this item followed? (for the Follow button in an item's details)
+router.get('/follows/status', (req, res) => {
+  const f = q('SELECT * FROM follows WHERE user_id = ? AND plugin_id = ? AND source_id = ?').get(req.user.id, String(req.query.plugin || ''), String(req.query.id || ''));
+  res.json(f ? followRow(f) : null);
+});
+
+/** Follow { plugin, sourceId, libraryId, autoDownload, book: { title, author, series, cover, ageRating, layout }, files: [ids now] } */
+router.post('/follows', async (req, res) => {
+  const b = req.body || {};
+  const plugin = String(b.plugin || '');
+  const sourceId = str(b.sourceId, 2000);
+  if (!plugin || !sourceId) return res.status(400).json({ error: 'Missing the item to follow.' });
+  await manager.describe(plugin);
+  const lib = b.libraryId ? q('SELECT id FROM libraries WHERE id = ?').get(Number(b.libraryId)) : null;
+  if (!lib || !canWriteLibrary(req.user, lib.id)) return res.status(400).json({ error: 'Choose a library for new chapters to go into.' });
+  const book = {
+    title: str(b.book?.title, 300) || 'Untitled', author: str(b.book?.author, 200), series: str(b.book?.series, 300),
+    ageRating: [0, 1, 2, 3].includes(b.book?.ageRating) ? b.book.ageRating : null,
+    layout: ['single', 'double', 'webtoon'].includes(b.book?.layout) ? b.book.layout : null,
+  };
+  // Everything there now counts as seen; only files that appear later are "new".
+  const known = (Array.isArray(b.files) ? b.files : []).slice(0, 5000).map((x) => String(x).slice(0, 2000));
+  q(`INSERT INTO follows (user_id, plugin_id, source_id, library_id, title, cover, book, known, auto_download, created_at, last_checked_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (user_id, plugin_id, source_id) DO UPDATE SET library_id = excluded.library_id, auto_download = excluded.auto_download`)
+    .run(req.user.id, plugin, sourceId, lib.id, book.series || book.title, httpUrl(b.book?.cover), JSON.stringify(book), JSON.stringify(known),
+      b.autoDownload === false ? 0 : 1, Date.now(), Date.now());
+  res.status(201).json(followRow(q('SELECT * FROM follows WHERE user_id = ? AND plugin_id = ? AND source_id = ?').get(req.user.id, plugin, sourceId)));
+});
+
+router.patch('/follows/:id', (req, res) => {
+  const f = ownFollow(req);
+  const b = req.body || {};
+  if (b.libraryId !== undefined) {
+    if (!q('SELECT 1 FROM libraries WHERE id = ?').get(Number(b.libraryId)) || !canWriteLibrary(req.user, Number(b.libraryId))) {
+      return res.status(400).json({ error: 'Choose a library you can download into.' });
+    }
+    q('UPDATE follows SET library_id = ? WHERE id = ?').run(Number(b.libraryId), f.id);
+  }
+  if (b.autoDownload !== undefined) q('UPDATE follows SET auto_download = ? WHERE id = ?').run(b.autoDownload ? 1 : 0, f.id);
+  res.json(followRow(q('SELECT * FROM follows WHERE id = ?').get(f.id)));
+});
+
+router.delete('/follows/:id', (req, res) => {
+  const f = ownFollow(req);
+  q('DELETE FROM follows WHERE id = ?').run(f.id);
+  res.json({ ok: true });
+});
+
+router.post('/follows/check', async (req, res) => {
+  res.json(await follows.checkAll(req.user.id));
+});
+
+/** Match everything you downloaded to its source and follow it: { autoDownload } */
+router.post('/follows/sync', async (req, res) => {
+  const { created, ...result } = await follows.syncDownloads(req.user.id, { autoDownload: Boolean(req.body?.autoDownload) });
+  res.json(result);
+});
+
+router.post('/follows/:id/check', async (req, res) => {
+  const f = ownFollow(req);
+  const fresh = await follows.check(f);
+  res.json({ found: fresh.length, follow: followRow(q('SELECT * FROM follows WHERE id = ?').get(f.id)) });
+});
+
+/** The Updates feed: new chapters found for your follows, newest first. */
+router.get('/updates', (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+  const rows = q(`SELECT u.*, f.title AS follow_title, f.cover, f.plugin_id, f.library_id, d.status AS download_status, d.error AS download_error
+                  FROM follow_updates u JOIN follows f ON f.id = u.follow_id LEFT JOIN downloads d ON d.id = u.download_id
+                  WHERE u.user_id = ? ORDER BY u.found_at DESC, u.id DESC LIMIT ?`).all(req.user.id, limit);
+  res.json(rows.map((u) => {
+    const file = json(u.file, {});
+    return {
+      id: u.id,
+      followId: u.follow_id,
+      title: u.follow_title,
+      cover: u.cover,
+      plugin: u.plugin_id,
+      file: { ...file, label: follows.fileLabel(file) },
+      foundAt: u.found_at,
+      // new: not downloaded · queued / downloading / done / failed: its download · downloaded: done and cleared from the list
+      status: u.download_status || (u.queued ? 'downloaded' : 'new'),
+      error: u.download_error,
+    };
+  }));
+});
+
+/** Download an update that wasn't downloaded automatically. */
+router.post('/updates/:id/download', (req, res) => {
+  const u = q(`SELECT u.*, f.plugin_id, f.library_id, f.book, f.source_id FROM follow_updates u JOIN follows f ON f.id = u.follow_id
+               WHERE u.id = ? AND u.user_id = ?`).get(Number(req.params.id), req.user.id);
+  if (!u) return res.status(404).json({ error: 'Update not found.' });
+  if (!u.library_id || !canWriteLibrary(req.user, u.library_id)) return res.status(400).json({ error: 'Pick a library for this series first (Following → Library).' });
+  const [id] = downloads.enqueue({
+    userId: req.user.id,
+    pluginId: u.plugin_id,
+    libraryId: u.library_id,
+    book: { ...json(u.book, {}), sourceId: u.source_id },
+    files: [json(u.file, {})],
+  });
+  q('UPDATE follow_updates SET download_id = ?, queued = 1 WHERE id = ?').run(id, u.id);
+  res.json({ ok: true, downloadId: id });
+});
+
 router.get('/:plugin/search', async (req, res) => {
   const query = String(req.query.q || '').trim().slice(0, 200);
   if (!query) return res.json({ items: [], hasMore: false });
@@ -140,6 +281,7 @@ router.post('/:plugin/download', async (req, res) => {
       title: str(book?.title, 300) || 'Untitled', author: str(book?.author, 200), series: str(book?.series, 300),
       ageRating: [0, 1, 2, 3].includes(book?.ageRating) ? book.ageRating : null,
       layout: ['single', 'double', 'webtoon'].includes(book?.layout) ? book.layout : null,
+      sourceId: str(book?.sourceId, 2000),
     },
     files: clean,
   });

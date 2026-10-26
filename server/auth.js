@@ -63,8 +63,11 @@ const PREF_DEFAULTS = {
   finderRecs: { enabled: true, sources: [], nsfw: false },
   // Minutes a day to aim for on the stats page (0 = no daily goal).
   dailyGoalMinutes: 0,
-  // Which push notifications to send: your downloads, new books in your libraries, and (admins) sign-ups & uploads.
-  notify: { downloads: true, newBooks: false, admin: true },
+  // Which push notifications to send: new chapters of followed series, your downloads, new books in
+  // your libraries, and (admins) sign-ups & uploads.
+  notify: { newChapters: true, downloads: true, newBooks: false, admin: true },
+  // Content Finder: follow every series you download, and check downloads for newer chapters.
+  watchDownloads: true,
 };
 
 /** What a user may do beyond reading. Admins always have everything. */

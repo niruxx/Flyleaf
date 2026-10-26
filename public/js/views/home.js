@@ -123,7 +123,26 @@ export async function homeView(view, params, stale) {
     genres.hidden = false;
   }).catch(() => {});
 
+  // New chapters of series you follow (last two weeks).
+  const updates = h('section.section.enter', { hidden: true });
+  if (can(session.user, 'contentFinder')) {
+    api.followUpdates(30).then((list) => {
+      const recent = list.filter((u) => Date.now() - u.foundAt < 14 * 86400_000);
+      if (!recent.length || !updates.isConnected) return;
+      const STATUS = { new: 'Tap to download', queued: 'Queued', downloading: 'Downloading', done: 'Downloaded', downloaded: 'Downloaded', failed: 'Download failed' };
+      updates.append(
+        sectionHead('New chapters', 'new_releases', `${recent.length}`, '#/finder/following'),
+        stagger(h('div.shelf', recent.map((u) => h('a.tile', { href: '#/finder/following', title: `${u.title} · ${u.file.label}` },
+          cover({ title: u.title, coverUrl: u.cover }, { showProgress: false }),
+          h('div.t-title', u.title),
+          h('div.t-sub', `${u.file.label} · ${STATUS[u.status] || u.status}`))))),
+      );
+      updates.hidden = false;
+    }).catch(() => {});
+  }
+
   page.append(...[
+    updates,
     data.continueReading.length > 0 &&
       h('section.section.enter', sectionHead('Continue reading', 'play_circle', `${data.continueReading.length}`), stagger(h('div.continue', data.continueReading.map(resumeCard)))),
     recs,

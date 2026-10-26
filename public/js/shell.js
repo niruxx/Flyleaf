@@ -2,10 +2,11 @@
 
 import { api, can } from './api.js';
 import { session, navigate, onRoute, isAdmin } from './router.js';
-import { h, icon, iconButton, menu, cover, fillAvatar } from './ui.js';
+import { h, icon, iconButton, menu, cover, fillAvatar, timeAgo } from './ui.js';
 import { setTheme } from './prefs.js';
 import { isDark, themeState } from './theme.js';
 import { themeReveal } from './motion.js';
+import { offlineSupported } from './offline.js';
 
 let drawerData = { libraries: [], collections: [], genres: [] };
 let showAllGenres = false;
@@ -26,9 +27,12 @@ export function initShell() {
     // New genres, libraries and collections show up without a reload (after scans,
     // metadata edits, uploads…): re-check on navigation, at most every 10 seconds.
     if (Date.now() - lastDrawerCheck > 10_000) refreshDrawer();
+    closeNotes();
   });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') refreshDrawer();
+    if (document.visibilityState !== 'visible') return;
+    refreshDrawer();
+    refreshBell();
   });
   setInterval(() => document.visibilityState === 'visible' && refreshDrawer(), 60_000);
 }
@@ -93,7 +97,116 @@ function buildEnd(end) {
       { label: 'Sign out', icon: 'logout', onClick: signOut },
     ]);
   });
-  end.replaceChildren(toggle, avatar);
+  end.replaceChildren(bellButton(), toggle, avatar);
+  refreshBell();
+}
+
+// ---------------------------------------------------------------------------
+// Notifications bell
+
+let bell = null;
+let bellTimer = null;
+let notePanel = null;
+
+function bellButton() {
+  bell = h('button.icon-btn.state.bell', { type: 'button', title: 'Notifications', 'aria-label': 'Notifications', 'aria-haspopup': 'dialog', onclick: () => (notePanel ? closeNotes() : openNotes()) },
+    icon('notifications'), h('span.bell-badge', { hidden: true }));
+  return bell;
+}
+
+/** Update the unread count on the bell. Polled once a minute while the app is visible. */
+export async function refreshBell() {
+  clearTimeout(bellTimer);
+  if (!session.user || !bell) return;
+  bellTimer = setTimeout(() => document.visibilityState === 'visible' ? refreshBell() : (bellTimer = setTimeout(refreshBell, 60_000)), 60_000);
+  let r;
+  try {
+    r = await api.unreadNotifications();
+  } catch {
+    return;
+  }
+  setBadge(r.unread);
+}
+
+function setBadge(n) {
+  if (!bell) return;
+  const badge = bell.querySelector('.bell-badge');
+  const was = Number(badge.textContent || 0);
+  badge.hidden = !n;
+  badge.textContent = n > 99 ? '99+' : String(n);
+  bell.setAttribute('aria-label', n ? `Notifications, ${n} unread` : 'Notifications');
+  bell.querySelector('.icon').textContent = n ? 'notifications_active' : 'notifications';
+  // A little ring when something new arrives.
+  if (n > was) {
+    bell.classList.remove('ringing');
+    void bell.offsetWidth;
+    bell.classList.add('ringing');
+  }
+}
+
+const NOTE_ICON = { newChapters: 'auto_stories', downloads: 'download_done', downloadFailed: 'error', newBooks: 'library_add', admin: 'admin_panel_settings' };
+
+async function openNotes() {
+  const list = h('div.note-list', h('div.note-empty', h('div.spinner')));
+  const markAll = h('button.btn.text.state', { type: 'button', onclick: async () => {
+    setBadge((await api.readNotifications()).unread);
+    for (const n of list.querySelectorAll('.note.unread')) n.classList.remove('unread');
+  } }, 'Mark all read');
+  const clearAll = iconButton('delete_sweep', 'Clear all', async () => {
+    await api.clearNotifications();
+    setBadge(0);
+    draw([]);
+  });
+  notePanel = h('div.note-panel', { role: 'dialog', 'aria-label': 'Notifications' },
+    h('div.note-head', h('h2.title-medium', 'Notifications'), markAll, clearAll),
+    list,
+    h('a.note-foot.state', { href: '#/settings/notifications', onclick: closeNotes }, icon('tune'), 'Notification settings'));
+  document.body.append(notePanel);
+  bell.classList.add('selected');
+  setTimeout(() => {
+    addEventListener('pointerdown', outside, true);
+    addEventListener('keydown', escape);
+  });
+
+  function draw(items) {
+    list.replaceChildren(...(items.length ? items.map((n) => {
+      const el = h(`a.note.state${n.read ? '' : '.unread'}`, {
+        href: n.url ? n.url.replace(/^\/(?=#)/, '') : '#/',
+        onclick: () => {
+          if (!n.read) api.readNotifications([n.id]).then((r) => setBadge(r.unread)).catch(() => {});
+          closeNotes();
+        },
+      },
+      n.image ? h('span.note-art', { style: { backgroundImage: `url("${n.image}")` } }) : h('span.note-icon', icon(NOTE_ICON[n.kind] || 'notifications')),
+      h('div.note-text', h('div.note-title', n.title), n.body && h('div.note-body', n.body), h('div.note-time', timeAgo(n.createdAt))),
+      !n.read && h('span.note-dot'));
+      return el;
+    }) : [h('div.note-empty', icon('notifications_off'), h('div.title-small', 'You’re all caught up'), h('div.body-small', 'New chapters, finished downloads and other news show up here.'))]));
+  }
+  try {
+    const r = await api.notifications(60);
+    draw(r.items);
+    setBadge(r.unread);
+  } catch (e) {
+    list.replaceChildren(h('div.note-empty', icon('cloud_off'), h('div.body-small', e.message)));
+  }
+}
+
+function outside(e) {
+  if (notePanel && !notePanel.contains(e.target) && !bell.contains(e.target)) closeNotes();
+}
+function escape(e) {
+  if (e.key === 'Escape') closeNotes();
+}
+function closeNotes() {
+  removeEventListener('pointerdown', outside, true);
+  removeEventListener('keydown', escape);
+  bell?.classList.remove('selected');
+  const p = notePanel;
+  notePanel = null;
+  if (!p) return;
+  p.classList.add('closing');
+  setTimeout(() => p.remove(), 160);
 }
 
 export async function signOut() {
@@ -232,9 +345,11 @@ function buildDrawer() {
     navItem('/library', 'local_library', 'All series'),
     navItem('/want-to-read', 'bookmark_heart', 'Want to read'),
     navItem('/bookmarks', 'bookmarks', 'Bookmarks & notes'),
+    offlineSupported() && navItem('/offline', 'offline_pin', 'Saved offline'),
     navItem('/stats', 'insights', 'Reading stats'),
     can(session.user, 'contentFinder') && navItem('/finder', 'travel_explore', 'Content Finder'),
     can(session.user, 'contentFinder') && navItem('/finder/downloads', 'download', 'Downloads'),
+    can(session.user, 'contentFinder') && navItem('/finder/following', 'notifications_active', 'Following'),
     can(session.user, 'upload') && navItem('/upload', 'upload', 'Upload'),
 
     // Your own libraries and the shared ones, each in its own section.
@@ -313,5 +428,7 @@ function highlight(path) {
 /** Called once a user is known (boot, sign-in, setup). */
 export function afterSignIn() {
   import('./prefs.js').then(({ applyUserPrefs }) => applyUserPrefs());
+  // Remembered so the app can still open (to saved books) without a connection.
+  import('./offline.js').then(({ rememberUser }) => rememberUser(session.user));
   refreshShell();
 }

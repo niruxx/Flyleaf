@@ -141,6 +141,7 @@ scanner.requestScan(null);
 require('./plugins/manager').seedBuiltins().then(() => require('./plugins/downloads').resume());
 require('./plugins/suwayomi-host').boot();
 require('./push').wire();
+require('./follows').start();
 if (config.scanInterval > 0) {
   setInterval(() => scanner.requestScan(null), config.scanInterval * 60_000).unref();
 }

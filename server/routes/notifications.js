@@ -35,4 +35,34 @@ router.post('/push/test', async (req, res) => {
   res.json({ sent: results.length - failed.length, failed: failed.length, error: failed[0]?.error || null });
 });
 
+// ---------------------------------------------------------------------------
+// The bell: in-app notifications.
+//   GET    /api/notifications?limit=        newest first, with the unread count
+//   GET    /api/notifications/unread        { unread } (polled by the top bar)
+//   POST   /api/notifications/read          { ids } or {} for all
+//   DELETE /api/notifications               clear them all
+
+const toNote = (n) => ({ id: n.id, kind: n.kind, title: n.title, body: n.body, url: n.url, image: n.image, read: Boolean(n.read_at), createdAt: n.created_at });
+const unread = (userId) => q('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND read_at IS NULL').get(userId).n;
+
+router.get('/notifications', (req, res) => {
+  const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 300);
+  const rows = q('SELECT * FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT ?').all(req.user.id, limit);
+  res.json({ unread: unread(req.user.id), items: rows.map(toNote) });
+});
+
+router.get('/notifications/unread', (req, res) => res.json({ unread: unread(req.user.id) }));
+
+router.post('/notifications/read', (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isInteger).slice(0, 500) : null;
+  if (ids) for (const id of ids) q('UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ? AND read_at IS NULL').run(Date.now(), id, req.user.id);
+  else q('UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL').run(Date.now(), req.user.id);
+  res.json({ unread: unread(req.user.id) });
+});
+
+router.delete('/notifications', (req, res) => {
+  q('DELETE FROM notifications WHERE user_id = ?').run(req.user.id);
+  res.json({ unread: 0 });
+});
+
 module.exports = { router };

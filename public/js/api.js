@@ -237,6 +237,22 @@ export const api = {
   clearDownloads: (what = 'history', user) => DEL(`/api/finder/downloads${qs({ what, user })}`),
   downloadsSummary: () => GET('/api/finder/downloads/summary'),
 
+  follows: () => GET('/api/finder/follows'),
+  followStatus: (plugin, id) => GET(`/api/finder/follows/status${qs({ plugin, id })}`),
+  follow: (b) => POST('/api/finder/follows', b),
+  updateFollow: (id, b) => PATCH(`/api/finder/follows/${id}`, b),
+  unfollow: (id) => DEL(`/api/finder/follows/${id}`),
+  checkFollow: (id) => POST(`/api/finder/follows/${id}/check`),
+  checkFollows: () => POST('/api/finder/follows/check'),
+  syncFollows: (autoDownload) => POST('/api/finder/follows/sync', { autoDownload }),
+  followUpdates: (limit) => GET(`/api/finder/updates${qs({ limit })}`),
+  downloadUpdate: (id) => POST(`/api/finder/updates/${id}/download`),
+
+  notifications: (limit) => GET(`/api/notifications${qs({ limit })}`),
+  unreadNotifications: () => GET('/api/notifications/unread'),
+  readNotifications: (ids) => POST('/api/notifications/read', ids ? { ids } : {}),
+  clearNotifications: () => DEL('/api/notifications'),
+
   plugins: () => GET('/api/admin/plugins'),
   pluginCatalog: () => GET('/api/admin/plugins/catalog'),
   installPlugin: (b) => POST('/api/admin/plugins', b),

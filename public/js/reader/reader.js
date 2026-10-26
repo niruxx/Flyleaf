@@ -45,6 +45,7 @@ export async function readerView(view, params, stale) {
     shell.engine = engine;
     await engine.open(params.query.get('loc'));
     shell.refreshBookmark();
+    shell.engineReady();
   } catch (err) {
     console.error(err);
     shell.fail(err.message || 'This file could not be opened.');
@@ -67,10 +68,14 @@ function createShell(data, tracker) {
   const fsBtn = document.fullscreenEnabled
     ? iconButton('fullscreen', 'Full screen (F)', () => toggleFullscreen())
     : null;
+  // Shown once the engine says it can search (EPUB-type books, PDFs with text).
+  const searchBtn = iconButton('search', 'Search in book (/)', () => openSearch());
+  searchBtn.hidden = true;
 
   const top = h('div.chrome-top',
     iconButton('arrow_back', 'Close book', () => exit()),
     h('div.titles', h('div.t', book.series && book.series !== book.label ? `${book.series} · ${book.label}` : book.title), titleSub),
+    searchBtn,
     bookmarkBtn,
     tocBtn,
     fsBtn,
@@ -123,6 +128,8 @@ function createShell(data, tracker) {
   }
 
   function exit() {
+    // Without a connection the series page can't load; go back to the saved books.
+    if (!navigator.onLine || document.body.classList.contains('is-offline')) return navigate('/offline', { replace: true });
     const back = `/series/${book.seriesId}`;
     if (previousPath()?.startsWith(back)) history.back();
     else navigate(back, { replace: true });
@@ -209,6 +216,88 @@ function createShell(data, tracker) {
       }
       show(toc.length ? 'toc' : 'bookmarks');
       return h('div.toc', h('div.sheet-section', seg), body);
+    });
+  }
+
+  // ----- search inside the book -----
+  // “…” only where the excerpt is cut mid-sentence.
+  const excerptPre = (s = '') => (s.trim() ? `…${s.trimStart()}` : '');
+  const excerptPost = (s = '') => (!s.trim() ? '' : /[.!?…"”’)\]]\s*$/.test(s) ? s.trimEnd() : `${s.trimEnd()}…`);
+  // The last search stays, so reopening the sheet shows the same results.
+  const found = { query: '', groups: [], done: true };
+  let searchRun = 0;
+  function openSearch() {
+    const eng = shell.engine;
+    if (!eng?.search) return;
+    sheet((close) => {
+      const input = h('input.search-input', { type: 'search', placeholder: 'Search in this book', value: found.query, enterkeyhint: 'search', autocomplete: 'off', 'aria-label': 'Search in this book' });
+      const status = h('div.search-status.body-small.muted');
+      const bar = h('div.progress.search-progress', { hidden: true }, h('span', { style: { width: '0%' } }));
+      const list = h('div.search-results');
+      const total = () => found.groups.reduce((a, g) => a + g.items.length, 0);
+
+      const item = (r) => h('button.search-hit.list-item.state', { type: 'button', onclick: () => {
+        close();
+        eng.goTo(r.target);
+        shell.toast('Search result');
+      } }, h('span.excerpt', excerptPre(r.pre), h('mark', r.match), excerptPost(r.post)));
+      const group = (g) => h('div.search-group', h('div.search-chapter', g.label || 'Text'), g.items.map(item));
+      const draw = () => {
+        list.replaceChildren(...found.groups.map(group));
+        const n = total();
+        status.textContent = !found.query ? 'Type a word or phrase and press Enter.' : found.done
+          ? (n ? `${n}${n >= 500 ? '+' : ''} ${n === 1 ? 'match' : 'matches'} in ${found.groups.length} ${book.engine === 'text' ? (found.groups.length === 1 ? 'section' : 'sections') : (found.groups.length === 1 ? 'page' : 'pages')}` : `No matches for “${found.query}”`)
+          : `Searching… ${n} so far`;
+      };
+
+      async function run() {
+        const query = input.value.trim();
+        if (!query) return;
+        const id = ++searchRun;
+        eng.clearSearch?.();
+        Object.assign(found, { query, groups: [], done: false });
+        bar.hidden = false;
+        draw();
+        try {
+          for await (const r of eng.search(query)) {
+            if (id !== searchRun) return;
+            if (r.progress != null) bar.firstChild.style.width = `${Math.round(r.progress * 100)}%`;
+            if (r.items) {
+              found.groups.push(r);
+              list.append(group(r));
+              draw();
+              if (total() >= 500) break; // enough to scroll through
+            }
+          }
+        } catch (e) {
+          status.textContent = e.message || 'Search failed.';
+        }
+        if (id !== searchRun) return;
+        found.done = true;
+        bar.hidden = true;
+        draw();
+      }
+      input.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          run();
+        }
+      });
+      draw();
+      setTimeout(() => input.focus(), 50);
+      return h('div.search-sheet',
+        h('div.sheet-section', h('div.search-field', icon('search'), input,
+          iconButton('close', 'Clear search', () => {
+            searchRun++;
+            input.value = '';
+            eng.clearSearch?.();
+            Object.assign(found, { query: '', groups: [], done: true });
+            bar.hidden = true;
+            draw();
+            input.focus();
+          })), bar, status),
+        list);
     });
   }
 
@@ -318,8 +407,17 @@ function createShell(data, tracker) {
       );
     },
     /** Keyboard → configured action. */
+    /** After the book opens: show what this engine supports. */
+    engineReady() {
+      searchBtn.hidden = !shell.engine?.search;
+    },
     handleKey(e) {
       const eng = shell.engine;
+      // "/" or Ctrl/⌘+F: search in the book (instead of the browser's find, which can't see inside it).
+      if (eng?.search && (e.key === '/' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f'))) {
+        e.preventDefault();
+        return openSearch();
+      }
       const action = actionFor(e, binds);
       if (!action) return;
       if ((action === 'next' || action === 'prev') && eng?.scrollMode?.()) return;

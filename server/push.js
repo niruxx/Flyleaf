@@ -130,42 +130,103 @@ function subscribe(userId, sub, userAgent) {
 }
 
 // ---------------------------------------------------------------------------
-// Which events become notifications
+// Notifications: the bell in the top bar, plus push to subscribed devices.
 
 const userRow = (id) => q('SELECT * FROM users WHERE id = ?').get(id);
 const admins = () => q("SELECT id FROM users WHERE role = 'admin'").all().map((r) => r.id);
 const fire = (p) => p.catch((e) => log.file(`push failed: ${e.message}`));
 
+function wants(userId, kind) {
+  let prefs = {};
+  try {
+    prefs = JSON.parse(userRow(userId)?.prefs || '{}');
+  } catch {}
+  // Failed downloads follow the "My downloads" setting.
+  const key = kind === 'downloadFailed' ? 'downloads' : kind;
+  return Boolean({ ...require('./auth').PREF_DEFAULTS.notify, ...(prefs.notify || {}) }[key]);
+}
+
+/**
+ * Tell a user something: it goes in their notifications (the bell) and, if they turned that kind
+ * on in Settings → Notifications, to their devices. `newBooks` is opt-in for the bell too, since
+ * every scan would otherwise ring it.
+ */
+function notify(userId, { title, body = null, url = null, image = null, tag }, kind) {
+  if (kind !== 'newBooks' || wants(userId, kind)) {
+    q('INSERT INTO notifications (user_id, kind, title, body, url, image, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(userId, kind, String(title).slice(0, 200), body == null ? null : String(body).slice(0, 1000), url, image, Date.now());
+    // Keep the newest 300 per person.
+    q(`DELETE FROM notifications WHERE user_id = ? AND id NOT IN (SELECT id FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 300)`).run(userId, userId);
+  }
+  if (wants(userId, kind)) fire(notifyUser(userId, { title, body, url, tag }));
+}
+
+// Downloads finish (or fail) in bursts – a batch of chapters – so collect them for a few
+// seconds and send one notification per batch.
+const batches = new Map(); // `${userId}:${done|failed}` → { titles: [], error, timer }
+function downloadBatch(userId, outcome, title, error = null) {
+  const key = `${userId}:${outcome}`;
+  let entry = batches.get(key);
+  if (!entry) {
+    entry = { titles: [], error: null, timer: null };
+    batches.set(key, entry);
+  }
+  entry.titles.push(title);
+  entry.error ||= error;
+  clearTimeout(entry.timer);
+  entry.timer = setTimeout(() => {
+    batches.delete(key);
+    const n = entry.titles.length;
+    const list = `${entry.titles.slice(0, 3).join(', ')}${n > 3 ? ` and ${n - 3} more` : ''}`;
+    const failed = outcome === 'failed';
+    notify(userId, {
+      title: failed ? (n === 1 ? 'Download failed' : `${n} downloads failed`) : (n === 1 ? 'Download finished' : `${n} downloads finished`),
+      body: failed && n === 1 ? `${list}: ${entry.error || 'unknown error'}` : list,
+      url: '/#/finder/downloads',
+      tag: `downloads-${outcome}`,
+    }, failed ? 'downloadFailed' : 'downloads');
+  }, 8000);
+  entry.timer.unref?.();
+}
+
 function wire() {
   events.on('download.completed', (d) => {
     const row = q('SELECT user_id FROM downloads WHERE id = ?').get(d.downloadId);
-    if (row?.user_id) fire(notifyUser(row.user_id, { title: 'Download finished', body: d.title, url: '/#/finder/downloads', tag: `download-${d.downloadId}` }, 'downloads'));
+    if (row?.user_id) downloadBatch(row.user_id, 'done', d.title);
   });
   events.on('download.failed', (d) => {
     const row = q('SELECT user_id FROM downloads WHERE id = ?').get(d.downloadId);
-    if (row?.user_id) fire(notifyUser(row.user_id, { title: 'Download failed', body: `${d.title}: ${d.error || 'unknown error'}`, url: '/#/finder/downloads', tag: `download-${d.downloadId}` }, 'downloads'));
+    if (row?.user_id && d.error !== 'Cancelled') downloadBatch(row.user_id, 'failed', d.title, d.error);
+  });
+  events.on('series.updated', (d) => {
+    const follow = q('SELECT cover FROM follows WHERE id = ?').get(d.followId);
+    notify(d.userId, {
+      title: `${d.count} new in ${d.title}`,
+      body: `${d.files.slice(0, 3).join(', ')}${d.count > 3 ? ` and ${d.count - 3} more` : ''}${d.downloading ? ' · downloading now' : ' · tap to download'}`,
+      url: '/#/finder/following',
+      image: follow?.cover || null,
+      tag: `follow-${d.followId}`,
+    }, 'newChapters');
   });
   // One notification per scan and library, not per book.
   events.on('library.scanned', (d) => {
     if (!d.added) return;
-    const subscribers = q('SELECT DISTINCT user_id FROM push_subscriptions').all().map((r) => r.user_id);
     const { toUser } = require('./auth');
-    for (const id of subscribers) {
-      const u = userRow(id);
-      if (!u || !listsLibrary(toUser(u), d.libraryId)) continue;
-      fire(notifyUser(id, { title: `${d.added} new in ${d.name}`, body: d.added === 1 ? 'A new book was added.' : `${d.added} new books were added.`, url: `/#/library/${d.libraryId}`, tag: `library-${d.libraryId}` }, 'newBooks'));
+    for (const u of q('SELECT * FROM users').all()) {
+      if (!listsLibrary(toUser(u), d.libraryId)) continue;
+      notify(u.id, { title: `${d.added} new in ${d.name}`, body: d.added === 1 ? 'A new book was added.' : `${d.added} new books were added.`, url: `/#/library/${d.libraryId}`, tag: `library-${d.libraryId}` }, 'newBooks');
     }
   });
   events.on('upload.completed', (d) => {
     for (const id of admins()) {
       if (id === d.userId) continue;
-      fire(notifyUser(id, { title: `${d.username} uploaded ${d.files?.length || 0} ${d.files?.length === 1 ? 'file' : 'files'}`, body: 'Review it in Settings → Users.', url: `/#/settings/users`, tag: `upload-${d.userId}` }, 'admin'));
+      notify(id, { title: `${d.username} uploaded ${d.files?.length || 0} ${d.files?.length === 1 ? 'file' : 'files'}`, body: 'Review it in their Downloads & uploads.', url: `/#/admin/users/${d.userId}/files`, tag: `upload-${d.userId}` }, 'admin');
     }
   });
   events.on('user.created', (d) => {
     if (!d.registered) return;
-    for (const id of admins()) fire(notifyUser(id, { title: 'New sign-up', body: `${d.username} created an account.`, url: '/#/settings/users', tag: 'signup' }, 'admin'));
+    for (const id of admins()) notify(id, { title: 'New sign-up', body: `${d.username} created an account.`, url: '/#/settings/users', tag: 'signup' }, 'admin');
   });
 }
 
-module.exports = { publicKey, subscribe, notifyUser, wire, encrypt };
+module.exports = { publicKey, subscribe, notifyUser, notify, wire, encrypt };

@@ -1,7 +1,8 @@
-// Flyleaf service worker: keeps the app shell available offline and caches
-// covers. Book files, pages and API data always go to the network.
+// Flyleaf service worker: keeps the app shell available offline, caches covers, and serves
+// books saved for offline reading (flyleaf-offline, never cleared on update). Other API calls
+// always go to the network.
 
-const VERSION = 'flyleaf-v13';
+const VERSION = 'flyleaf-v14';
 const SHELL = [
   '/',
   '/css/m3.css',
@@ -10,6 +11,8 @@ const SHELL = [
   '/css/motion.css',
   '/js/motion.js',
   '/js/main.js',
+  '/js/offline.js',
+  '/js/views/offline.js',
   '/js/api.js',
   '/js/ui.js',
   '/js/router.js',
@@ -28,7 +31,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION && k !== 'flyleaf-covers').map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION && k !== 'flyleaf-covers' && k !== 'flyleaf-offline').map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
@@ -39,17 +42,10 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
 
-  // Covers are immutable per ?v= – cache-first.
-  if (/^\/api\/books\/\d+\/cover$/.test(url.pathname)) {
-    event.respondWith(
-      caches.open('flyleaf-covers').then(async (cache) => {
-        const hit = await cache.match(req);
-        if (hit) return hit;
-        const res = await fetch(req);
-        if (res.ok) cache.put(req, res.clone());
-        return res;
-      }),
-    );
+  // Books saved for offline reading (see js/offline.js): files and pages from the cache,
+  // reader data from the network when it's there.
+  if (OFFLINE_RE.test(url.pathname)) {
+    event.respondWith(fromOffline(req, url));
     return;
   }
   if (url.pathname.startsWith('/api/')) return;
@@ -67,6 +63,38 @@ self.addEventListener('fetch', (event) => {
       .catch(async () => (await caches.match(req)) || (req.mode === 'navigate' ? caches.match('/') : Response.error())),
   );
 });
+
+const OFFLINE_RE = /^\/api\/books\/\d+\/(reader|file|cover|pages(\/\d+)?)$/;
+
+async function fromOffline(req, url) {
+  // Page images are saved at full size; the data-saver width doesn't change what's offline.
+  const key = new URL(url);
+  key.searchParams.delete('w');
+  const saved = await (await caches.open('flyleaf-offline')).match(key.pathname + key.search);
+  const kind = url.pathname.split('/')[4];
+
+  if (kind === 'reader') {
+    // Fresh progress and notes when online; the saved copy when not.
+    try {
+      const res = await fetch(req);
+      if (res.ok || !saved) return res;
+    } catch (e) {
+      if (!saved) throw e;
+    }
+    return saved;
+  }
+  if (saved && !req.headers.has('range')) return saved;
+  if (kind === 'cover') {
+    // Covers are immutable per ?v= – cache-first.
+    const cache = await caches.open('flyleaf-covers');
+    const hit = await cache.match(req);
+    if (hit) return hit;
+    const res = await fetch(req);
+    if (res.ok) cache.put(req, res.clone());
+    return res;
+  }
+  return fetch(req);
+}
 
 // Push notifications (Settings → Notifications). Payload: { title, body, url, tag }.
 self.addEventListener('push', (event) => {

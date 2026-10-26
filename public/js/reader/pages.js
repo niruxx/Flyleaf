@@ -52,7 +52,12 @@ class PdfSource {
   async init() {
     const pdfjs = await import('/vendor/pdfjs/pdf.min.mjs');
     pdfjs.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs';
-    this.task = pdfjs.getDocument({ url: fileUrl(this.book), isEvalSupported: false, withCredentials: true });
+    // A PDF saved for offline reading is read whole from the cache (PDF.js would otherwise
+    // ask for byte ranges, which the cached copy can't answer).
+    const { isSaved } = await import('../offline.js');
+    this.task = isSaved(this.book.id)
+      ? pdfjs.getDocument({ data: await (await fetch(fileUrl(this.book), { credentials: 'same-origin' })).arrayBuffer(), isEvalSupported: false })
+      : pdfjs.getDocument({ url: fileUrl(this.book), isEvalSupported: false, withCredentials: true });
     this.doc = await this.task.promise;
     this.count = this.doc.numPages;
   }
@@ -98,6 +103,25 @@ class PdfSource {
       }
     }
   }
+  /** Find `query` in each page's text layer, ignoring case and accents. */
+  async *search(query) {
+    const fold = (s) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+    const needle = fold(query.trim());
+    if (!needle) return;
+    for (let i = 0; i < this.count; i++) {
+      const page = await this.doc.getPage(i + 1);
+      const text = (await page.getTextContent()).items.map((t) => t.str).join(' ').replace(/\s+/g, ' ');
+      // Folding keeps lengths for Latin text, so positions line up with the original well enough for excerpts.
+      const hay = fold(text);
+      const items = [];
+      for (let at = hay.indexOf(needle); at !== -1 && items.length < 50; at = hay.indexOf(needle, at + needle.length)) {
+        items.push({ target: i, pre: text.slice(Math.max(0, at - 50), at), match: text.slice(at, at + needle.length), post: text.slice(at + needle.length, at + needle.length + 50) });
+      }
+      if (items.length) yield { label: `Page ${i + 1}`, items };
+      if (i % 5 === 4 || i === this.count - 1) yield { progress: (i + 1) / this.count };
+    }
+  }
+
   async outline() {
     const items = await this.doc.getOutline().catch(() => null);
     if (!items?.length) return [];
@@ -272,6 +296,11 @@ export class PageEngine {
   }
   goTo(target) {
     this.go(Number(target));
+  }
+
+  /** Text search, for PDFs with a text layer (comic pages are images). Same results as TextEngine.search. */
+  get search() {
+    return this.isPdf ? (query) => this.source.search(query) : null;
   }
   goToLocator(loc) {
     this.go(Number(loc));

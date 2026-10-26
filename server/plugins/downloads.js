@@ -325,6 +325,8 @@ function enqueue({ userId, pluginId, libraryId, book, files }) {
     JSON.stringify({
       fileId: f.id, fileTitle: f.title || null, format: f.format || null, volume: f.volume ?? null, chapter: f.chapter ?? null,
       title: book.title, bookTitle: book.title, author: book.author || null, series: book.series || null, ageRating: book.ageRating ?? null, layout: book.layout || null,
+      // The item id at the source, so the series can be followed for new chapters later.
+      sourceId: book.sourceId || null,
     }),
     now,
   ).lastInsertRowid));

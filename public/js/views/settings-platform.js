@@ -92,6 +92,7 @@ export async function notificationsPanel(panel, stale) {
       ),
       h('div.sub-head', 'Notify me about'),
       group(
+        kind('newChapters', 'new_releases', 'New chapters', 'When a series you follow (or downloaded) gets new chapters or volumes'),
         kind('downloads', 'download_done', 'My downloads', 'When a Content Finder download finishes or fails'),
         kind('newBooks', 'library_add', 'New books', 'When a scan adds books to a library you can see (one notification per library)'),
         isAdmin() && kind('admin', 'admin_panel_settings', 'Sign-ups and uploads', 'When someone creates an account or uploads files'),

@@ -13,6 +13,9 @@ import { bookmarksView } from './views/bookmarks.js';
 import { statsView, yearReviewView } from './views/stats.js';
 import { settingsView } from './views/settings.js';
 import { readerView } from './reader/reader.js';
+import { offlineView } from './views/offline.js';
+import { lastUser, rememberUser, flushProgress, savedBooks } from './offline.js';
+import { snackbar } from './ui.js';
 
 route('/setup', setupView, { bare: true, auth: false });
 route('/login', loginView, { bare: true, auth: false });
@@ -35,6 +38,8 @@ route('/stats/year/:year?', yearReviewView);
 route('/finder', (...a) => import('./views/finder.js').then((m) => m.finderView(...a)));
 route('/upload', (...a) => import('./views/upload.js').then((m) => m.uploadView(...a)));
 route('/finder/downloads', (...a) => import('./views/finder.js').then((m) => m.downloadsView(...a)));
+route('/finder/following', (...a) => import('./views/finder.js').then((m) => m.followingView(...a)));
+route('/offline', offlineView);
 route('/settings/:tab?', settingsView);
 route('/admin/users/:id/files', (...a) => import('./views/settings-admin.js').then((m) => m.userFilesView(...a)));
 route('/read/:id', readerView, { bare: true });
@@ -57,10 +62,23 @@ async function boot() {
   try {
     status = await api.status();
   } catch (err) {
+    // No connection: open what's saved on this device, as the last signed-in user.
+    const user = lastUser();
+    if (err.status === 0 && user) {
+      session.user = user;
+      document.body.classList.add('is-offline');
+      const hash = location.hash.replace(/^#/, '');
+      if (!hash.startsWith('/read/')) history.replaceState(null, '', '#/offline');
+      afterSignIn();
+      render();
+      return;
+    }
     document.getElementById('view').textContent = err.message;
     return;
   }
   session.user = status.user;
+  rememberUser(status.user);
+  flushProgress();
   const hash = location.hash.replace(/^#/, '');
   if (status.needsSetup) {
     history.replaceState(null, '', '#/setup');
@@ -77,5 +95,20 @@ async function boot() {
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   navigator.serviceWorker.register('/sw.js').catch(() => {});
 }
+
+// Tell people when the connection drops or comes back.
+addEventListener('offline', () => {
+  document.body.classList.add('is-offline');
+  if (!session.user) return;
+  snackbar(savedBooks().length ? 'You’re offline. Books saved on this device still open.' : 'You’re offline.', {
+    action: savedBooks().length ? 'Saved books' : undefined,
+    onAction: () => navigate('/offline'),
+    duration: 6000,
+  });
+});
+addEventListener('online', () => {
+  document.body.classList.remove('is-offline');
+  if (session.user) snackbar('Back online');
+});
 
 boot();

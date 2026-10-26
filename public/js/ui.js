@@ -149,7 +149,10 @@ export function snackbar(message, { action, onAction, duration = 4000 } = {}) {
       }),
   );
   host.append(bar);
-  setTimeout(() => leave(bar, () => bar.remove()), duration);
+  bar.dismiss = () => bar.isConnected && leave(bar, () => bar.remove());
+  setTimeout(bar.dismiss, duration);
+  // Callers can update `.msg` (progress) or dismiss it early.
+  return bar;
 }
 
 // ---------------------------------------------------------------------------

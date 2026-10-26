@@ -370,6 +370,53 @@ const migrations = [
     last_error  TEXT
   );
   `,
+
+  // v7: following Content Finder series for new chapters.
+  `
+  CREATE TABLE follows (
+    id              INTEGER PRIMARY KEY,
+    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    plugin_id       TEXT NOT NULL,                     -- the source (may be "<plugin>~<sub source>")
+    source_id       TEXT NOT NULL,                     -- the item id the source's details() takes
+    library_id      INTEGER REFERENCES libraries(id) ON DELETE SET NULL,
+    title           TEXT NOT NULL,
+    cover           TEXT,
+    book            TEXT NOT NULL DEFAULT '{}',        -- JSON: title, author, series, ageRating, layout (for downloads)
+    known           TEXT NOT NULL DEFAULT '[]',        -- JSON: file ids already seen
+    auto_download   INTEGER NOT NULL DEFAULT 1,
+    created_at      INTEGER NOT NULL,
+    last_checked_at INTEGER,
+    last_new_at     INTEGER,
+    last_error      TEXT,
+    UNIQUE (user_id, plugin_id, source_id)
+  );
+
+  -- New chapters/volumes found by a check (the Updates feed).
+  CREATE TABLE follow_updates (
+    id          INTEGER PRIMARY KEY,
+    follow_id   INTEGER NOT NULL REFERENCES follows(id) ON DELETE CASCADE,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    file        TEXT NOT NULL,                         -- JSON: the file from details()
+    download_id INTEGER REFERENCES downloads(id) ON DELETE SET NULL,
+    queued      INTEGER NOT NULL DEFAULT 0,            -- 1 once sent to the download queue (the download may since be cleared)
+    found_at    INTEGER NOT NULL
+  );
+  CREATE INDEX follow_updates_user ON follow_updates(user_id, found_at DESC);
+
+  -- The bell in the top bar: new chapters, finished downloads, admin alerts.
+  CREATE TABLE notifications (
+    id          INTEGER PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL,                         -- newChapters | downloads | admin | …
+    title       TEXT NOT NULL,
+    body        TEXT,
+    url         TEXT,                                  -- in-app link, e.g. /#/finder/following
+    image       TEXT,                                  -- cover or icon URL
+    read_at     INTEGER,
+    created_at  INTEGER NOT NULL
+  );
+  CREATE INDEX notifications_user ON notifications(user_id, created_at DESC);
+  `,
 ];
 
 function migrate() {

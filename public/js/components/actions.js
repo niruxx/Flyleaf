@@ -5,6 +5,7 @@ import { isAdmin, navigate, session } from '../router.js';
 import { prefs } from '../prefs.js';
 import { h, icon, actions, dialog, formDialog, field, snackbar, confirmDialog, formatBytes, copyText } from '../ui.js';
 import { refreshShell } from '../shell.js';
+import { offlineSupported, isSaved, saveBook, removeBook } from '../offline.js';
 
 // ---------------------------------------------------------------------------
 // Collections
@@ -270,6 +271,7 @@ export function seriesActions(anchor, s, { onChange, at } = {}) {
       },
     },
     canDownload() && { label: 'Download series', icon: 'download', onClick: () => download(seriesDownloadUrl(s.id), `${s.name} (all volumes, .zip)`) },
+    offlineSupported() && { label: 'Save next 3 for offline', icon: 'offline_pin', onClick: () => saveNextOffline(s, 3) },
   ];
   if (isAdmin()) {
     items.push('-',
@@ -281,6 +283,46 @@ export function seriesActions(anchor, s, { onChange, at } = {}) {
   if (s.canMove) items.push({ label: 'Move to library…', icon: 'drive_file_move', onClick: () => moveTo({ series: s }, { onChange }) });
   if (s.canDelete) items.push({ label: 'Delete', icon: 'delete', onClick: () => deleteSeries(s, { onChange }) });
   return actions(anchor, items, { title: s.name, at });
+}
+
+/** “Save for offline” / “Remove offline copy” for a book (when this browser can keep books). */
+function offlineItem(b) {
+  if (!offlineSupported()) return null;
+  if (isSaved(b.id)) {
+    return { label: 'Remove offline copy', icon: 'offline_pin', onClick: async () => {
+      await removeBook(b.id);
+      snackbar('Removed from this device');
+    } };
+  }
+  return { label: 'Save for offline', icon: 'download_for_offline', onClick: () => saveOffline(b.id, b.label || b.title) };
+}
+
+/** Save one book on this device, with progress in a snackbar. */
+export async function saveOffline(bookId, title) {
+  const bar = snackbar(`Saving “${title}” for offline…`, { duration: 600_000 });
+  try {
+    await saveBook(bookId, {
+      onProgress: (f) => {
+        bar.querySelector('.msg').textContent = `Saving “${title}” for offline… ${Math.round(f * 100)}%`;
+      },
+    });
+    snackbar(`“${title}” is saved on this device`, { action: 'Saved books', onAction: () => navigate('/offline') });
+    return true;
+  } catch (e) {
+    snackbar(e.message, { duration: 6000 });
+    return false;
+  }
+}
+
+/** Save the next few unread books of a series (where you'd carry on reading). */
+async function saveNextOffline(s, n) {
+  const full = await api.series(s.id);
+  const start = Math.max(0, full.books.findIndex((b) => !b.progress?.finished));
+  const next = full.books.slice(start, start + n).filter((b) => !isSaved(b.id));
+  if (!next.length) return snackbar('Those are already saved on this device');
+  let saved = 0;
+  for (const b of next) if (await saveOffline(b.id, b.label || b.title)) saved++;
+  if (saved > 1) snackbar(`${saved} books from ${s.name} are saved on this device`, { action: 'Saved books', onAction: () => navigate('/offline') });
 }
 
 /** ⋮ actions for a single volume/book. */
@@ -295,6 +337,7 @@ export function bookActions(anchor, b, { onChange, series, at } = {}) {
     b.seriesId && { label: 'Add to category', icon: 'playlist_add', onClick: () => addToCollection([b.seriesId], `“${series?.name || b.series}”`).then(changed) },
     canDownload() && { label: 'Send to…', icon: 'send_to_mobile', onClick: () => sendTo({ book: b }) },
     canDownload() && { label: 'Download', icon: 'download', onClick: () => download(downloadUrl(b), b.label || b.title, b.size) },
+    offlineItem(b),
   ];
   if (isAdmin()) {
     items.push('-',

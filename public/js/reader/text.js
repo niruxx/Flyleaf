@@ -190,6 +190,24 @@ export class TextEngine {
   goTo(target) {
     this.view.goTo(target).catch(() => {});
   }
+
+  /**
+   * Search the whole book. Yields { progress } while it works and
+   * { label, items: [{ target, pre, match, post }] } for each chapter with matches.
+   */
+  async *search(query) {
+    for await (const r of this.view.search({ query, matchCase: false, matchDiacritics: false, matchWholeWords: false })) {
+      if (r === 'done') return;
+      if (r.subitems) {
+        yield { label: r.label || '', items: r.subitems.map(({ cfi, excerpt }) => ({ target: cfi, pre: excerpt?.pre || '', match: excerpt?.match || query, post: excerpt?.post || '' })) };
+      } else if (r.progress != null) {
+        yield { progress: r.progress };
+      }
+    }
+  }
+  clearSearch() {
+    this.view?.clearSearch();
+  }
   goToLocator(loc) {
     this.view.goTo(loc).catch(() => {});
   }

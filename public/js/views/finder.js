@@ -3,7 +3,7 @@
 
 import { api, can } from '../api.js';
 import { session, isAdmin, navigate, onLeave } from '../router.js';
-import { h, icon, iconButton, button, cover, dialog, snackbar, loading, skeleton, emptyState, stagger, field, formatBytes, timeAgo, libraryOptions, confirmDialog } from '../ui.js';
+import { h, icon, iconButton, button, setButtonLabel, cover, dialog, snackbar, loading, skeleton, emptyState, stagger, field, formatBytes, timeAgo, libraryOptions, confirmDialog, toggleSwitch, pageBanner } from '../ui.js';
 
 const KIND_LABEL = { books: 'Books', manga: 'Manga', comics: 'Comics' };
 const LAST_SOURCE = 'flyleaf.finder.source';
@@ -252,7 +252,7 @@ export async function finderView(view, params, stale) {
       if (!lib.input.value) return snackbar('Choose a library first.');
       go.disabled = true;
       try {
-        await api.finderDownload(src.id, { libraryId: Number(lib.input.value), book: { title: d.title, author: d.author, series: d.series, ageRating: d.ageRating, layout: d.layout }, files: picked });
+        await api.finderDownload(src.id, { libraryId: Number(lib.input.value), book: { title: d.title, author: d.author, series: d.series, ageRating: d.ageRating, layout: d.layout, sourceId: d.id }, files: picked });
         close();
         snackbar(`Downloading ${picked.length === 1 ? `“${d.title}”` : `${picked.length} files`}…`, { action: 'View', onAction: () => navigate('/finder/downloads') });
         import('../shell.js').then((m) => m.refreshDownloadsBadge());
@@ -261,6 +261,44 @@ export async function finderView(view, params, stale) {
         go.disabled = false;
       }
     } });
+
+    // Follow: new chapters/volumes are checked for and (by default) downloaded into the chosen library.
+    const followable = d.files.length > 0 && !singleChoice && usable.length > 0;
+    let following = null;
+    const followBtn = followable && button('Follow', { variant: 'outlined', icon: 'notifications', onclick: async () => {
+      followBtn.disabled = true;
+      try {
+        if (following) {
+          await api.unfollow(following.id);
+          following = null;
+          snackbar(`Stopped following “${d.series || d.title}”`);
+        } else {
+          if (!lib.input.value) return snackbar('Choose a library first.');
+          following = await api.follow({
+            plugin: src.id, sourceId: d.id, libraryId: Number(lib.input.value), autoDownload: true,
+            book: { title: d.title, author: d.author, series: d.series, cover: d.cover, ageRating: d.ageRating, layout: d.layout },
+            files: d.files.map((f) => f.id),
+          });
+          snackbar(`Following “${d.series || d.title}”. New chapters will download into ${usable.find((l) => l.id === Number(lib.input.value))?.name || 'the library'}.`, { action: 'Manage', onAction: () => navigate('/finder/following'), duration: 6000 });
+        }
+        drawFollow();
+      } catch (e) {
+        snackbar(e.message, { duration: 6000 });
+      } finally {
+        followBtn.disabled = false;
+      }
+    } });
+    const drawFollow = () => {
+      if (!followBtn) return;
+      followBtn.querySelector('.icon').textContent = following ? 'notifications_active' : 'notifications';
+      setButtonLabel(followBtn, following ? 'Following' : 'Follow');
+      followBtn.classList.toggle('selected', Boolean(following));
+      followBtn.title = following ? 'Stop following' : 'Get new chapters automatically';
+    };
+    if (followBtn) api.followStatus(src.id, d.id).then((f) => {
+      following = f;
+      drawFollow();
+    }).catch(() => {});
 
     return h('div.finder-detail',
       h('div.finder-detail-top',
@@ -281,7 +319,7 @@ export async function finderView(view, params, stale) {
       usable.length ? lib : h('p.form-error', icon('error'), session.user.homeDir
         ? h('span', 'Create a library in your personal folder first: ', h('a', { href: '#/settings/mylibs', onclick: () => close() }, 'My libraries'), '.')
         : 'You don’t have access to any library to save into.'),
-      h('div.dialog-actions', button('Cancel', { variant: 'text', onclick: () => close() }), d.files.length > 0 && usable.length > 0 && go),
+      h('div.dialog-actions', button('Cancel', { variant: 'text', onclick: () => close() }), followBtn, d.files.length > 0 && usable.length > 0 && go),
     );
   }
 
@@ -442,4 +480,164 @@ export async function downloadsView(view, params, stale) {
     if (inProgress.length) timer = setTimeout(refresh, 1500);
   }
   refresh();
+}
+
+// ---------------------------------------------------------------------------
+// Following: series checked for new chapters, and what turned up
+
+const UPDATE_LABEL = { new: 'Not downloaded', queued: 'Queued', downloading: 'Downloading', done: 'Downloaded', downloaded: 'Downloaded', failed: 'Failed' };
+
+export async function followingView(view, params, stale) {
+  const page = h('div.page');
+  view.append(page);
+  const banner = pageBanner({
+    icon: 'notifications_active',
+    eyebrow: 'Content Finder',
+    title: 'Following',
+    sub: 'Series checked for new chapters and volumes',
+    actions: [iconButton('refresh', 'Check all now', () => checkAll())],
+  });
+  const watch = h('div');
+  const body = h('div', loading());
+  page.append(banner, watch, body);
+
+  let libraries = [];
+  api.libraries().then((l) => (libraries = l.filter((x) => x.writable))).catch(() => {});
+
+  async function checkAll() {
+    snackbar('Checking your series for new chapters…');
+    try {
+      const r = await api.checkFollows();
+      snackbar(r.found ? `Found ${r.found} new ${r.found === 1 ? 'chapter' : 'chapters'}` : 'Everything’s up to date');
+    } catch (e) {
+      snackbar(e.message, { duration: 6000 });
+    }
+    load();
+  }
+
+  // "Watch my downloads": match what you downloaded to its source and keep checking it.
+  function drawWatch() {
+    const on = session.user.prefs.watchDownloads !== false;
+    const syncBtn = button('Check my downloads now', { variant: 'tonal', icon: 'manage_search', onclick: async () => {
+      syncBtn.disabled = true;
+      setButtonLabel(syncBtn, 'Matching your downloads…');
+      try {
+        const r = await api.syncFollows(false);
+        const parts = [
+          r.followed ? `Now following ${r.followed} ${r.followed === 1 ? 'series' : 'series'}` : 'No new series to follow',
+          r.found ? `${r.found} newer ${r.found === 1 ? 'chapter' : 'chapters'} available` : null,
+          r.unmatched.length ? `${r.unmatched.length} couldn’t be found on their source` : null,
+        ].filter(Boolean);
+        snackbar(parts.join(' · '), { duration: 7000 });
+        load();
+      } catch (e) {
+        snackbar(e.message, { duration: 6000 });
+      } finally {
+        syncBtn.disabled = false;
+        setButtonLabel(syncBtn, 'Check my downloads now');
+      }
+    } });
+    watch.replaceChildren(h('section.watch-card.enter',
+      h('span.f-icon', icon('manage_search')),
+      h('div.text',
+        h('div.title-small', 'Watch my downloads'),
+        h('div.body-small.muted', 'Match everything you’ve downloaded with Content Finder to its source, and tell me when newer chapters come out.')),
+      toggleSwitch(on, async (v) => {
+        session.user.prefs = await api.savePrefs({ watchDownloads: v });
+      }, 'Watch my downloads'),
+      syncBtn));
+  }
+
+  async function load() {
+    let data;
+    let updates;
+    try {
+      [data, updates] = await Promise.all([api.follows(), api.followUpdates(60)]);
+    } catch (e) {
+      body.replaceChildren(emptyState('error', 'Couldn’t load', e.message));
+      return;
+    }
+    if (stale()) return;
+    banner.setArt(data.follows.map((f) => f.cover).filter(Boolean));
+    banner.setSub(data.follows.length
+      ? `${data.follows.length} series · ${data.checkHours ? `checked every ${data.checkHours} ${data.checkHours === 1 ? 'hour' : 'hours'}` : 'automatic checks are off (FOLLOW_CHECK_HOURS=0)'}${data.checking ? ' · checking now' : ''}`
+      : 'Series checked for new chapters and volumes');
+
+    const cards = data.follows.map((f) => {
+      const auto = toggleSwitch(f.autoDownload, async (v) => {
+        await api.updateFollow(f.id, { autoDownload: v });
+        snackbar(v ? 'New chapters will download automatically' : 'You’ll be notified, and can download them yourself');
+      }, 'Download new chapters automatically');
+      const more = iconButton('more_vert', 'More', () => import('../ui.js').then(({ menu }) => menu(more, [
+        { label: 'Check now', icon: 'refresh', onClick: async () => {
+          try {
+            const r = await api.checkFollow(f.id);
+            snackbar(r.found ? `${r.found} new in ${f.title}` : `${f.title} is up to date`);
+          } catch (e) {
+            snackbar(e.message, { duration: 6000 });
+          }
+          load();
+        } },
+        { header: 'New chapters go into' },
+        ...libraries.map((l) => ({ label: l.name, icon: 'folder', checked: l.id === f.libraryId, onClick: async () => {
+          await api.updateFollow(f.id, { libraryId: l.id });
+          load();
+        } })),
+        '-',
+        { label: 'Open in Content Finder', icon: 'travel_explore', onClick: () => navigate(`/finder?source=${encodeURIComponent(f.plugin)}&open=${encodeURIComponent(f.sourceId)}&title=${encodeURIComponent(f.title)}`) },
+        { label: 'Unfollow', icon: 'notifications_off', onClick: async () => {
+          await api.unfollow(f.id);
+          snackbar(`Stopped following “${f.title}”`);
+          load();
+        } },
+      ])));
+      return h('div.follow-card', { style: f.cover ? { '--art': `url("${f.cover}")` } : null },
+        cover({ title: f.title, coverUrl: f.cover }, { showProgress: false }),
+        h('div.follow-info',
+          h('div.title-medium', f.title),
+          h('div.follow-meta', [f.plugin.split('~').pop(), f.library ? `→ ${f.library}` : 'no library chosen', `${f.known} files known`].join(' · ')),
+          h('div.follow-meta', f.lastError ? `Last check failed: ${f.lastError}` : f.lastCheckedAt ? `Checked ${timeAgo(f.lastCheckedAt)}${f.lastNewAt ? ` · last new ${timeAgo(f.lastNewAt)}` : ''}` : 'Not checked yet'),
+          f.recentUpdates > 0 && h('span.follow-new', `${f.recentUpdates} new this week`),
+          h('div.follow-actions', h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flex: '1' } }, auto, h('span.body-small', 'Auto-download')), more)));
+    });
+
+    const rows = updates.map((u) => h('div.update-row',
+      cover({ title: u.title, coverUrl: u.cover }, { showProgress: false }),
+      h('div.text', h('div.title-small', `${u.title} · ${u.file.label}`), h('div.body-small.muted', `${u.plugin.split('~').pop()} · found ${timeAgo(u.foundAt)}${u.error ? ` · ${u.error}` : ''}`)),
+      h(`span.update-status.${u.status}`, UPDATE_LABEL[u.status] || u.status),
+      (u.status === 'new' || u.status === 'failed') && button('Download', { variant: 'tonal', icon: 'download', onclick: async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        try {
+          await api.downloadUpdate(u.id);
+          snackbar(`Downloading ${u.title} · ${u.file.label}`);
+          import('../shell.js').then((m) => m.refreshDownloadsBadge());
+          load();
+        } catch (err) {
+          snackbar(err.message, { duration: 6000 });
+          btn.disabled = false;
+        }
+      } })));
+    const waiting = updates.filter((u) => u.status === 'new');
+
+    body.replaceChildren(...[
+      h('section.section',
+        h('div.section-head', h('h2.with-icon', h('span.sec-icon', icon('bookmark_added')), 'Series you follow', data.follows.length > 0 && h('span.sec-count', String(data.follows.length)))),
+        cards.length
+          ? stagger(h('div.follow-list', cards))
+          : emptyState('notifications_active', 'You’re not following anything yet', 'Open a manga or comic in Content Finder and tap Follow, or turn on “Watch my downloads” above.', button('Open Content Finder', { icon: 'travel_explore', onclick: () => navigate('/finder') }))),
+      updates.length > 0 && h('section.section',
+        h('div.section-head',
+          h('h2.with-icon', h('span.sec-icon', icon('new_releases')), 'Updates', h('span.sec-count', String(updates.length))),
+          waiting.length > 1 && button(`Download all ${waiting.length}`, { variant: 'tonal', icon: 'download', onclick: async () => {
+            for (const u of waiting) await api.downloadUpdate(u.id).catch(() => {});
+            snackbar(`Downloading ${waiting.length} chapters`);
+            load();
+          } })),
+        h('div.list.card', rows)),
+    ].filter(Boolean));
+  }
+
+  drawWatch();
+  await load();
 }

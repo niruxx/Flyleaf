@@ -19,6 +19,7 @@ const EVENTS = {
   'download.failed': 'A Content Finder download failed',
   'user.created': 'The admin created a user',
   'upload.completed': 'Someone uploaded files into a library',
+  'series.updated': 'A followed series has new chapters or volumes',
 };
 
 // In-process listeners (e.g. uploads waiting for their files to be scanned).
