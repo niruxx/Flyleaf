@@ -1,6 +1,6 @@
 {
   "name": "flyleaf",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "private": true,
   "description": "Self-hosted library and reader for ebooks, manga and comics with a Material 3 web UI, OPDS and metadata scraping",
   "main": "server/index.js",

@@ -8,6 +8,18 @@ How to write an entry: add a `## [version] – YYYY-MM-DD` heading at the top (a
 `### Fixed` with one bullet per change. Start a bullet with **the feature in bold** and say what
 it does for readers in a sentence – that's what shows up in the card.
 
+## [2.8.0] – 2026-10-27
+
+Find things faster in Content Finder.
+
+### Added
+- **Genres in Content Finder** – Project Gutenberg and Internet Archive now have genre chips (Horror, Science fiction, Poetry, Mystery…): pick one to browse it, or search within it.
+- **Books / Manga / Comics filter** – narrow Content Finder to one kind of source, both the source list and “All sources” searches.
+- **Find a source** – type to find one source among many (handy with lots of Mihon extensions).
+
+### Changed
+- **Every Mihon extension is shown** – 18+ and non-English sources are no longer hidden by default; the Mihon plugin's settings can hide them if you want.
+
 ## [2.7.0] – 2026-10-26
 
 Make it feel like a real book.

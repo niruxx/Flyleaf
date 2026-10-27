@@ -301,6 +301,8 @@ async function inspect(source) {
       functions: {
         search: has('search'), latest: has('latest'), browse: has('browse'), details: has('details'), download: has('download'),
         sources: has('sources'), image: has('image'),
+        // Optional genre/category filters: genres() lists them, genre(id, page, query) browses one.
+        genres: has('genres') && has('genre'),
       },
     };
   } catch (err) {

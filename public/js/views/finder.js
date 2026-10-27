@@ -62,7 +62,20 @@ export async function finderView(view, params, stale) {
   // Find a source by name (handy with dozens of Mihon extensions). "All sources" then searches
   // just the matching ones.
   let sourceFilter = '';
-  const matchesFilter = (s) => !sourceFilter || `${s.name} ${s.description || ''} ${s.language || ''}`.toLowerCase().includes(sourceFilter);
+  // Books / Manga / Comics: which kind of source to list and search.
+  let kindFilter = '';
+  const matchesFilter = (s) => (!kindFilter || (s.kinds || []).includes(kindFilter)) && (!sourceFilter || `${s.name} ${s.description || ''} ${s.language || ''}`.toLowerCase().includes(sourceFilter));
+  const kindsAvailable = [...new Set(sources.flatMap((s) => s.kinds || []))].filter((k) => KIND_LABEL[k]);
+  const kindChips = h('div.chip-row.kind-chips');
+  function renderKinds() {
+    if (kindsAvailable.length < 2) return kindChips.replaceChildren();
+    kindChips.replaceChildren(...['', ...kindsAvailable].map((k) => h('button.chip.state', { type: 'button', 'aria-pressed': String(kindFilter === k), onclick: () => {
+      kindFilter = k;
+      renderKinds();
+      renderChips();
+      if (current === ALL) run(true);
+    } }, icon(k === 'books' ? 'menu_book' : k === 'manga' ? 'auto_stories' : k === 'comics' ? 'photo_library' : 'select_all'), k ? KIND_LABEL[k] : 'Everything')));
+  }
   const searchable = () => ready.filter(matchesFilter);
   const sourceFind = h('input.source-find', { type: 'search', placeholder: `Find a source (${sources.length})…`, 'aria-label': 'Find a source', autocomplete: 'off',
     oninput: () => {
@@ -88,8 +101,30 @@ export async function finderView(view, params, stale) {
         sourceIcon(s), s.name, (s.needsSetup || s.error) && icon('warning'))),
     ].filter(Boolean));
   }
+  // Genres of the current source (sources with genres()); '' = none picked.
+  let genre = '';
+  const genreRow = h('div.chip-row.genre-chips');
+  async function renderGenres() {
+    const src = current !== ALL && sourceById(current);
+    if (!src?.hasGenres) return genreRow.replaceChildren();
+    let list;
+    try {
+      list = await api.finderGenres(src.id);
+    } catch {
+      return genreRow.replaceChildren();
+    }
+    if (current !== src.id) return;
+    genreRow.replaceChildren(h('span.label-medium.muted', icon('category'), 'Genre'), ...[{ id: '', name: 'All' }, ...list].map((g) => h('button.chip.state', { type: 'button', 'aria-pressed': String(genre === g.id), dataset: { genre: g.id }, onclick: () => {
+      genre = g.id;
+      stack.length = 0;
+      for (const b of genreRow.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.genre === g.id));
+      run(true);
+    } }, g.name)));
+  }
   function pick(id) {
     current = id;
+    genre = '';
+    renderGenres();
     saveLast(id);
     stack.length = 0;
     renderChips();
@@ -116,10 +151,12 @@ export async function finderView(view, params, stale) {
   view.append(h('div.page.finder', head,
     h('p.body-medium.muted.enter', { style: { margin: '-8px 0 16px' } }, 'Search the sources your admin has installed and download straight into a library. Only download books you’re allowed to.'),
     sources.length > 6 && h('div.source-find-wrap', icon('filter_list'), sourceFind),
-    chips, searchBar, crumbs, results, more));
+    kindChips, chips, searchBar, genreRow, crumbs, results, more));
+  renderKinds();
   renderChips();
 
   const sourceById = (id) => sources.find((s) => s.id === id);
+  renderGenres();
 
   function tile(src, item) {
     const el = h('button.tile.finder-tile', { type: 'button', title: item.title, onclick: () => (item.folder ? openFolder(item) : openDetails(src, item)) },
@@ -148,6 +185,7 @@ export async function finderView(view, params, stale) {
 
   async function fetchPage(src, page) {
     if (stack.length) return api.finderBrowse(src.id, stack[stack.length - 1].id, page);
+    if (genre && src.hasGenres) return api.finderGenre(src.id, genre, query, page);
     if (query) return api.finderSearch(src.id, query, page);
     if (src.canBrowse) return api.finderLatest(src.id, page);
     return { items: [], hasMore: false, needsQuery: true };

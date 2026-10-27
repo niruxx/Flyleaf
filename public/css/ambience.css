@@ -1843,3 +1843,30 @@ body.is-offline .app-search {
   font: inherit;
   outline: none;
 }
+
+/* Content Finder: Books / Manga / Comics and genre filters */
+.finder .kind-chips {
+  margin: 0 0 10px;
+}
+.finder .genre-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 14px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 4px;
+}
+.finder .genre-chips:empty {
+  display: none;
+}
+.finder .genre-chips > .label-medium {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  margin-right: 4px;
+}
+.finder .genre-chips .chip {
+  flex: none;
+}

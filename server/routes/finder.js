@@ -297,6 +297,26 @@ router.get('/:plugin/latest', async (req, res) => {
   res.json(cleanResults(await manager.run(req.params.plugin, 'latest', [page(req)]), await imager(req.params.plugin)));
 });
 
+// Genres / categories (plugins with genres() and genre()). The list is cached for a day.
+const genreCache = new Map();
+router.get('/:plugin/genres', async (req, res) => {
+  const hit = genreCache.get(req.params.plugin);
+  if (hit && Date.now() - hit.at < 86_400_000) return res.json(hit.list);
+  const raw = await manager.run(req.params.plugin, 'genres', []);
+  const list = (Array.isArray(raw) ? raw : []).filter((g) => g && g.id != null).slice(0, 200)
+    .map((g) => ({ id: String(g.id).slice(0, 200), name: str(g.name, 80) || String(g.id) }));
+  genreCache.set(req.params.plugin, { at: Date.now(), list });
+  res.json(list);
+});
+
+/** One genre's books, optionally narrowed by ?q= text. */
+router.get('/:plugin/genre', async (req, res) => {
+  const id = String(req.query.id || '');
+  if (!id) return res.status(400).json({ error: 'Missing genre.' });
+  const query = String(req.query.q || '').trim().slice(0, 200);
+  res.json(cleanResults(await manager.run(req.params.plugin, 'genre', [id, page(req), query]), await imager(req.params.plugin)));
+});
+
 router.get('/:plugin/browse', async (req, res) => {
   res.json(cleanResults(await manager.run(req.params.plugin, 'browse', [String(req.query.id || ''), page(req)]), await imager(req.params.plugin)));
 });

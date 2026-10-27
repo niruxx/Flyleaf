@@ -9,7 +9,7 @@
 plugin = {
   id = "internet-archive",
   name = "Internet Archive",
-  version = "1.0.0",
+  version = "1.1.0",
   author = "Flyleaf",
   description = "Public-domain books and texts digitised by libraries, from archive.org.",
   site = "https://archive.org",
@@ -77,6 +77,46 @@ end
 
 function search(q, page)
   return search_docs("(" .. q .. ") AND " .. filters(), page, nil)
+end
+
+-- Genres: archive.org subject searches.
+local GENRES = {
+  { id = "adventure", name = "Adventure", q = 'subject:(adventure)' },
+  { id = "biography", name = "Biography", q = 'subject:(biography OR autobiography)' },
+  { id = "children", name = "Children’s", q = 'subject:("juvenile fiction" OR "children\'s stories" OR "children\'s literature")' },
+  { id = "comics", name = "Comics", q = 'subject:("comic books" OR comics OR "graphic novels")' },
+  { id = "cooking", name = "Cooking", q = 'subject:(cooking OR cookery OR recipes)' },
+  { id = "fantasy", name = "Fantasy", q = 'subject:(fantasy)' },
+  { id = "history", name = "History", q = 'subject:(history)' },
+  { id = "horror", name = "Horror", q = 'subject:(horror OR "ghost stories")' },
+  { id = "mystery", name = "Mystery & detective", q = 'subject:(mystery OR detective)' },
+  { id = "philosophy", name = "Philosophy", q = 'subject:(philosophy)' },
+  { id = "poetry", name = "Poetry", q = 'subject:(poetry OR poems)' },
+  { id = "pulp", name = "Pulp magazines", q = 'collection:(pulpmagazinearchive)' },
+  { id = "religion", name = "Religion", q = 'subject:(religion OR theology)' },
+  { id = "romance", name = "Romance", q = 'subject:(romance OR "love stories")' },
+  { id = "science", name = "Science", q = 'subject:(science)' },
+  { id = "scifi", name = "Science fiction", q = 'subject:("science fiction")' },
+  { id = "travel", name = "Travel", q = 'subject:(travel OR voyages)' },
+  { id = "war", name = "War", q = 'subject:(war OR military)' },
+}
+
+function genres()
+  local out = {}
+  for _, g in ipairs(GENRES) do out[#out + 1] = { id = g.id, name = g.name } end
+  return out
+end
+
+-- A genre's most downloaded items, or a text search within it.
+function genre(id, page, query)
+  for _, g in ipairs(GENRES) do
+    if g.id == id then
+      local q = g.q .. " AND " .. filters()
+      if query and query ~= "" then return search_docs("(" .. query .. ") AND " .. q, page, nil) end
+      return search_docs(q, page, "downloads desc")
+    end
+  end
+  error("Unknown genre", 0)
 end
 
 -- Browse: the most downloaded items in scope.

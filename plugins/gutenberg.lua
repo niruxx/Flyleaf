@@ -4,7 +4,7 @@
 plugin = {
   id = "gutenberg",
   name = "Project Gutenberg",
-  version = "1.0.1",
+  version = "1.1.0",
   author = "Flyleaf",
   description = "Over 75,000 free public-domain ebooks: classics, poetry, history and more.",
   site = "https://www.gutenberg.org",
@@ -49,6 +49,53 @@ end
 
 function search(query, page)
   return page_of("/ebooks/search.opds/?query=" .. url.encode(query), page)
+end
+
+-- Genres: Gutenberg's bookshelves (id = bookshelf number, plus the subject words used to
+-- narrow a text search within the genre).
+local GENRES = {
+  { id = "82", name = "Adventure", subject = "adventure" },
+  { id = "16", name = "Biographies", subject = "biography" },
+  { id = "28", name = "Crime", subject = "crime" },
+  { id = "30", name = "Detective", subject = "detective" },
+  { id = "36", name = "Fantasy", subject = "fantasy" },
+  { id = "39", name = "Gothic", subject = "gothic" },
+  { id = "41", name = "Historical fiction", subject = "historical fiction" },
+  { id = "42", name = "Horror", subject = "horror" },
+  { id = "44", name = "Humour", subject = "humor" },
+  { id = "51", name = "Mystery", subject = "mystery" },
+  { id = "52", name = "Mythology", subject = "mythology" },
+  { id = "57", name = "Philosophy", subject = "philosophy" },
+  { id = "59", name = "Plays", subject = "drama" },
+  { id = "60", name = "Poetry", subject = "poetry" },
+  { id = "61", name = "Politics", subject = "politics" },
+  { id = "64", name = "Psychology", subject = "psychology" },
+  { id = "106", name = "Science", subject = "science" },
+  { id = "68", name = "Science fiction", subject = "science fiction" },
+  { id = "69", name = "Short stories", subject = "short stories" },
+  { id = "75", name = "Travel", subject = "travel" },
+  { id = "77", name = "Western", subject = "western" },
+  { id = "20", name = "Children’s", subject = "juvenile fiction" },
+  { id = "419", name = "Cooking", subject = "cooking" },
+}
+
+function genres()
+  local out = {}
+  for _, g in ipairs(GENRES) do out[#out + 1] = { id = g.id, name = g.name } end
+  return out
+end
+
+-- A genre's books (most popular first), or a text search within it.
+function genre(id, page, query)
+  for _, g in ipairs(GENRES) do
+    if g.id == id then
+      if query and query ~= "" then
+        return page_of("/ebooks/search.opds/?query=" .. url.encode(query .. " s." .. g.subject), page)
+      end
+      return page_of("/ebooks/bookshelf/" .. g.id .. ".opds", page)
+    end
+  end
+  error("Unknown genre", 0)
 end
 
 -- "Browse" shows the most downloaded books.

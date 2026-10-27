@@ -321,7 +321,7 @@ async function list({ includeDisabled = false } = {}) {
       out.push({
         id: p.id, name: m.name, version: m.version, author: m.author, description: m.description, site: m.site, icon: m.icon,
         kinds: m.kinds, language: m.language, nsfw: m.nsfw, enabled: Boolean(p.enabled), origin: p.origin,
-        canBrowse: m.functions.latest, needsSetup: missing.length ? missing : null,
+        canBrowse: m.functions.latest, hasGenres: Boolean(m.functions.genres), needsSetup: missing.length ? missing : null,
         settings: includeDisabled ? m.settings : undefined,
         values: includeDisabled ? Object.fromEntries(Object.entries(values).map(([k, v]) => [k, m.settings.find((s) => s.key === k)?.type === 'password' && v ? '••••••••' : v])) : undefined,
         installedAt: p.installed_at, updatedAt: p.updated_at,
