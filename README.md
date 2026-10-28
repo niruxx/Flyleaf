@@ -1,211 +1,77 @@
 <div align="center">
 
-<img src="public/icons/icon-192.png" width="96" alt="Flyleaf logo" />
+<img src="public/icons/icon-192.png" width="80" alt="Flyleaf logo" />
 
 # Flyleaf
 
-**Your self-hosted library for books, manga and comics — with a beautiful Material 3 reader that works in any browser and installs like an app on your iPhone.**
+**Your library. Your place to read.**
+
+A self-hosted reading home for ebooks, manga, comics, and audiobooks. Organize your collection, pick up where you left off, and read or listen from your browser—or install Flyleaf on your phone.
 
 ![Node.js 22.13+](https://img.shields.io/badge/node-%E2%89%A522.13-3c873a?logo=node.js&logoColor=white)
 ![Material 3](https://img.shields.io/badge/design-Material%203-6750a4?logo=materialdesign&logoColor=white)
-![PWA](https://img.shields.io/badge/iPhone-web%20app-000000?logo=apple&logoColor=white)
-![OPDS](https://img.shields.io/badge/OPDS-1.2%20%2B%20PSE-e86f2b)
+![PWA](https://img.shields.io/badge/mobile-installable%20web%20app-6750a4)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 
-<img src="docs/screenshots/hero.png" alt="Flyleaf on desktop and iPhone" width="100%" />
+[Get started](#-installation) · [Screenshots](#screenshots) · [Changelog](CHANGELOG.md) · [Roadmap](ROADMAP.md)
+
+<img src="docs/screenshots/desktop-home.png" alt="Flyleaf home with reading goals, continue reading, and a library of illustrated book covers" width="100%" />
 
 </div>
 
-## ✨ Features
+## A home for your whole collection
 
-<table>
-<tr>
-<td width="50%" valign="top">
+Flyleaf brings your files, reading progress, and discoveries together in a responsive Material 3 interface. Add existing folders, import a Calibre library, or upload books from another device. Watched folders keep the catalog up to date, while metadata, artwork, and personal shelves help you find your next read.
 
-### 📚 Every format you own
-- **Ebooks:** EPUB · KEPUB · MOBI · AZW · AZW3 · FB2 · PDF · **DOCX · RTF** · TXT
-- **Comics & manga:** CBZ · ZIP · CBR · RAR · CB7 · 7Z · CBT · TAR · plain image folders
-- Comic archives are **read in place**: pages come straight out of the CBZ/CBR/CB7/CBT, so nothing is unpacked to disk (solid RAR included)
-- Archives are identified by their *contents*, so a `.cbr` that's really a zip still works
-- DOCX, RTF and TXT open in the ebook reader with chapters, highlights and notes
-- Reads **ComicInfo.xml**, EPUB/Calibre metadata, MOBI EXTH and FB2 headers
+- **Read your way.** Dedicated ebook, comic, and PDF readers with adjustable typography, themes, reading profiles, and page turns. Comics support right-to-left reading, smart spreads, webtoon scrolling, zoom, border cropping, and image filters.
+- **Listen alongside your books.** Audiobooks include chapters, playback speed, a sleep timer, lock-screen controls, synced progress, and offline listening.
+- **Make the library yours.** Collections, smart shelves, reading lists, tags, full-text search, recommendations, ratings, and reviews. Track books, pages, reading time, streaks, and yearly goals.
+- **Keep your place and your ideas.** Per-user reading progress, bookmarks, highlights, and notes. Export annotations to Markdown, CSV, Obsidian, or Readwise. Save books for offline reading and sync progress when you reconnect; offline features require HTTPS or localhost.
+- **Discover and follow.** Content Finder searches built-in catalogs and plugin sources, downloads into your library, and follows series for new chapters. Extend it with Lua plugins or Mihon/Tachiyomi extensions through Suwayomi.
+- **Share on your terms.** Separate accounts, personal libraries, optional registration, library permissions, age limits, and storage quotas. Admin tools include activity logs, duplicate cleanup, and scheduled backups.
+- **Connect your reading tools.** OPDS 1.2, OPDS 2.0, and OPDS-PSE feeds; AniList, MyAnimeList, MangaUpdates, and Kitsu tracking; email delivery to Kindle or Kobo; API keys, REST endpoints, and signed webhooks.
 
-### 📖 Readers built for reading
-- **Manga & comics:** single page, **dual-page spreads**, **webtoon / continuous scroll**, **right-to-left**, fit screen/width/height/original, **page splitting** for double-page scans, custom background colour
-- **Ebooks:** paginated or scrolling, 1–2 columns, themes (Paper, Sepia, Dark, OLED Black), **font family**, size, line spacing, margins, justification & hyphenation
-- **Tap to paginate**, swipe, **immersive mode**, **auto-hide menu** (or keep it until you tap the middle of the page), fully **customisable key binds**
-- **Reading profiles** – save a set of reader settings and assign it to libraries or series
+### Formats at a glance
 
-### ✍️ Built-in annotations
-- **Highlights** in five colours plus underline, with **notes**
-- **Bookmarks** for any page in any format
-- A **Bookmarks & notes** page that gathers everything across your library, sorted by newest, oldest, book title or position in the book
+| Collection | Supported formats |
+|---|---|
+| Ebooks & documents | EPUB, KEPUB, MOBI, AZW, AZW3, FB2, PDF, DOCX, RTF, TXT |
+| Comics & manga | CBZ / ZIP, CBR / RAR, CB7 / 7Z, CBT / TAR, image folders |
+| Audiobooks | M4B, M4A, MP3, OGG, OPUS, FLAC; folders of tracks |
 
-</td>
-<td width="50%" valign="top">
+Comic archives are read in place without unpacking the entire collection to disk. Flyleaf reads embedded metadata and ComicInfo.xml, imports Calibre metadata, and can match titles against external book, manga, and comic catalogs.
 
-### 🗂️ Organised your way
-- Choose **Regular books** (each book stands alone; series only from embedded metadata), **Kavita-style** (series from file names & metadata) or **Komga-style** (every folder is a series) per library
-- **Want to read**, **custom collections**, personal **reading status** & **tags**, **genres**, people pages
-- **Related series** (sequels, spin-offs…), age ratings, publication status
-- Sort by **title A–Z / Z–A**, **author**, date added, last read, year or last updated, with an **A–Z jump bar**
-- **Search that ranks**: exact titles first, words matched from their start (so “it” doesn't find *Kitchen*), accents ignored
-- **More like this** on every series page and in each book's Details, from shared genres, tags and creators
-- **Recommended for you** on Home: picks from what you read, finish and save, each with a reason (“Because you finished *Berserk*”)
-- **Discover in Content Finder**: the same taste searched on your Content Finder sources, so suggestions include books you don't have yet, one tap from downloading
+### Built for your server, available on your devices
 
-### 🔎 Metadata & artwork
-- Scrape from **AniList · MangaDex · MyAnimeList · MangaUpdates · ComicVine · Open Library · Google Books**
-- Optional **automatic matching** of new series, including artwork
-- Full **metadata editor** – titles, summary, genres, tags, writers & artists, links to MAL/AniList and others, custom artwork
-- **Blur artwork** per series for NSFW covers (and auto-blur 18+)
+Run Flyleaf with Docker, a Linux systemd install, or Node.js. The frontend uses plain JavaScript modules with no build step, and the server uses SQLite. Open the same library on desktop, tablet, or phone, with light and dark themes, custom colors, and an installable web app.
 
-### 🌐 Share & sync
-- **Admin + read-only guest accounts** – share over the internet with port forwarding
-- **Optional sign-up page** for a publicly hosted Flyleaf: people create their own account (optionally with an invite code) and get their own Books, Comics and Manga libraries
-- Per-user **progress, resume, reading time & stats** and **reading lists**
-- Per-user **age limits**, **library access** and **permissions** (downloads, uploads, Content Finder, deleting books, API keys)
-- **Delete books** from the ⋮ menu: users can delete books in their own libraries and ones they downloaded, never other books in shared libraries
-- **Move books and series** to another of your libraries from the ⋮ menu (*Move to library…*): the files move on disk, and reading progress, bookmarks, notes, collections and Want to read come along
-- **Personal folders**: every new user gets their own folder (`data/content/<username>`) with ready-made **Books, Comics and Manga** libraries, which their downloads and uploads go into
-- **OPDS 1.2 + OPDS-PSE** for Panels, Chunky, KOReader, Moon+ … with progress sync
-- **Send to Kindle / Kobo** by email, download single books or whole series
+KOReader progress sync and direct Kobo device sync are implemented with limitations; see [device setup and current limitations](docs/device-sync.md) before relying on them. See [tracking setup](docs/tracking.md), [plugin development](docs/plugins.md), and [translations](docs/translating.md) for more ways to customize your installation.
 
-### ⬆️ Upload from any device
-- An **Upload** tab: drag and drop files or whole folders, pick the library and folder (or create one), and optionally add the new series to a collection
-- Live per-file progress, uploads keep going if you switch pages, and the library rescans when they finish
+## Screenshots
 
-### 🧭 Content Finder & plugins
-- A **Content Finder** tab that searches **Project Gutenberg**, **Standard Ebooks**, the **Internet Archive**, **Archive of Our Own** (fan fiction), **WEBTOON** and any **OPDS catalog**, and downloads straight into a library
-- **Lua plugins**, Mihon/Tachiyomi-style: install from repositories, URLs or files, or [write your own](docs/plugins.md)
-- **Mihon/Tachiyomi extensions** through a built-in, Flyleaf-managed [Suwayomi-Server](https://github.com/Suwayomi/Suwayomi-Server) (or your own): every extension becomes a source, chapters download as CBZ, and old Tachiyomi **APKs can be installed from a file**
+Fresh captures of the current interface using a fictional demo library. Book titles, authors, and covers are sample content. Desktop captures are 1440 × 1000; phone captures are 390 × 844.
 
-### 🔌 REST API & webhooks
-- A full **REST API** with read-only or full-access **API keys**, plus an **OpenAPI 3.1** spec and a built-in endpoint reference
-- **Signed webhooks** for new books, finished books, progress, downloads and scans
-
-### 🎨 Feels like an app
-- Material 3 throughout: **9 themes** + any custom colour, light/dark/auto
-- **Colorscape** – series pages tint themselves from their artwork
-- **Profile pictures** and a personal **background** – your own picture, animated GIF or image link, with dim, blur and fit controls
-- Smooth, direction-aware **page transitions**, skeleton loading, scroll-in reveals, 3D cover tilt, a circular dark-mode reveal and springy controls (or turn them all off)
-- **Book details** for every file: format, pages, size, location, ISBN, publisher, your reading time and an estimate of time left, plus a detailed list view for volumes
-- **iPhone/Android web app** – full-screen, home-screen icon, safe-area aware
-
-</td>
-</tr>
-</table>
-
----
-
-## 🆕 What's new
-
-The full list is in [CHANGELOG.md](CHANGELOG.md) – and in the app: after an update everyone sees a small *What's new* card once, and the whole changelog is under *What's new* in the account menu.
-
-- 📕 **Book look & page turns** – a *Book* look (paper pages, page edges, a spine) or an *E-ink* look for every kind of book, and pages that turn over in 3D like a real book (*Reader settings → Look / Page turn*).
-- 📖 **Look up while reading** – select text in an ebook for a dictionary definition (Wiktionary), a Wikipedia summary or a translation (`LOOKUP=0` turns it off).
-- ✂️ **Auto-crop & image filters** – trim blank borders from scans, whiten yellowed paper, and set brightness, contrast, greyscale or invert for comics and manga.
-- 📝 **Footnote pop-ups** – tap a footnote or endnote marker in an ebook and the note opens in place, with *Go to note* to jump there.
-- 🔤 **Your own fonts** – anyone can upload .ttf, .otf, .woff or .woff2 fonts for the ebook reader (*Settings → EPUB fonts*); the admin can share fonts with everyone.
-- 📤 **Export highlights & notes** – Markdown, CSV, an Obsidian vault (one note per book), a Readwise import file, or straight to Readwise with your access token.
-- 📣 **What's new** – a post-update card, read from CHANGELOG.md.
-
-- 👀 **New files show up within seconds** – library folders are watched for changes, so files you copy in, rename or delete appear without waiting for the next scan (`WATCH_FOLDERS`). Network shares that don't report changes still get the scheduled scan.
-- 🗂️ **Smart shelves** – set filters on any list (unread + ongoing + Action, say) and save them as a shelf on Home and in the side menu. Shelves stay up to date as your library changes.
-- 📚 **Reading lists** – read across series in order (comic events, crossovers): add books or whole series from their menus, reorder them, and the reader's *Next* follows the list. Import and export **ComicRack .cbl** files.
-- 🎯 **Pages-per-year goal** – set a page goal alongside your books goal. Comic and PDF pages count as you turn them; ebook pages are estimated from their length.
-
-- 📜 **Webtoon auto-scroll** – press play in the reader menu (or `P`) and the strip scrolls by itself at one of ten speeds (`-` / `=`). Touching the screen pauses it while your finger is down.
-- 🏁 **Chapter end screen** – after the last page you get a page showing the next volume or chapter with its cover, page count and where you left off; turn the page again (or tap *Read next*) to carry on.
-- 📖 **Smart double pages** – in double-page mode, wide two-page scans are shown on their own and the pages after them stay paired correctly. *Cover on its own* is a setting too.
-
-- 📋 **Activity log** – *Settings → Activity* shows who signed in, downloaded, uploaded, deleted or changed what, and when, filtered by person or kind, with a CSV export.
-- 🚨 **Failed sign-in alerts** – the same page lists failed sign-ins by address and account name and lets you unblock an address; admins get a notification when someone keeps guessing.
-- 💽 **Storage limits** – a storage quota for each personal folder (a server default, overridable per user), the largest upload, and how much free disk space to keep. Users see how much room they have left.
-- 🔔 **Follow from the series page** – series that came from Content Finder get a *New chapters* panel: follow, switch auto-download on or off, and watch new chapters download.
-
-- 🔎 **Search inside every book** – the search page also finds words and phrases inside EPUB, FB2, TXT, DOCX, RTF and text PDFs across your libraries, with the matching passages; open one and the book jumps to that chapter.
-- 🎧 **Audiobooks** – M4B, M4A, MP3, OGG, OPUS and FLAC in book libraries (a folder of tracks is one audiobook), with chapters, speed, a sleep timer, lock-screen controls, synced progress and offline listening. An audiobook with the same title and author as an ebook sits in the same series.
-- 📚 **Calibre libraries** – point a library at a Calibre folder and its titles, series, tags, descriptions, covers and ratings come with it (and stay in sync when `metadata.db` changes).
-- 🧹 **Duplicates** – *Settings → Libraries → Find duplicates* shows identical files and the same book or volume in several places; keep one copy and everyone's progress and notes move to it.
-- 🕳️ **Missing volumes** – series pages show gaps (“Volumes 1–4, 6 · missing 5”).
-- 🗓️ **Scheduled backups** – daily or weekly, keeping the newest N, optionally on another disk.
-- 🌍 **Translations** – a language setting, a Spanish translation of the main screens, and [a guide for adding languages](docs/translating.md).
-
-- 🔔 **Follow series for new chapters** – tap *Follow* on a manga or comic in Content Finder and Flyleaf checks it every few hours, downloading new chapters into your library (or just telling you). *Watch my downloads* matches everything you've already downloaded to its source too, so you hear about newer chapters. See *Content Finder → Following*.
-- 🛎️ **Notifications bell** in the top bar (desktop and phone): new chapters, finished or failed downloads, and for admins sign-ups and uploads.
-- 📴 **Read offline** – *Save for offline* on any book (or *Save next 3* on a series) keeps it on your phone or computer. It opens without a connection, and your progress syncs when you're back online. Needs HTTPS.
-- 🔍 **Search inside a book** – the search button in the reader (or `/`, Ctrl+F) finds every match in an EPUB, MOBI, FB2 or text-based PDF, with the text around it.
-
-- 🎯 **Reading goals & year in review** – a yearly books goal and a daily minutes goal with progress rings, a year-long reading heat map, your longest streak, and a *Year in review* page with your top series, genres and writers, month-by-month time and a card you can share.
-- ⭐ **Ratings & reviews** – rate series in half stars and write reviews (with spoiler blur) that everyone on your server can read. The admin can remove any review.
-- 💾 **Backup & restore** – *Settings → Backup & restore* downloads the database on its own or together with every book file, and restores either one. A fresh install can start from a backup on its setup page.
-- 🔔 **Push notifications** – finished and failed downloads, new books in your libraries, and (for admins) sign-ups and uploads, on your phone or computer (*Settings → Notifications*, needs HTTPS).
-- 🛡️ **Review what users add** – *Settings → Users* shows how many books each person downloaded or uploaded, per library, and the admin can open the list and delete anything that breaks the rules.
-- 🐳 **Docker image**, **OPDS 2.0** feeds, a `/api/health` check and **Prometheus metrics**.
-- 🔐 **New sign-in and sign-up pages** with an animated background.
-
-- 📜 **WEBTOON downloads** – a WEBTOON source for Content Finder: search Originals and Canvas, download episodes as CBZ, and they open in webtoon (vertical scroll) mode.
-- 🧭 **Discover in Content Finder** – recommendations from outside your library: Flyleaf searches your Content Finder sources for the authors and genres you like and suggests what you don't have yet. Pick which sources it uses in *Settings → Preferences*.
-- 🧩 **One-click Mihon repositories** from [wotaku.wiki](https://wotaku.wiki/ext/mihon) and [Yūzōnō](https://yuzono.github.io/extensions), support for Mihon's newer `index.pb` repositories (Keiyoushi's full 1,400+ extensions) on Suwayomi v2.3+, and pasted `mihon://` links just work.
-- 💡 **Recommendations** – a *Recommended for you* shelf on Home (and a full page) built from your own reading, plus *You might also like* in every book's Details. It all runs on your server, with no AI service or account needed.
-- 🖼️ **Make it yours** – profile pictures, and a per-user background picture or GIF behind the whole app (*Settings → Themes → Background*).
-- 🔎 **Better search & sorting** – ranked search results, title A–Z / Z–A and author sorts with an A–Z jump bar, bookmark sorting, and **More like this** recommendations on series pages.
-- 🔗 **Share links that work at home** – *Send to… → Copy home-network link* gives the server's LAN address (like `http://192.168.1.20:7878`) instead of whatever address your browser used; *Copy internet link* uses your Public URL.
-- 🏷️ New genres, libraries and collections appear in the side menu without reloading.
-- 📁 **Personal folders** – the admin can give each user a folder on the server. They create private libraries in it, and their Content Finder downloads and uploads go only there.
-- ⬆️ **Upload tab** – drag and drop books, comics or whole folders into any library folder from your phone or computer, with live progress, and add the new series straight to a collection.
-- ℹ️ **Book details** – a Details panel for every file (format, pages, size, location, ISBN, publisher, your reading time and time left), a detailed list view for volumes, and more facts on series pages.
-- ✨ **Smoother motion** – direction-aware page transitions, skeleton loading, scroll-in reveals, 3D cover tilt, a circular dark-mode reveal, and closing animations for dialogs, menus and sheets.
-- 🧩 **Mihon/Tachiyomi extensions** through Suwayomi-Server, and the **Content Finder** with Lua plugins.
-- 🔌 **REST API & webhooks**, **DOCX/RTF** support, comic archives **read in place**, and per-guest **library access & permissions**.
-
-## 📸 Screenshots
-
-<table>
-<tr>
-<td colspan="2"><img src="docs/screenshots/desktop-home.png" alt="Home" /><p align="center"><b>Home</b> – continue reading, want to read, collections & genres in the drawer</p></td>
-</tr>
-<tr>
-<td width="50%"><img src="docs/screenshots/desktop-library.png" alt="Library" /><p align="center"><b>Library</b> – filters, genres, sort, ⋮ actions on every card</p></td>
-<td width="50%"><img src="docs/screenshots/desktop-series-dark.png" alt="Series overview" /><p align="center"><b>Series overview</b> – artwork, creators, links, status, tags, volumes</p></td>
-</tr>
-<tr>
-<td><img src="docs/screenshots/desktop-reader-ebook.png" alt="Ebook reader with highlights" /><p align="center"><b>Ebook reader</b> – highlights, notes & a selection toolbar</p></td>
-<td><img src="docs/screenshots/desktop-reader-settings.png" alt="Manga reader settings" /><p align="center"><b>Manga reader</b> – layout, direction, scaling, page splitting</p></td>
-</tr>
-<tr>
-<td><img src="docs/screenshots/desktop-themes.png" alt="Themes" /><p align="center"><b>Themes</b> – presets or any colour you like</p></td>
-<td><img src="docs/screenshots/desktop-add-library.png" alt="Add library" /><p align="center"><b>Add library</b> – Regular books, Kavita or Komga folder structure</p></td>
-</tr>
-<tr>
-<td><img src="docs/screenshots/desktop-finder.png" alt="Content Finder" /><p align="center"><b>Content Finder</b> – search every plugin source at once</p></td>
-<td><img src="docs/screenshots/desktop-finder-details.png" alt="Content Finder details" /><p align="center"><b>Download</b> – pick a format and a library</p></td>
-</tr>
-</table>
-
-<table>
-<tr>
-<td><img src="docs/screenshots/mobile-home.png" alt="Phone – home" /></td>
-<td><img src="docs/screenshots/mobile-series.png" alt="Phone – series" /></td>
-<td><img src="docs/screenshots/mobile-drawer.png" alt="Phone – navigation drawer" /></td>
-<td><img src="docs/screenshots/mobile-ebook-settings.png" alt="Phone – ebook settings" /></td>
-</tr>
-</table>
+| Browse your library | Explore a series |
+|---|---|
+| ![Library grid with reading filters and book covers](docs/screenshots/desktop-library.png) | ![Dark series page with artwork, reading actions, and volume details](docs/screenshots/desktop-series-dark.png) |
 
 <details>
-<summary><b>More screenshots</b></summary>
+<summary>Personalize your reading space</summary>
 
-| | |
-|---|---|
-| ![Search](docs/screenshots/desktop-search.png) | ![Card actions](docs/screenshots/desktop-actions.png) |
-| ![Bookmarks](docs/screenshots/desktop-bookmarks.png) | ![Stats](docs/screenshots/desktop-stats.png) |
-| ![Preferences](docs/screenshots/desktop-preferences.png) | ![OPDS](docs/screenshots/desktop-opds.png) |
-| ![Manga reader](docs/screenshots/desktop-reader-manga.png) | ![Home (dark)](docs/screenshots/desktop-home-dark.png) |
+![Preferences with language, appearance, data saver, and motion controls](docs/screenshots/desktop-preferences.png)
 
 </details>
 
-> The screenshots use a generated demo library – the series, authors and covers are made up.
+<table>
+<tr>
+<td width="33%"><img src="docs/screenshots/mobile-home.png" alt="Phone home screen with reading goals and continue reading" /></td>
+<td width="33%"><img src="docs/screenshots/mobile-series.png" alt="Phone series page with cover and reading actions" /></td>
+<td width="33%"><img src="docs/screenshots/mobile-drawer.png" alt="Phone navigation drawer with libraries and personal shelves" /></td>
+</tr>
+<tr><td align="center">Home</td><td align="center">Series</td><td align="center">Navigation</td></tr>
+</table>
+
+The gallery renders the app's actual frontend against demo API data. To refresh it, run `node scripts/screenshot-server.cjs`, launch a headless Chromium browser with `--remote-debugging-port=9231` and a temporary `--user-data-dir`, then run `node scripts/capture-screenshots.cjs`. Use `SCREENSHOT_CDP` to override the browser endpoint.
 
 ---
 
