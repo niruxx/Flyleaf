@@ -43,6 +43,7 @@ function validateUsername(username) {
 }
 
 const PREF_DEFAULTS = {
+  koboCollectionId: null,
   blurUnreadSummaries: false,
   promptOnDownload: true,
   disableAnimations: false,

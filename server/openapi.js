@@ -12,6 +12,8 @@
 const pkg = require('../package.json');
 
 const R = [
+  ['patch', '/series/bulk', 'Library', 'Edit up to 500 selected series atomically; shared metadata requires admin', { body: { ids: 'integer[]', genres: 'string[]', tags: 'string[]', ageRating: '0–3 | null', collectionId: 'integer – add to an owned collection' } }],
+  ['put', '/finder/source-schedules', 'Content Finder', 'Set the check interval for all your follows on one source', { perm: 'contentFinder', body: { plugin: 'string', hours: 'number – 0 pauses, null restores FOLLOW_CHECK_HOURS; maximum 8760' } }],
   // Tracking connections require an interactive session, rather than an API key.
   ['get', '/tracking', 'Tracking', 'Your tracking account connections (session only; no tokens returned)'],
   ['post', '/tracking/{provider}/connect', 'Tracking', 'Start AniList or MyAnimeList OAuth (session only)'],

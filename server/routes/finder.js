@@ -92,6 +92,7 @@ const followRow = (f) => {
   return {
     id: f.id,
     plugin: f.plugin_id,
+    checkHours: follows.scheduleHours(f.user_id, f.plugin_id),
     sourceId: f.source_id,
     title: f.title,
     cover: f.cover,
@@ -112,6 +113,17 @@ const ownFollow = (req) => {
   if (!f) throw Object.assign(new Error('You’re not following that.'), { status: 404, expose: true });
   return f;
 };
+
+router.put('/source-schedules', (req, res) => {
+  const { plugin, hours } = req.body || {};
+  if (typeof plugin !== 'string' || !plugin || plugin.length > 500 || (hours !== null && (typeof hours !== 'number' || !Number.isFinite(hours) || hours < 0 || hours > 8760))) {
+    return res.status(400).json({ error: 'Choose a source and hours between 0 and 8760 (0 pauses checks).' });
+  }
+  if (hours === null) q('DELETE FROM source_schedules WHERE user_id = ? AND plugin_id = ?').run(req.user.id, plugin);
+  else q(`INSERT INTO source_schedules (user_id, plugin_id, hours) VALUES (?, ?, ?)
+    ON CONFLICT (user_id, plugin_id) DO UPDATE SET hours = excluded.hours`).run(req.user.id, plugin, hours);
+  res.json({ ok: true });
+});
 
 router.get('/follows', (req, res) => {
   const list = q('SELECT * FROM follows WHERE user_id = ? ORDER BY COALESCE(last_new_at, created_at) DESC').all(req.user.id).map(followRow);

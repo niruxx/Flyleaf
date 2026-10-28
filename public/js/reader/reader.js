@@ -5,6 +5,7 @@ import { api } from '../api.js';
 import { onLeave, navigate, previousPath } from '../router.js';
 import { h, icon, iconButton, button, sheet, syncThemeColor, snackbar, segmented } from '../ui.js';
 import { Tracker } from './tracker.js';
+import { autoSaveNext } from '../offline.js';
 import { readerSettingsForm, PAPER_GRAIN } from '../components/reader-settings.js';
 import { resolveKeybinds, actionFor } from '../keybinds.js';
 import { annotationRow } from '../views/bookmarks.js';
@@ -50,6 +51,7 @@ export async function readerView(view, params, stale) {
     await engine.open(params.query.get('loc'));
     shell.refreshBookmark();
     shell.engineReady();
+    autoSaveNext(book).catch((e) => snackbar(t('Could not auto-save the next chapter: {message}', { message: e.message })));
     // From full-text search results: show the matches in this book.
     const q = params.query.get('q');
     if (q && engine.search) shell.openSearch(q);

@@ -60,6 +60,8 @@ const PATCH = (u, b = {}) => request('PATCH', u, b);
 const DEL = (u) => request('DELETE', u);
 
 export const api = {
+  sourceSchedule: (plugin, hours) => PUT('/api/finder/source-schedules', { plugin, hours }),
+  bulkEditSeries: (body) => PATCH('/api/series/bulk', body),
   trackingAccounts: () => GET('/api/tracking'),
   connectTracking: (provider) => POST(`/api/tracking/${provider}/connect`),
   loginTracking: (provider, credentials) => POST(`/api/tracking/${provider}/login`, credentials),

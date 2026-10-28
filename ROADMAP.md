@@ -6,7 +6,7 @@ our own. The comparison is with **Kavita**, **Komga**, **Calibre-Web**, **Mihon 
 
 Items are grouped by how much they'd matter to readers, not by how easy they are.
 
-✅ Done · ⬜ Not started yet. A section heading gets ✅ once everything in it is done.
+✅ Done · 🟨 Partial / experimental · ⬜ Not started yet. A section heading gets ✅ once everything in it is done.
 
 ---
 
@@ -22,7 +22,7 @@ for metadata, so the series IDs are already there.
   (Kitsu supports chapter progress; volumes owned are preserved)
 - ✅ Optionally import score and status, on demand or after sync
 
-### Follow series for new chapters (4 of 5 done)
+### ✅ Follow series for new chapters (5 of 5 done)
 - ✅ **Follow** button in Content Finder, scheduled checks (`FOLLOW_CHECK_HOURS`), auto-download
   into the chosen library, an Updates list (*Following*) and a *New chapters* shelf on Home
 - ✅ **Watch my downloads**: downloaded series are matched to their source (by id, or by title for
@@ -30,19 +30,24 @@ for metadata, so the series IDs are already there.
 - ✅ Webhook event `series.updated`, push notifications and the notifications bell
 - ✅ **Follow from the series page** for series that came from Content Finder, with an
   auto-download switch and the chapters downloading right now
-- ⬜ **Per-source schedules** (some sources update hourly, others weekly)
+- ✅ **Per-source schedules**: per-user intervals in *Following → ⋮ → Source schedule*,
+  including hourly, weekly and paused checks; manual checks bypass the schedule
 
-### Real offline reading in the web app (3 of 4 done)
+### ✅ Real offline reading in the web app (4 of 4 done)
 - ✅ *Save for offline* on a book, *Save next 3 for offline* on a series (Cache Storage)
 - ✅ Progress made offline is queued and sent when the connection comes back
 - ✅ A *Saved offline* page with storage usage; the app opens there when there's no connection
-- ⬜ **Auto-save the next unread chapter** of whatever you're reading
+- ✅ **Auto-save the next unread chapter** when opening a book, skipping read and already-saved
+  chapters; a device-local switch on *Saved offline*, with data-saver support
 
-### KOReader and Kobo sync (0 of 2 done)
-- ⬜ A **kosync-compatible endpoint** (like Kavita and Calibre-Web), so KOReader progress syncs
-  both ways with the web reader, not only through OPDS-PSE
-- ⬜ **Kobo sync** (Komga, Kavita and Calibre-Web have it): the Kobo store API that lets a Kobo
-  e-reader sync a shelf and reading progress straight from the server
+### KOReader and Kobo sync (0 of 2 complete; both implemented with limitations)
+- 🟨 A **kosync-compatible endpoint** at `/api/kosync`: revocable API-key login, checksum matching,
+  and two-way page progress. Ebook progress imports by percentage; return sync uses the nearest
+  previously received KOReader XPointer. Exact arbitrary ebook return positions remain unfinished.
+- 🟨 **Kobo sync** at `/api/kobo/<key>`: an owned collection as an EPUB shelf, initialization,
+  downloads, covers, incremental entitlements and shared reading progress. Experimental until
+  validated on physical Kobo firmware; device shelf editing, large-library pagination and exact
+  ebook position conversion remain unfinished. [Setup and limitations](docs/device-sync.md)
 
 ### ✅ Search inside a book (2 of 2 done)
 - ✅ Search in the reader (`/` or Ctrl+F) for EPUB, MOBI/AZW3, FB2, TXT/DOCX/RTF and text PDFs,
@@ -78,7 +83,7 @@ for metadata, so the series IDs are already there.
 
 ---
 
-## 🗂️ Library & organisation (7 of 8 done)
+## ✅ 🗂️ Library & organisation (8 of 8 done)
 
 - ✅ **Smart filters / saved searches**: save a filter (genre + status + unread, …) as a shelf
   on Home or in the drawer (Kavita's Smart Filters, Komga's saved filters)
@@ -87,7 +92,8 @@ for metadata, so the series IDs are already there.
 - ✅ **Duplicate detection**: identical files, the same book in two formats or libraries, and the
   same volume or chapter twice; keep one copy and merge everyone's reading data into it
 - ✅ **Missing volumes or chapters**: gaps shown on the series page ("Volumes 1–4, 6 · missing 5")
-- ⬜ **Bulk edit**: select many series and set genres, tags, age rating or collection in one go
+- ✅ **Bulk edit**: select series in any grid and apply genres, tags, age rating or an owned
+  collection in one transaction; metadata edits require admin and lock fields against rescans
 - ✅ **Watch folders for changes** instead of rescanning every `SCAN_INTERVAL_MINUTES`, so new
   files show up within seconds
 - ✅ **Calibre library import**: `metadata.db` brings over titles, series, tags, descriptions,

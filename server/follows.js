@@ -15,6 +15,7 @@ const log = require('./log').logger('follows');
 const CHECK_HOURS = Math.max(0, Number(process.env.FOLLOW_CHECK_HOURS ?? 6));
 const MAX_NEW_PER_CHECK = 200;
 let running = null;
+let lastDiscoveryAt = 0;
 
 const num = (v) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : null);
 
@@ -202,13 +203,24 @@ const wantsWatch = (row) => {
  * Check every follow (or one user's), one at a time so sources aren't hammered. People who
  * keep "Watch my downloads" on also get their newly downloaded series matched first.
  */
-async function checkAll(userId = null) {
+function scheduleHours(userId, pluginId) {
+  return q('SELECT hours FROM source_schedules WHERE user_id = ? AND plugin_id = ?').get(userId, pluginId)?.hours ?? CHECK_HOURS;
+}
+
+function isDue(f, now = Date.now()) {
+  const hours = scheduleHours(f.user_id, f.plugin_id);
+  return hours > 0 && (!f.last_checked_at || now - f.last_checked_at >= hours * 3600_000);
+}
+
+async function checkAll(userId = null, { scheduled = false } = {}) {
   if (running) return running;
   running = (async () => {
     const users = q(`SELECT id, prefs FROM users ${userId ? 'WHERE id = ?' : ''}`).all(...(userId ? [userId] : []));
     let found = 0;
     const fresh = new Set();
-    for (const u of users.filter(wantsWatch)) {
+    const discover = !scheduled || Date.now() - lastDiscoveryAt >= Math.max(1, CHECK_HOURS) * 3600_000;
+    if (scheduled && discover) lastDiscoveryAt = Date.now();
+    for (const u of users.filter((u) => discover && wantsWatch(u) && (!scheduled || CHECK_HOURS > 0 || q('SELECT 1 FROM source_schedules WHERE user_id = ? AND hours > 0').get(u.id)))) {
       try {
         const r = await syncDownloads(u.id);
         found += r.found;
@@ -218,7 +230,7 @@ async function checkAll(userId = null) {
       }
     }
     // Follows just created by the sync were checked already.
-    const list = q(`SELECT * FROM follows ${userId ? 'WHERE user_id = ?' : ''} ORDER BY COALESCE(last_checked_at, 0)`).all(...(userId ? [userId] : [])).filter((f) => !fresh.has(f.id));
+    const list = q(`SELECT * FROM follows ${userId ? 'WHERE user_id = ?' : ''} ORDER BY COALESCE(last_checked_at, 0)`).all(...(userId ? [userId] : [])).filter((f) => !fresh.has(f.id) && (!scheduled || isDue(f)));
     for (const f of list) {
       try {
         found += (await check(f)).length;
@@ -235,10 +247,9 @@ async function checkAll(userId = null) {
 }
 
 function start() {
-  if (!CHECK_HOURS) return;
   // First check a few minutes after start-up, then on the schedule.
-  setTimeout(() => checkAll().catch(() => {}), 3 * 60_000).unref();
-  setInterval(() => checkAll().catch(() => {}), CHECK_HOURS * 3600_000).unref();
+  setTimeout(() => checkAll(null, { scheduled: true }).catch(() => {}), 3 * 60_000).unref();
+  setInterval(() => checkAll(null, { scheduled: true }).catch(() => {}), 5 * 60_000).unref();
 }
 
-module.exports = { check, checkAll, syncDownloads, followGroup, start, cleanFile, fileLabel, CHECK_HOURS, isRunning: () => Boolean(running) };
+module.exports = { check, checkAll, syncDownloads, followGroup, start, cleanFile, fileLabel, scheduleHours, isDue, CHECK_HOURS, isRunning: () => Boolean(running) };

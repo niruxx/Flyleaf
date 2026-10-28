@@ -4,7 +4,7 @@ import { t, plural } from '../i18n.js';
 
 import { api, can } from '../api.js';
 import { session, isAdmin, navigate, onLeave } from '../router.js';
-import { h, icon, iconButton, button, setButtonLabel, cover, dialog, snackbar, loading, skeleton, emptyState, stagger, field, formatBytes, timeAgo, libraryOptions, confirmDialog, toggleSwitch, pageBanner } from '../ui.js';
+import { h, icon, iconButton, button, setButtonLabel, cover, dialog, snackbar, loading, skeleton, emptyState, stagger, field, formatBytes, timeAgo, libraryOptions, confirmDialog, toggleSwitch, pageBanner, formDialog } from '../ui.js';
 
 const KIND_LABEL = { get books() { return t('Books'); }, get manga() { return t('Manga'); }, get comics() { return t('Comics'); } };
 const LAST_SOURCE = 'flyleaf.finder.source';
@@ -635,6 +635,12 @@ export async function followingView(view, params, stale) {
         snackbar(v ? t('New chapters will download automatically') : t('You’ll be notified, and can download them yourself'));
       }, t('Download new chapters automatically'));
       const more = iconButton('more_vert', t('More'), () => import('../ui.js').then(({ menu }) => menu(more, [
+        { label: t('Source schedule'), icon: 'schedule', onClick: async () => {
+          const hours = field(t('Check every (hours)'), { type: 'number', min: 0, max: 8760, step: 'any', value: f.checkHours, required: true,
+            support: t('Applies to all your follows on this source. 0 pauses automatic checks; 168 checks weekly.') });
+          await formDialog({ title: t('Source schedule'), fields: [hours], submit: t('Save'), onSubmit: () => api.sourceSchedule(f.plugin, Number(hours.input.value)) });
+          load();
+        } },
         { label: t('Check now'), icon: 'refresh', onClick: async () => {
           try {
             const r = await api.checkFollow(f.id);
@@ -661,6 +667,7 @@ export async function followingView(view, params, stale) {
         cover({ title: f.title, coverUrl: f.cover }, { showProgress: false }),
         h('div.follow-info',
           h('div.title-medium', f.title),
+          h('div.follow-meta', f.checkHours ? t('Checks every {hours} hours', { hours: f.checkHours }) : t('Automatic checks paused')),
           h('div.follow-meta', [f.plugin.split('~').pop(), f.library ? `→ ${f.library}` : t('no library chosen'), t('{known} files known', { known: f.known })].join(' · ')),
           h('div.follow-meta', f.lastError ? t('Last check failed: {lastError}', { lastError: f.lastError }) : f.lastCheckedAt ? t('Checked {value}{value2}', { value: timeAgo(f.lastCheckedAt), value2: f.lastNewAt ? t(' · last new {value}', { value: timeAgo(f.lastNewAt) }) : '' }) : t('Not checked yet')),
           f.recentUpdates > 0 && h('span.follow-new', t('{recentUpdates} new this week', { recentUpdates: f.recentUpdates })),

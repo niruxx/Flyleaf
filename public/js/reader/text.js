@@ -144,7 +144,10 @@ export class TextEngine {
         // A chapter to open at (from full-text search): an href, or a section number for FB2.
         await view.init({ showTextStart: false });
         await view.goTo(/^\d+$/.test(startLocator) ? Number(startLocator) : startLocator).catch(() => {});
-      } else await view.init({ showTextStart: false });
+      } else {
+        await view.init({ showTextStart: false });
+        if (!saved && this.book.progress?.percent > 0) await view.goToFraction(this.book.progress.percent);
+      }
     } catch {
       await view.init({});
     }

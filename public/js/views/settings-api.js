@@ -17,6 +17,15 @@ export async function apiPanel(panel, stale) {
   panel.lastChild.remove();
   const base = `${location.origin}/api`;
   const sample = keys.find((k) => k.scope === 'full') || keys[0];
+  const [me, collections] = await Promise.all([api.me(), api.collections()]);
+  if (stale()) return;
+  const user = me.user || me;
+  const koboShelf = field(t('Kobo shelf'), { value: user.prefs?.koboCollectionId || '', options: [
+    { value: '', label: t('Sync disabled') }, ...collections.filter((c) => c.owned).map((c) => ({ value: c.id, label: c.name }))] });
+  koboShelf.input.addEventListener('change', async () => {
+    await api.savePrefs({ koboCollectionId: koboShelf.input.value ? Number(koboShelf.input.value) : null });
+    snackbar(t('Kobo shelf updated'));
+  });
 
   panel.append(
     h('p.note', { style: { margin: '-8px 4px 16px' } },
@@ -28,6 +37,15 @@ export async function apiPanel(panel, stale) {
       h('a.btn.text.state', { href: '/api/openapi.json', target: '_blank', rel: 'noopener' }, icon('data_object'), t('OpenAPI spec')),
     ),
     h('div.sub-head', t('Quick start')),
+    h('div.sub-head', t('KOReader and Kobo')),
+    group(h('div.setting-row.stack',
+      h('p', t('Create a full-access API key for each device. In KOReader Progress sync, choose a custom server, log in with your Flyleaf username, and use the API key as the password.')),
+      codeBlock(`${base}/kosync`),
+      h('p', t('KOReader matches original files by checksum. Page-based books sync both ways. Ebook imports resume by percentage in Flyleaf; returning to KOReader uses the nearest native position it has previously sent.')),
+      koboShelf,
+      h('p', t('Kobo sync is experimental. Only EPUBs in your selected collection sync. Set api_endpoint in the Kobo configuration to this URL, using a full-access key:')),
+      codeBlock(`${base}/kobo/<full-access-key>`),
+    )),
     group(h('div.setting-row.stack',
       h('div.s', t('Send your key in the Authorization header:')),
       codeBlock(`curl -H "Authorization: Bearer ${sample?.key || '<your key>'}" \\\n  ${base}/series?sort=added&limit=5`),

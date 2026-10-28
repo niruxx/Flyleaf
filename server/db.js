@@ -544,6 +544,24 @@ const migrations = [
   );
   `,
 
+  // v13: per-user source schedules and client-native sync positions.
+  `
+  CREATE TABLE source_schedules (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    plugin_id TEXT NOT NULL,
+    hours REAL NOT NULL CHECK (hours >= 0 AND hours <= 8760),
+    PRIMARY KEY (user_id, plugin_id)
+  );
+  CREATE TABLE client_positions (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    client TEXT NOT NULL,
+    document TEXT NOT NULL,
+    book_id INTEGER REFERENCES books(id) ON DELETE CASCADE,
+    data TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, client, document)
+  );
+  `,
 ];
 
 function migrate() {

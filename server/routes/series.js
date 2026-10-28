@@ -17,6 +17,49 @@ const PUB_STATUS = ['ongoing', 'completed', 'hiatus', 'cancelled', 'upcoming'];
 const USER_STATUS = ['reading', 'completed', 'on_hold', 'dropped', 'plan'];
 const RELATION_KINDS = ['sequel', 'prequel', 'spin_off', 'side_story', 'adaptation', 'alternative', 'other'];
 
+// Validate the complete batch before writing, so one inaccessible series changes nothing.
+router.patch('/series/bulk', (req, res) => {
+  const body = req.body || {};
+  if (!Array.isArray(body.ids) || !body.ids.length || body.ids.length > 500 || body.ids.some((id) => !Number.isSafeInteger(id) || id < 1)) {
+    return res.status(400).json({ error: 'Select between 1 and 500 series.' });
+  }
+  const ids = [...new Set(body.ids)];
+  const rows = ids.map((id) => getSeries(id, req.user));
+  if (rows.some((s) => !s)) return res.status(404).json({ error: 'Series not found.' });
+  const metadata = ['genres', 'tags', 'ageRating'].some((key) => body[key] !== undefined);
+  if (metadata && req.user.role !== 'admin') return res.status(403).json({ error: 'Only admins can edit shared metadata.' });
+  const changes = {};
+  for (const key of ['genres', 'tags']) {
+    if (body[key] === undefined) continue;
+    if (!Array.isArray(body[key]) || body[key].length > 60 || body[key].some((v) => typeof v !== 'string' || v.length > 200)) return res.status(400).json({ error: 'Genres and tags must be lists of short names.' });
+    changes[key] = JSON.stringify(uniqBy(body[key].map((v) => v.trim()).filter(Boolean), (v) => v.toLowerCase()));
+  }
+  if (body.ageRating !== undefined) {
+    if (body.ageRating !== null && ![0, 1, 2, 3].includes(body.ageRating)) return res.status(400).json({ error: 'Invalid age rating.' });
+    changes.age_rating = body.ageRating;
+  }
+  let collection;
+  if (body.collectionId !== undefined) {
+    collection = Number.isSafeInteger(body.collectionId) && q('SELECT * FROM collections WHERE id = ? AND user_id = ?').get(body.collectionId, req.user.id);
+    if (!collection) return res.status(404).json({ error: 'Choose a collection you own.' });
+  }
+  if (!Object.keys(changes).length && !collection) return res.status(400).json({ error: 'Choose a field to change.' });
+  tx(() => {
+    const now = Date.now();
+    for (const id of ids) {
+      if (Object.keys(changes).length) {
+        const raw = q('SELECT locked FROM series WHERE id = ?').get(id);
+        const locked = [...new Set([...json(raw.locked, []), ...Object.keys(changes)])];
+        q(`UPDATE series SET ${Object.keys(changes).map((key) => `${key} = ?`).join(', ')}, locked = ?, updated_at = ? WHERE id = ?`)
+          .run(...Object.values(changes), JSON.stringify(locked), now, id);
+      }
+      if (collection) q('INSERT OR IGNORE INTO collection_items (collection_id, series_id, added_at) VALUES (?, ?, ?)').run(collection.id, id, now);
+    }
+    if (collection) q('UPDATE collections SET updated_at = ? WHERE id = ?').run(now, collection.id);
+  });
+  res.json({ ok: true, updated: ids.length });
+});
+
 function visibleSeries(req, res) {
   const s = getSeries(req.params.id, req.user);
   if (!s) res.status(404).json({ error: 'Series not found.' });

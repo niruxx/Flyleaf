@@ -2,7 +2,7 @@
 
 import { navigate } from '../router.js';
 import { h, icon, iconButton, button, cover, emptyState, stagger, pageBanner, formatBytes, timeAgo, confirmDialog, snackbar } from '../ui.js';
-import { savedBooks, removeBook, removeAll, storageEstimate, offlineSupported, onSavedChange } from '../offline.js';
+import { savedBooks, removeBook, removeAll, storageEstimate, offlineSupported, onSavedChange, autoSaveNextEnabled, setAutoSaveNext } from '../offline.js';
 import { t, plural } from '../i18n.js';
 
 export async function offlineView(view) {
@@ -16,6 +16,8 @@ export async function offlineView(view) {
   });
   const body = h('div');
   page.append(banner, body);
+  const auto = h('input', { type: 'checkbox', checked: autoSaveNextEnabled(), onchange: (e) => setAutoSaveNext(e.target.checked) });
+  page.insertBefore(h('label.setting-row', auto, t('Automatically save the next unread chapter on this device')), body);
 
   async function draw() {
     const list = savedBooks();

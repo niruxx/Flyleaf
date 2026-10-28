@@ -268,6 +268,51 @@ function browse(kind) {
     page.append(letterBar);
 
     const results = h('div');
+    const selected = new Set();
+    let selecting = false;
+    const selectionCount = h('span.label-large');
+    const selectionBar = h('div.toolbar', { hidden: true }, selectionCount,
+      button(t('Select loaded series'), { variant: 'text', onclick: () => {
+        for (const input of results.querySelectorAll('input[data-series]')) { input.checked = true; selected.add(Number(input.dataset.series)); }
+        updateSelection();
+      } }),
+      button(t('Edit selected'), { onclick: async () => {
+        if (!selected.size) return;
+        const collections = (await api.collections()).filter((c) => c.owned);
+        const collection = field(t('Add to collection'), { options: [{ value: '', label: t('Leave unchanged') }, ...collections.map((c) => ({ value: c.id, label: c.name }))] });
+        const fields = [collection];
+        const edits = {};
+        if (isAdmin()) {
+          for (const key of ['genres', 'tags']) {
+            const value = field(key === 'genres' ? t('Genres') : t('Tags'), { support: t('Comma-separated names. Replaces existing values.') });
+            const enabled = h('input', { type: 'checkbox', 'aria-label': t('Change {field}', { field: key }) });
+            fields.push(h('label.setting-row', enabled, t('Change {field}', { field: key })), value);
+            edits[key] = { enabled, value };
+          }
+          edits.ageRating = field(t('Age rating'), { options: [{ value: '', label: t('Leave unchanged') }, { value: 'null', label: t('Unknown') }, ...[0, 1, 2, 3].map((value) => ({ value, label: ['Everyone', 'Teen', 'Mature', 'Adults'][value] }))] });
+          fields.push(edits.ageRating);
+        }
+        await formDialog({ title: t('Bulk edit'), fields, submit: t('Apply'), onSubmit: async () => {
+          const body = { ids: [...selected] };
+          if (collection.input.value) body.collectionId = Number(collection.input.value);
+          for (const key of ['genres', 'tags']) if (edits[key]?.enabled.checked) body[key] = edits[key].value.input.value.split(',').map((v) => v.trim()).filter(Boolean);
+          const age = edits.ageRating?.input.value;
+          if (age) body.ageRating = age === 'null' ? null : Number(age);
+          await api.bulkEditSeries(body);
+        } });
+        selected.clear(); updateSelection(); load(true); refreshShell();
+      } }));
+    function updateSelection() { selectionCount.textContent = t('{count} selected', { count: selected.size }); }
+    const selectButton = button(t('Select series'), { variant: 'text', icon: 'checklist', onclick: () => {
+      selecting = !selecting; selectionBar.hidden = !selecting; selected.clear(); updateSelection(); load(true);
+    } });
+    page.append(selectButton, selectionBar);
+    function card(s) {
+      const content = seriesCard(s, { onChange: () => load(true) });
+      if (!selecting) return content;
+      return h('div', h('label.setting-row', h('input', { type: 'checkbox', checked: selected.has(s.id), dataset: { series: s.id },
+        onchange: (e) => { e.target.checked ? selected.add(s.id) : selected.delete(s.id); updateSelection(); } }), t('Select {name}', { name: s.name })), content);
+    }
     const sentinel = h('div', { style: { height: '1px' } });
     // Search: matches inside the books' text, above the series that match by name.
     if (kind === 'search' && fixed.q) page.append(insideBooks(fixed.q));
@@ -298,6 +343,7 @@ function browse(kind) {
       filterText.textContent = activeFilters ? t('Filters ({n})', { n: activeFilters }) : t('Filters');
       const id = ++reqId;
       state.offset = 0;
+      hasMore = false;
       if (!quiet) results.replaceChildren(skeleton('grid'));
       const data = await api.seriesList(query());
       if (id !== reqId || stale()) return;
@@ -309,7 +355,7 @@ function browse(kind) {
         if (['genre', 'person', 'tag', 'search'].includes(kind) || (kind === 'library' && !params.id)) banner.setSub(data.items.length ? t('{length}{value} series', { length: data.items.length, value: data.hasMore ? '+' : '' }) : kind === 'search' ? null : t('Nothing yet'));
       }
       if (!data.items.length) return results.append(noResults());
-      results.append(stagger(h('div.grid', data.items.map((s) => seriesCard(s, { onChange: () => load(true) })))));
+      results.append(stagger(h('div.grid', data.items.map(card))));
       hasMore = data.hasMore;
       state.offset = data.items.length;
     }
@@ -320,7 +366,7 @@ function browse(kind) {
       const data = await api.seriesList({ ...query(), offset: state.offset });
       busy = false;
       if (id !== reqId || stale()) return;
-      results.querySelector('.grid')?.append(...data.items.map((s) => seriesCard(s, { onChange: () => load(true) })));
+      results.querySelector('.grid')?.append(...data.items.map(card));
       hasMore = data.hasMore;
       state.offset += data.items.length;
       count.textContent = t('{offset}{value} series', { offset: state.offset, value: hasMore ? '+' : '' });

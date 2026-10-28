@@ -26,6 +26,8 @@ app.use((req, res, next) => {
 // OPDS (API-key authenticated, read-only) – mounted before the session API.
 
 app.use('/api/opds', require('./opds').router);
+app.use('/api/kosync', require('./kosync').router);
+app.use('/api/kobo', require('./kobo').router);
 
 // ---------------------------------------------------------------------------
 // API

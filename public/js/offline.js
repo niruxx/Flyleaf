@@ -17,7 +17,7 @@ export const offlineSupported = () => 'caches' in window && 'serviceWorker' in n
 
 function readJson(key, fallback) {
   try {
-    return JSON.parse(localStorage.getItem(key) || '') || fallback;
+    return JSON.parse(localStorage.getItem(key) || '') ?? fallback;
   } catch {
     return fallback;
   }
@@ -67,6 +67,24 @@ const warmEngine = (book) =>
   Promise.all((ENGINE_FILES[book.format === 'pdf' ? 'pdf' : book.engine] || []).map((u) => fetch(u).catch(() => null)));
 
 const inFlight = new Map(); // bookId → promise
+
+export const autoSaveNextEnabled = () => readJson('flyleaf.autoSaveNext', true) !== false;
+export const setAutoSaveNext = (enabled) => writeJson('flyleaf.autoSaveNext', Boolean(enabled));
+
+/** Warm one unread successor when a reader opens, without blocking reading. */
+export async function autoSaveNext(book) {
+  if (!autoSaveNextEnabled() || !offlineSupported() || !navigator.onLine) return;
+  let next = book.next;
+  if (book.seriesId && !book.readingList) {
+    const series = await api.series(book.seriesId);
+    const i = series.books.findIndex((b) => b.id === book.id);
+    next = series.books.slice(i + 1).find((b) => !b.progress?.finished);
+  }
+  if (!next || next.progress?.finished || isSaved(next.id)) return;
+  // Automatic downloads respect a device's data-saving preference.
+  if (navigator.connection?.saveData) return;
+  await saveBook(next.id);
+}
 
 /**
  * Save a book for offline reading. `onProgress(fraction)` reports progress.
