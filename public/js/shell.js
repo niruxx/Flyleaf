@@ -12,6 +12,18 @@ import { t } from './i18n.js';
 let drawerData = { libraries: [], collections: [], genres: [], filters: [] };
 let showAllGenres = false;
 
+function setDrawer(open, { focus = false } = {}) {
+  const drawer = document.querySelector('.drawer');
+  const toggle = document.querySelector('.menu-toggle');
+  const modal = matchMedia('(max-width: 1023px)').matches;
+  const expanded = modal && open;
+  document.body.classList.toggle('drawer-open', expanded);
+  toggle?.setAttribute('aria-expanded', String(expanded));
+  drawer.inert = modal && !expanded;
+  if (expanded && focus) drawer.querySelector('a[href], button, summary')?.focus();
+  else if (!expanded && modal && drawer.contains(document.activeElement)) toggle?.focus();
+}
+
 /** `again`: the language changed – redraw the shell's text without adding listeners twice. */
 export function initShell({ again = false } = {}) {
   translateStatic();
@@ -21,15 +33,29 @@ export function initShell({ again = false } = {}) {
     return;
   }
   const bar = document.querySelector('.app-bar');
-  bar.querySelector('.menu-toggle').addEventListener('click', () => document.body.classList.toggle('drawer-open'));
-  document.querySelector('.scrim').addEventListener('click', () => document.body.classList.remove('drawer-open'));
+  bar.querySelector('.menu-toggle').addEventListener('click', () => setDrawer(!document.body.classList.contains('drawer-open'), { focus: true }));
+  document.querySelector('.scrim').addEventListener('click', () => setDrawer(false));
+  const drawerMedia = matchMedia('(max-width: 1023px)');
+  drawerMedia.addEventListener('change', () => setDrawer(false));
+  setDrawer(false);
   addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') document.body.classList.remove('drawer-open');
+    if (e.key === 'Escape') setDrawer(false);
+    if (e.key === 'Tab' && document.body.classList.contains('drawer-open')) {
+      const items = [...document.querySelector('.drawer').querySelectorAll('a[href], button:not([disabled]), summary')].filter((item) => item.getClientRects().length);
+      const first = items[0], last = items.at(-1);
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+    }
   });
   addEventListener('scroll', () => document.body.classList.toggle('scrolled', scrollY > 4), { passive: true });
 
+  document.querySelector('.skip-link')?.addEventListener('click', (event) => {
+    event.preventDefault();
+    document.getElementById('view').focus();
+  });
   buildSearch(document.querySelector('.app-search'));
   onRoute(({ r, full }) => {
+    setDrawer(false);
     if (r.bare) return;
     highlight(full);
     // New genres, libraries and collections show up without a reload (after scans,
@@ -47,6 +73,8 @@ export function initShell({ again = false } = {}) {
 
 /** Text that's in index.html rather than built here: the phone's bottom bar and tooltips. */
 function translateStatic() {
+  const skip = document.querySelector('.skip-link');
+  if (skip) skip.textContent = t('Skip to content');
   const labels = { home: t('Home'), library: t('Library'), want: t('Want to read'), bookmarks: t('Bookmarks') };
   for (const a of document.querySelectorAll('.bottom-nav a[data-nav]')) {
     const text = [...a.childNodes].find((n) => n.nodeType === Node.TEXT_NODE);
@@ -54,6 +82,7 @@ function translateStatic() {
   }
   document.querySelector('.menu-toggle')?.setAttribute('aria-label', t('Open navigation'));
   document.querySelector('.menu-toggle')?.setAttribute('title', t('Menu'));
+  document.querySelector('.drawer')?.setAttribute('aria-label', t('Library navigation'));
   document.querySelector('.brand')?.setAttribute('aria-label', t('Flyleaf home'));
 }
 
@@ -240,7 +269,7 @@ export async function signOut() {
 // Search with live suggestions
 
 function buildSearch(host) {
-  const input = h('input', { type: 'search', placeholder: t('Search series, books, people…'), 'aria-label': t('Search'), autocomplete: 'off', enterkeyhint: 'search' });
+  const input = h('input', { type: 'search', placeholder: t('Search your library'), 'aria-label': t('Search'), autocomplete: 'off', enterkeyhint: 'search' });
   const clear = iconButton('close', t('Clear search'), () => {
     input.value = '';
     close();
@@ -355,62 +384,67 @@ function navItem(to, ic, label, count, extra = {}) {
   return h('a.nav-item', { href: `#${to}`, dataset: { to }, ...extra }, ic ? icon(ic) : h('span.dot'), h('span.label', label), count != null && h('span.count', String(count)));
 }
 
+const drawerGroups = new Map();
 function buildDrawer() {
   const d = drawerData;
-  const genres = showAllGenres ? d.genres : d.genres.slice(0, GENRE_LIMIT);
-  const hue = (s) => [...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
+  const hue = (s) => [...String(s).toLowerCase()].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
   const mine = d.libraries.filter((l) => l.own);
   const shared = d.libraries.filter((l) => !l.personal);
-  const children = [
-    navItem('/', 'home', t('Home')),
-    navItem('/library', 'local_library', t('All series')),
-    navItem('/want-to-read', 'bookmark_heart', t('Want to read')),
-    navItem('/reading-lists', 'format_list_numbered', t('Reading lists')),
-    navItem('/bookmarks', 'bookmarks', t('Bookmarks & notes')),
-    offlineSupported() && navItem('/offline', 'offline_pin', t('Saved offline')),
-    navItem('/stats', 'insights', t('Reading stats')),
+  const group = (id, label, children, open = false) => {
+    const detail = h('details.drawer-group', { open: drawerGroups.get(id) ?? open },
+      h('summary', h('span', label), icon('expand_more')),
+      h('div.drawer-group-items', children.flat(Infinity).filter(Boolean)));
+    detail.addEventListener('toggle', () => drawerGroups.set(id, detail.open));
+    return detail;
+  };
+  const newCollection = h('button.nav-item.state', { type: 'button', onclick: async () => {
+    const { newCollection } = await import('./components/actions.js');
+    const id = await newCollection();
+    if (id) navigate(`/collection/${id}`);
+  } }, icon('add'), h('span.label', t('New collection')));
+  const discovery = [
     can(session.user, 'contentFinder') && navItem('/finder', 'travel_explore', t('Content Finder')),
-    can(session.user, 'contentFinder') && navItem('/finder/downloads', 'download', t('Downloads')),
     can(session.user, 'contentFinder') && navItem('/finder/following', 'notifications_active', t('Following')),
+    can(session.user, 'contentFinder') && navItem('/finder/downloads', 'download', t('Downloads')),
     can(session.user, 'upload') && navItem('/upload', 'upload', t('Upload')),
-
-    // Your own libraries and the shared ones, each in its own section.
-    mine.length > 0 && h('div.section-label', t('My libraries')),
-    mine.map((l) => navItem(`/library/${l.id}`, KIND_ICON[l.kind], l.name, l.seriesCount)),
-    shared.length > 0 && h('div.section-label', mine.length ? t('Shared libraries') : t('Libraries')),
-    shared.map((l) => navItem(`/library/${l.id}`, KIND_ICON[l.kind], l.name, l.seriesCount)),
-
-    h('div.section-label', t('Collections'), iconButton('add', t('New collection'), async () => {
-      const { newCollection } = await import('./components/actions.js');
-      const id = await newCollection();
-      if (id) navigate(`/collection/${id}`);
-    })),
-    d.collections.length
-      ? d.collections.map((c) => navItem(`/collection/${c.id}`, c.promoted ? 'public' : 'collections_bookmark', c.name, c.count))
-      : h('a.nav-item', { href: '#/collections' }, icon('library_add'), h('span.label', t('Create a collection'))),
-    d.collections.length > 0 && navItem('/collections', 'grid_view', t('All collections')),
-
-    // Smart shelves: saved filters.
-    d.filters.some((f) => f.inDrawer) && h('div.section-label', t('Shelves')),
-    d.filters.filter((f) => f.inDrawer).map((f) => navItem(`/shelf/${f.id}`, 'filter_alt', f.name)),
-
-    d.genres.length && h('div.section-label', t('Genres')),
-    genres.map((g) => navItem(`/genre/${encodeURIComponent(g.name)}`, null, g.name, g.count, { style: { '--dot': `oklch(0.7 0.13 ${hue(g.name)})` } })),
-    d.genres.length > GENRE_LIMIT &&
-      h('button.nav-item.more-toggle', {
-        type: 'button',
-        onclick: () => {
+  ].filter(Boolean);
+  document.querySelector('.drawer').replaceChildren(
+    h('div.drawer-scroll',
+      h('div.drawer-caption', t('Your space')),
+      h('div.drawer-primary',
+        navItem('/', 'home', t('Home')),
+        navItem('/library', 'local_library', t('Library')),
+        navItem('/want-to-read', 'bookmark_heart', t('Want to read')),
+        navItem('/reading-lists', 'format_list_numbered', t('Reading lists'))),
+      h('div.drawer-secondary',
+        navItem('/bookmarks', 'bookmarks', t('Bookmarks & notes')),
+        navItem('/stats', 'insights', t('Reading stats')),
+        offlineSupported() && navItem('/offline', 'offline_pin', t('Saved offline'))),
+      (mine.length + shared.length > 0) && group('libraries', t('Libraries'), [
+        mine.length > 0 && h('div.drawer-sublabel', t('My libraries')),
+        mine.map((l) => navItem(`/library/${l.id}`, KIND_ICON[l.kind], l.name, l.seriesCount)),
+        mine.length > 0 && shared.length > 0 && h('div.drawer-sublabel', t('Shared libraries')),
+        shared.map((l) => navItem(`/library/${l.id}`, KIND_ICON[l.kind], l.name, l.seriesCount)),
+      ], true),
+      group('collections', t('Collections'), [
+        navItem('/collections', 'grid_view', t('All collections')),
+        d.collections.map((c) => navItem(`/collection/${c.id}`, c.promoted ? 'public' : 'collections_bookmark', c.name, c.count)),
+        newCollection,
+      ]),
+      d.filters.some((f) => f.inDrawer) && group('shelves', t('Shelves'), d.filters.filter((f) => f.inDrawer).map((f) => navItem(`/shelf/${f.id}`, 'filter_alt', f.name))),
+      d.genres.length > 0 && group('genres', t('Genres'), [
+        (showAllGenres ? d.genres : d.genres.slice(0, GENRE_LIMIT)).map((g) => navItem(`/genre/${encodeURIComponent(g.name)}`, null, g.name, g.count, { style: { '--dot': `oklch(0.7 0.13 ${hue(g.name)})` } })),
+        d.genres.length > GENRE_LIMIT && h('button.nav-item.more-toggle', { type: 'button', onclick: () => {
           showAllGenres = !showAllGenres;
           buildDrawer();
-        },
-      }, icon(showAllGenres ? 'expand_less' : 'expand_more'), h('span.label', showAllGenres ? t('Show fewer') : t('Show all {n} genres', { n: d.genres.length }))),
-
-    h('hr'),
-    navItem('/settings', 'settings', t('Settings')),
-    isAdmin() && navItem('/settings/libraries', 'admin_panel_settings', t('Manage libraries')),
-    !isAdmin() && session.user?.homeDir && navItem('/settings/mylibs', 'folder_special', t('My libraries')),
-  ];
-  document.querySelector('.drawer').replaceChildren(...children.flat(Infinity).filter(Boolean));
+        } }, icon(showAllGenres ? 'expand_less' : 'expand_more'), h('span.label', showAllGenres ? t('Show fewer') : t('Show all {n} genres', { n: d.genres.length }))),
+      ]),
+      discovery.length > 0 && group('discover', t('Discover'), discovery)),
+    h('div.drawer-footer',
+      navItem('/settings', 'settings', t('Settings')),
+      isAdmin() && navItem('/settings/libraries', 'admin_panel_settings', t('Manage libraries')),
+      !isAdmin() && session.user?.homeDir && navItem('/settings/mylibs', 'folder_special', t('My libraries'))),
+  );
   highlight(location.hash.replace(/^#/, '') || '/');
   refreshDownloadsBadge();
 }
@@ -440,7 +474,13 @@ function highlight(path) {
   for (const a of document.querySelectorAll('.drawer .nav-item[data-to]')) {
     const to = a.dataset.to;
     const on = to === base || (to === '/settings' && root === 'settings' && !['/settings/libraries', '/settings/mylibs'].includes(base));
-    if (on) a.setAttribute('aria-current', 'page');
+    if (on) {
+      a.setAttribute('aria-current', 'page');
+      const group = a.closest('details');
+      if (group) group.open = true;
+    }
+    else if ((to === '/library' && ['library', 'series', 'genre', 'person', 'tag', 'search', 'shelf'].includes(root)) ||
+      (to === '/reading-lists' && root === 'reading-list')) a.setAttribute('aria-current', 'location');
     else a.removeAttribute('aria-current');
   }
   const navKey = { '': 'home', library: 'library', series: 'library', genre: 'library', person: 'library', collection: 'library', collections: 'library', shelf: 'library', 'reading-lists': 'library', 'reading-list': 'library', search: 'library', recommended: 'home', 'want-to-read': 'want', bookmarks: 'bookmarks' }[root];

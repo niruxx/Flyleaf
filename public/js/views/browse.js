@@ -31,7 +31,7 @@ const READ_FILTERS = [
 /** Build the route handler for one kind of series list. */
 function browse(kind) {
   return async (view, params, stale) => {
-    const page = h('div.page');
+    const page = h('div.page.library-page');
     view.append(page);
     const fixed = {};
     let title = t('All series');
@@ -245,7 +245,11 @@ function browse(kind) {
       }))),
     );
     const count = h('span.label-large.muted');
-    page.append(h('div.toolbar.enter', readRow, statusChip, userStatusChip, kind !== 'genre' && genreChip, h('div.spacer'), count, sortBtn, saveShelf));
+    const filterText = h('span', t('Filters'));
+    const filters = h('details.library-filters', { open: Boolean(state.status || state.userStatus || state.genres.length) },
+      h('summary', icon('tune'), filterText, icon('expand_more')),
+      h('div.library-filter-options', statusChip, userStatusChip, kind !== 'genre' && genreChip));
+    page.append(h('div.library-controls', h('div.toolbar.enter', readRow, h('div.spacer'), count, sortBtn, saveShelf), filters));
 
     // A–Z jump bar, shown while sorted by title.
     const letterBar = h('nav.letter-bar.enter', { 'aria-label': t('Jump to letter') },
@@ -290,6 +294,8 @@ function browse(kind) {
     });
 
     async function load(quiet = false) {
+      const activeFilters = Number(Boolean(state.status)) + Number(Boolean(state.userStatus)) + state.genres.length;
+      filterText.textContent = activeFilters ? t('Filters ({n})', { n: activeFilters }) : t('Filters');
       const id = ++reqId;
       state.offset = 0;
       if (!quiet) results.replaceChildren(skeleton('grid'));

@@ -37,6 +37,7 @@
     <link rel="stylesheet" href="/css/ambience.css" />
     <link rel="stylesheet" href="/css/motion.css" />
     <link rel="stylesheet" href="/css/reader.css" />
+    <link rel="stylesheet" href="/css/expressive.css" />
     <script type="module" src="/js/main.js"></script>
   </head>
   <body class="bare">
@@ -47,7 +48,7 @@
     </div>
     <header class="app-bar">
       <div class="start">
-        <button class="icon-btn state menu-toggle" type="button" aria-label="Open navigation" title="Menu">
+        <button class="icon-btn state menu-toggle" type="button" aria-label="Open navigation" title="Menu" aria-controls="app-navigation" aria-expanded="false">
           <span class="icon">menu</span>
         </button>
         <a class="brand" href="#/" aria-label="Flyleaf home">
@@ -59,10 +60,11 @@
       <div class="end"></div>
     </header>
 
-    <nav class="drawer" aria-label="Library navigation"></nav>
+    <nav id="app-navigation" class="drawer" aria-label="Library navigation"></nav>
     <div class="scrim"></div>
 
-    <main id="view"></main>
+    <a class="skip-link" href="#view">Skip to content</a>
+    <main id="view" tabindex="-1"></main>
 
     <nav class="bottom-nav" aria-label="Main">
       <a href="#/" data-nav="home"><span class="pill state"><span class="icon">home</span></span>Home</a>

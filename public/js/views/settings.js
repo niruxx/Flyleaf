@@ -49,8 +49,15 @@ export async function settingsView(view, params, stale) {
       ? h('div.group', t(p.group))
       : h('a.nav-item', { href: `#/settings/${p.id}`, 'aria-current': p.id === current ? 'page' : null }, icon(p.icon), h('span.label', t(p.label))),
   ));
+  const select = h('select', { 'aria-label': t('Settings section'), onchange: (event) => navigate(`/settings/${event.target.value}`) });
+  let optionGroup = select;
+  for (const item of panels) {
+    if (item.group) { optionGroup = h('optgroup', { label: t(item.group) }); select.append(optionGroup); }
+    else optionGroup.append(h('option', { value: item.id, selected: item.id === current }, t(item.label)));
+  }
+  const mobileNav = h('label.settings-mobile-select', h('span', t('Settings section')), select);
   const panel = h('div.settings-panel.enter');
-  const page = h('div.page', h('div.page-head', h('h1', t('Settings'))), h('div.settings-layout', nav, panel));
+  const page = h('div.page.settings-page', h('div.page-head', h('div', h('div.page-eyebrow', t('Make yourself at home')), h('h1', t('Settings')), h('p.muted', t('Your account, reading preferences, and connected services.')))), mobileNav, h('div.settings-layout', nav, panel));
   view.append(page);
   requestAnimationFrame(() => nav.querySelector('[aria-current]')?.scrollIntoView({ inline: 'center', block: 'nearest' }));
 

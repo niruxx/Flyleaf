@@ -10,7 +10,7 @@ import { refreshShell } from '../shell.js';
 const KIND_ICON = { books: 'menu_book', manga: 'auto_stories', comics: 'photo_library' };
 
 export async function homeView(view, params, stale) {
-  const page = h('div.page');
+  const page = h('div.page.home-page');
   view.append(page);
   page.append(skeleton('home'));
   const scan = isAdmin()
@@ -30,38 +30,47 @@ export async function homeView(view, params, stale) {
   const totalSeries = data.libraries.reduce((a, l) => a + l.seriesCount, 0);
   const current = data.continueReading[0];
   const actions = [
-    // Long titles are cut with “…” so the button keeps its padding.
     current && h('a.btn.filled.state', { href: `#/read/${current.id}`, title: t('Continue {title}', { title: current.series || current.title }) },
-      icon('play_arrow', 'filled'), h('span.btn-label', t('Continue {title}', { title: current.series || current.title }))),
-    h('a.btn.tonal.state', { href: '#/library' }, icon('local_library'), t('Browse library')),
-    can(session.user, 'contentFinder') && h('a.btn.outlined.state', { href: '#/finder' }, icon('travel_explore'), t('Find books')),
+      icon('play_arrow', 'filled'), h('span.btn-label', t('Continue reading'))),
+    h(`a.btn.${current ? 'tonal' : 'filled'}.state`, { href: '#/library' }, icon('local_library'), t('Browse library')),
   ];
-  // A fan of covers: what you're reading, then what's new.
-  const fanItems = [...data.continueReading, ...data.recentlyAdded].filter((x) => x.coverUrl && !x.blur).slice(0, 5);
+  const progress = Math.round(Math.max(0, Math.min(1, Number(current?.progress?.percent) || 0)) * 100);
+  const spotlight = current ? h('a.reading-spotlight.state', { href: `#/read/${current.id}`, 'aria-label': t('Continue {title}', { title: current.series || current.title }) },
+    h('div.spotlight-art', cover(current, { showProgress: false })),
+    h('div.spotlight-info',
+      h('span.spotlight-kicker', icon('auto_stories'), t('On your bedside table')),
+      h('h2', current.series || current.title),
+      h('p', current.series && current.label !== current.series ? current.label : current.author || ''),
+      h('div.spotlight-progress',
+        h('div.progress', { role: 'progressbar', 'aria-label': t('Reading progress'), 'aria-valuenow': progress, 'aria-valuemin': 0, 'aria-valuemax': 100 }, h('span', { style: { width: `${progress}%` } })),
+        h('span', t('{percent}% read', { percent: progress }))),
+      h('span.spotlight-resume', t('Pick up where you left off'), icon('arrow_forward'))))
+    : h('div.reading-invitation', icon('auto_stories'), h('span', t('There is a story for every mood.')));
   page.append(
+    h('div.home-welcome',
+      h('span', t('{greeting}, {name}', { greeting: greet, name: session.user.displayName })),
+      h('span.home-date', new Date().toLocaleDateString(currentLanguage(), { weekday: 'long', month: 'long', day: 'numeric' }))),
     h('section.hero.home-hero.enter',
-      h('div.hero-glow'),
       h('div.hero-text',
-        h('div.hero-eyebrow', new Date().toLocaleDateString(currentLanguage(), { weekday: 'long', month: 'long', day: 'numeric' })),
-        h('h1', t('{greeting}, {name}', { greeting: greet, name: session.user.displayName })),
-        h('p', current
-          ? t('You’re on {book}. Pick up where you left off, or find something new.', { book: current.label && current.series && current.label !== current.series ? t('{volume} of {series}', { volume: current.label, series: current.series }) : current.title })
-          : t('Your library is ready when you are.')),
-        h('div.stats-row',
-          h('a.chip.state', { href: '#/library' }, icon('collections_bookmark'), plural(totalSeries, '{n} series', '{n} series')),
-          h('span.chip', icon('book_2'), plural(totalItems, '{n} book', '{n} books')),
-          data.wantToRead.length > 0 && h('a.chip.state', { href: '#/want-to-read' }, icon('bookmark_heart'), t('{n} want to read', { n: data.wantToRead.length })),
-          scan,
-        ),
+        h('div.hero-eyebrow', icon('local_library'), t('Your personal reading room')),
+        h('h1', t('Your next chapter starts here.')),
+        h('p', current ? t('A familiar story, or a new favourite. Make a little time for yourself.') : t('Your library is ready when you are.')),
         h('div.hero-actions', actions.filter(Boolean)),
-      ),
-      fanItems.length > 0 && h('div.hero-fan', { 'aria-hidden': 'true' }, fanItems.map((x, i) =>
-        h('a.fan-cover', { href: x.seriesId ? `#/series/${x.seriesId}` : `#/series/${x.id}`, tabindex: '-1', style: { '--i': String(i), '--n': String(fanItems.length), backgroundImage: `url("${x.coverUrl}")` } }))),
-    ),
+        h('div.home-library-count',
+          plural(totalSeries, '{n} series', '{n} series'), h('span', { 'aria-hidden': 'true' }, ' / '),
+          plural(totalItems, '{n} book', '{n} books'), scan)),
+      spotlight),
+    h('nav.home-shortcuts', { 'aria-label': t('Reading shortcuts') },
+      [
+        ['bookmark_heart', t('Want to read'), t('Your next great read'), '#/want-to-read'],
+        ['format_list_numbered', t('Reading lists'), t('A story in the right order'), '#/reading-lists'],
+        ['collections_bookmark', t('Collections'), t('Your shelves, your way'), '#/collections'],
+        ['insights', t('Reading stats'), t('A little progress, every day'), '#/stats'],
+      ].map(([ic, title, sub, href]) => h('a.home-shortcut.state', { href },
+        h('span.shortcut-icon', icon(ic)), h('div', h('span.shortcut-title', title), h('span.shortcut-sub', sub)), icon('arrow_outward')))),
   );
   // Streak, this week, yearly goal: filled in when the stats arrive.
   const glance = h('section.glance', { hidden: true });
-  page.append(glance);
   api.stats(7).then((s) => glance.isConnected && fillGlance(glance, s, data)).catch(() => {});
 
   if (!data.libraries.length) {
@@ -161,9 +170,10 @@ export async function homeView(view, params, stale) {
   }).catch(() => {});
 
   page.append(...[
-    updates,
     data.continueReading.length > 0 &&
       h('section.section.enter', sectionHead(t('Continue reading'), 'play_circle', `${data.continueReading.length}`), stagger(h('div.continue', data.continueReading.map(resumeCard)))),
+    glance,
+    updates,
     recs,
     discover,
     shelf(t('Want to read'), 'bookmark_heart', data.wantToRead, '#/want-to-read'),
