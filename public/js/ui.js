@@ -1,3 +1,4 @@
+import { t, currentLanguage } from './i18n.js';
 // DOM helpers and Material 3 component behaviours.
 
 import { leave } from './motion.js';
@@ -219,20 +220,20 @@ export function dialog({ title, icon: ic, content, actions = [], className = '',
   });
 }
 
-export function confirmDialog({ title, message, confirm = 'Confirm', danger = false, icon: ic }) {
+export function confirmDialog({ title, message, confirm = t('Confirm'), danger = false, icon: ic }) {
   return dialog({
     title,
     icon: ic,
     content: h('p', message),
     actions: [
-      { label: 'Cancel', value: false },
+      { label: t('Cancel'), value: false },
       { label: confirm, value: true, variant: danger ? 'text danger' : 'filled' },
     ],
   }).then(Boolean);
 }
 
 /** A form inside a dialog. `onSubmit` returns/throws; errors show inline. */
-export function formDialog({ title, fields, submit = 'Save', onSubmit, className = '', icon: ic, extra }) {
+export function formDialog({ title, fields, submit = t('Save'), onSubmit, className = '', icon: ic, extra }) {
   const id = `form-${Math.random().toString(36).slice(2, 8)}`;
   const err = h('div');
   const form = h('form', { id }, err, fields, extra);
@@ -251,7 +252,7 @@ export function formDialog({ title, fields, submit = 'Save', onSubmit, className
       if (btn) btn.disabled = false;
     }
   });
-  return dialog({ title, icon: ic, className, content: form, actions: [{ label: 'Cancel' }, { label: submit, submit: id, variant: 'filled' }] });
+  return dialog({ title, icon: ic, className, content: form, actions: [{ label: t('Cancel') }, { label: submit, submit: id, variant: 'filled' }] });
 }
 
 /** Outlined text field. */
@@ -278,7 +279,7 @@ export function field(label, { type = 'text', value = '', name, support, require
   }
   const wrap = h('div.field', input, h('label', { for: id }, label), support && h('span.support', support));
   if (type === 'password') {
-    const toggle = iconButton('visibility', 'Show password', () => {
+    const toggle = iconButton('visibility', t('Show password'), () => {
       const show = input.type === 'password';
       input.type = show ? 'text' : 'password';
       toggle.querySelector('.icon').textContent = show ? 'visibility_off' : 'visibility';
@@ -298,13 +299,13 @@ export function chipInput(label, values = [], { suggestions = [] } = {}) {
   let list = [...values];
   const set = h('div.chip-set', { style: { marginTop: '8px' } });
   const listId = `dl-${Math.random().toString(36).slice(2, 8)}`;
-  const f = field(label, { support: 'Press Enter or comma to add', list: listId });
+  const f = field(label, { support: t('Press Enter or comma to add'), list: listId });
   f.input.setAttribute('list', listId);
   const dl = h('datalist', { id: listId }, suggestions.map((s) => h('option', { value: s })));
   const render = () =>
     set.replaceChildren(
       ...list.map((v, i) =>
-        h('span.chip.input-chip.selected', v, h('button', { type: 'button', 'aria-label': `Remove ${v}`, onclick: () => { list.splice(i, 1); render(); } }, icon('close'))),
+        h('span.chip.input-chip.selected', v, h('button', { type: 'button', 'aria-label': t('Remove {v}', { v: v }), onclick: () => { list.splice(i, 1); render(); } }, icon('close'))),
       ),
     );
   const add = () => {
@@ -477,8 +478,8 @@ export function onContext(el, fn) {
     fn({ x: e.clientX, y: e.clientY });
   });
   el.addEventListener('touchstart', (e) => {
-    const t = e.touches[0];
-    start = { x: t.clientX, y: t.clientY };
+    const localT = e.touches[0];
+    start = { x: localT.clientX, y: localT.clientY };
     timer = setTimeout(() => {
       timer = null;
       navigator.vibrate?.(10);
@@ -488,8 +489,8 @@ export function onContext(el, fn) {
   }, { passive: true });
   const cancel = () => clearTimeout(timer);
   el.addEventListener('touchmove', (e) => {
-    const t = e.touches[0];
-    if (start && Math.hypot(t.clientX - start.x, t.clientY - start.y) > 10) cancel();
+    const localT = e.touches[0];
+    if (start && Math.hypot(localT.clientX - start.x, localT.clientY - start.y) > 10) cancel();
   }, { passive: true });
   el.addEventListener('touchend', cancel);
   el.addEventListener('click', (e) => {
@@ -525,9 +526,9 @@ export function cover(item, { showProgress = true, count, blur = item.blur, fini
   const p = item.progress;
   const done = finished ?? (typeof p === 'object' ? p?.finished : false);
   if (showProgress && done) {
-    el.append(h('div.corner', { title: 'Finished' }, icon('check', 'filled')));
+    el.append(h('div.corner', { title: t('Finished') }, icon('check', 'filled')));
   } else if (count != null) {
-    el.append(h('div.corner.count', { title: `${count} unread` }, String(count)));
+    el.append(h('div.corner.count', { title: t('{count} unread', { count: count }) }, String(count)));
   }
   const pct = typeof p === 'number' ? p : p?.percent;
   if (showProgress && !done && pct > 0) {
@@ -549,21 +550,21 @@ export function formatDuration(seconds, { short = false } = {}) {
   seconds = Math.round(seconds || 0);
   const hrs = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  if (short) return hrs ? `${hrs}h ${m}m` : m ? `${m}m` : `${seconds}s`;
-  if (hrs) return `${hrs} hr ${m} min`;
-  if (m) return `${m} min`;
-  return seconds ? `${seconds} sec` : '0 min';
+  if (short) return hrs ? t('{hrs}h {m}m', { hrs: hrs, m: m }) : m ? t('{n}m', { n: m }) : t('{n}s', { n: seconds });
+  if (hrs) return t('{hrs} hr {m} min', { hrs: hrs, m: m });
+  if (m) return t('{n} min', { n: m });
+  return seconds ? t('{seconds} sec', { seconds: seconds }) : t('0 min');
 }
 
 export function timeAgo(ts) {
-  if (!ts) return 'never';
+  if (!ts) return t('never');
   const s = (Date.now() - ts) / 1000;
-  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-  if (s < 60) return 'just now';
+  const rtf = new Intl.RelativeTimeFormat(currentLanguage(), { numeric: 'auto' });
+  if (s < 60) return t('just now');
   if (s < 3600) return rtf.format(-Math.round(s / 60), 'minute');
   if (s < 86400) return rtf.format(-Math.round(s / 3600), 'hour');
   if (s < 86400 * 30) return rtf.format(-Math.round(s / 86400), 'day');
-  return new Date(ts).toLocaleDateString();
+  return new Date(ts).toLocaleDateString(currentLanguage());
 }
 
 export function formatBytes(n) {
@@ -619,7 +620,7 @@ export function libraryOptions(libraries, label = (l) => l.name) {
   const rank = (l) => (l.own ? 0 : l.personal ? 2 : 1);
   return [...libraries]
     .sort((a, b) => rank(a) - rank(b) || String(a.ownerName || '').localeCompare(String(b.ownerName || '')))
-    .map((l) => ({ value: l.id, label: label(l), group: l.own ? 'My libraries' : l.personal ? `${l.ownerName}’s libraries` : 'Shared libraries' }));
+    .map((l) => ({ value: l.id, label: label(l), group: l.own ? t('My libraries') : l.personal ? t('{ownerName}’s libraries', { ownerName: l.ownerName }) : t('Shared libraries') }));
 }
 
 /** Fill an .avatar element with someone's profile picture, or their initial. */
@@ -642,7 +643,7 @@ export const avatar = (user, size = 36) => fillAvatar(h('span.avatar', { style: 
 
 /** M3 Expressive-style loading indicator: a morphing, rotating shape. */
 export function loading() {
-  return h('div.center-load', h('div.loader', { role: 'progressbar', 'aria-label': 'Loading' }, h('span')));
+  return h('div.center-load', h('div.loader', { role: 'progressbar', 'aria-label': t('Loading') }, h('span')));
 }
 
 /**
@@ -663,7 +664,7 @@ export function skeleton(kind = 'grid', count = 12) {
   } else {
     body = [tiles(count)];
   }
-  return h('div.skeleton', { 'aria-busy': 'true', 'aria-label': 'Loading' }, body);
+  return h('div.skeleton', { 'aria-busy': 'true', 'aria-label': t('Loading') }, body);
 }
 
 export function emptyState(ic, title, text, action) {
@@ -674,28 +675,28 @@ export async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
   } catch {
-    const t = h('textarea', { style: { position: 'fixed', opacity: '0' } });
-    t.value = text;
-    document.body.append(t);
-    t.select();
+    const localT = h('textarea', { style: { position: 'fixed', opacity: '0' } });
+    localT.value = text;
+    document.body.append(localT);
+    localT.select();
     document.execCommand('copy');
-    t.remove();
+    localT.remove();
   }
-  snackbar('Copied to clipboard');
+  snackbar(t('Copied to clipboard'));
 }
 
-export const STATUS_LABEL = { ongoing: 'Ongoing', completed: 'Completed', hiatus: 'On hiatus', cancelled: 'Cancelled', upcoming: 'Upcoming' };
+export const STATUS_LABEL = { get ongoing() { return t('Ongoing'); }, get completed() { return t('Completed'); }, get hiatus() { return t('On hiatus'); }, get cancelled() { return t('Cancelled'); }, get upcoming() { return t('Upcoming'); } };
 export const USER_STATUS = [
-  { value: 'reading', label: 'Reading', icon: 'auto_stories' },
-  { value: 'plan', label: 'Plan to read', icon: 'schedule' },
-  { value: 'completed', label: 'Completed', icon: 'task_alt' },
-  { value: 'on_hold', label: 'On hold', icon: 'pause_circle' },
-  { value: 'dropped', label: 'Dropped', icon: 'do_not_disturb_on' },
+  { value: 'reading', get label() { return t('Reading'); }, icon: 'auto_stories' },
+  { value: 'plan', get label() { return t('Plan to read'); }, icon: 'schedule' },
+  { value: 'completed', get label() { return t('Completed'); }, icon: 'task_alt' },
+  { value: 'on_hold', get label() { return t('On hold'); }, icon: 'pause_circle' },
+  { value: 'dropped', get label() { return t('Dropped'); }, icon: 'do_not_disturb_on' },
 ];
 export const AGE_RATINGS = [
-  { value: '', label: 'Unknown' },
-  { value: 0, label: 'Everyone' },
-  { value: 1, label: 'Teen (13+)' },
-  { value: 2, label: 'Mature (17+)' },
-  { value: 3, label: 'Adults only (18+)' },
+  { value: '', get label() { return t('Unknown'); } },
+  { value: 0, get label() { return t('Everyone'); } },
+  { value: 1, get label() { return t('Teen (13+)'); } },
+  { value: 2, get label() { return t('Mature (17+)'); } },
+  { value: 3, get label() { return t('Adults only (18+)'); } },
 ];

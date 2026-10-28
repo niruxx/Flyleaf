@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 // Books saved on this device for reading without a connection.
 //
 // A saved book is the set of requests the reader makes, stored in Cache Storage under the
@@ -74,7 +75,7 @@ const inFlight = new Map(); // bookId → promise
 export function saveBook(bookId, { onProgress } = {}) {
   if (inFlight.has(bookId)) return inFlight.get(bookId);
   const job = (async () => {
-    if (!offlineSupported()) throw new Error('Offline reading needs HTTPS (or localhost) and a browser with service workers.');
+    if (!offlineSupported()) throw new Error(t('Offline reading needs HTTPS (or localhost) and a browser with service workers.'));
     // Ask the browser not to clear saved books when space runs low.
     navigator.storage?.persist?.().catch(() => {});
     const data = await api.reader(bookId);
@@ -90,7 +91,7 @@ export function saveBook(bookId, { onProgress } = {}) {
     let size = 0;
     const fetchOne = async (url) => {
       const res = await fetch(url, { credentials: 'same-origin' });
-      if (!res.ok) throw new Error(`Couldn’t save ${url.includes('/pages/') ? 'a page' : 'the book'} (${res.status}).`);
+      if (!res.ok) throw new Error(t('Couldn’t save {value} ({status}).', { value: url.includes('/pages/') ? t('a page') : t('the book'), status: res.status }));
       const blob = await res.clone().blob();
       size += blob.size;
       await cache.put(url, res);

@@ -1,3 +1,4 @@
+import { t } from '../i18n.js';
 import { api } from '../api.js';
 import { navigate } from '../router.js';
 import { h, icon, button, cover, loading, emptyState, stagger, pageHeader } from '../ui.js';
@@ -10,13 +11,13 @@ export async function collectionsView(view, params, stale) {
   const list = await api.collections();
   if (stale()) return;
   page.replaceChildren(
-    pageHeader('Collections', button('New collection', { variant: 'tonal', icon: 'add', onclick: async () => {
+    pageHeader(t('Collections'), button(t('New collection'), { variant: 'tonal', icon: 'add', onclick: async () => {
       const id = await newCollection();
       if (id) navigate(`/collection/${id}`);
     } })),
   );
   if (!list.length) {
-    page.append(emptyState('collections_bookmark', 'No collections yet', 'Group series however you like – “Summer reads”, “Isekai”, “Finished favourites”. Use “Add to category” from any series menu.'));
+    page.append(emptyState('collections_bookmark', t('No collections yet'), t('Group series however you like – “Summer reads”, “Isekai”, “Finished favourites”. Use “Add to category” from any series menu.')));
     return;
   }
   const seriesById = new Map();
@@ -32,7 +33,7 @@ export async function collectionsView(view, params, stale) {
             return s ? cover({ ...s, title: s.name }, { showProgress: false }) : h('div.cover');
           })),
           h('div.n', c.promoted ? [icon('public'), ' ', c.name] : c.name),
-          h('div.c', `${c.count} series${c.owned ? '' : ' · shared'}`),
+          h('div.c', t('{count} series{value}', { count: c.count, value: c.owned ? '' : t(' · shared') })),
         ),
       ),
     )),

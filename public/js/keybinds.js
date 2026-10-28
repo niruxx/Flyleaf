@@ -1,23 +1,24 @@
+import { t } from './i18n.js';
 // Reader key bindings (customisable in Settings → Key binds).
 
 export const ACTIONS = [
-  { id: 'pageRight', label: 'Page right', hint: 'Next page in left-to-right books, previous in manga' },
-  { id: 'pageLeft', label: 'Page left', hint: 'Previous page in left-to-right books, next in manga' },
-  { id: 'next', label: 'Next page' },
-  { id: 'prev', label: 'Previous page' },
-  { id: 'first', label: 'First page' },
-  { id: 'last', label: 'Last page' },
-  { id: 'toggleMenu', label: 'Show / hide menu' },
-  { id: 'bookmark', label: 'Bookmark this page' },
-  { id: 'contents', label: 'Contents & annotations' },
-  { id: 'settings', label: 'Reader settings' },
-  { id: 'fullscreen', label: 'Full screen' },
-  { id: 'nextBook', label: 'Next volume / chapter' },
-  { id: 'prevBook', label: 'Previous volume / chapter' },
-  { id: 'autoScroll', label: 'Start / pause auto-scroll', hint: 'Webtoon mode' },
-  { id: 'scrollFaster', label: 'Auto-scroll faster' },
-  { id: 'scrollSlower', label: 'Auto-scroll slower' },
-  { id: 'close', label: 'Close the book' },
+  { id: 'pageRight', get label() { return t('Page right'); }, get hint() { return t('Next page in left-to-right books, previous in manga'); } },
+  { id: 'pageLeft', get label() { return t('Page left'); }, get hint() { return t('Previous page in left-to-right books, next in manga'); } },
+  { id: 'next', get label() { return t('Next page'); } },
+  { id: 'prev', get label() { return t('Previous page'); } },
+  { id: 'first', get label() { return t('First page'); } },
+  { id: 'last', get label() { return t('Last page'); } },
+  { id: 'toggleMenu', get label() { return t('Show / hide menu'); } },
+  { id: 'bookmark', get label() { return t('Bookmark this page'); } },
+  { id: 'contents', get label() { return t('Contents & annotations'); } },
+  { id: 'settings', get label() { return t('Reader settings'); } },
+  { id: 'fullscreen', get label() { return t('Full screen'); } },
+  { id: 'nextBook', get label() { return t('Next volume / chapter'); } },
+  { id: 'prevBook', get label() { return t('Previous volume / chapter'); } },
+  { id: 'autoScroll', get label() { return t('Start / pause auto-scroll'); }, get hint() { return t('Webtoon mode'); } },
+  { id: 'scrollFaster', get label() { return t('Auto-scroll faster'); } },
+  { id: 'scrollSlower', get label() { return t('Auto-scroll slower'); } },
+  { id: 'close', get label() { return t('Close the book'); } },
 ];
 
 export const DEFAULT_KEYBINDS = {

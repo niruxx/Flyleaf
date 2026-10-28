@@ -507,6 +507,43 @@ const migrations = [
   `
   ALTER TABLE fonts ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE;   -- NULL = shared with everyone (admin)
   `,
+  // v12: per-user tracking connections and durable progress delivery.
+  `
+  CREATE TABLE tracking_accounts (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL CHECK (provider IN ('anilist', 'mal', 'mangaupdates', 'kitsu')),
+    remote_id TEXT NOT NULL,
+    username TEXT NOT NULL,
+    access_token TEXT NOT NULL,
+    refresh_token TEXT,
+    expires_at INTEGER,
+    pull_enabled INTEGER NOT NULL DEFAULT 0,
+    last_sync_at INTEGER,
+    last_error TEXT,
+    generation TEXT NOT NULL,
+    PRIMARY KEY (user_id, provider)
+  );
+  CREATE TABLE tracking_oauth (
+    state_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    verifier TEXT,
+    expires_at INTEGER NOT NULL,
+    claimed INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE tracking_queue (
+    user_id INTEGER NOT NULL,
+    provider TEXT NOT NULL,
+    series_id INTEGER NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL DEFAULT 1,
+    pull_only INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, provider, series_id),
+    FOREIGN KEY (user_id, provider) REFERENCES tracking_accounts(user_id, provider) ON DELETE CASCADE
+  );
+  `,
+
 ];
 
 function migrate() {

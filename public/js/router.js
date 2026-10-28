@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 // Hash router, shared session state and animated route transitions.
 
 import { motionEnabled } from './theme.js';
@@ -93,7 +94,7 @@ export async function render() {
       if (token !== renderToken) return;
       const { h, icon } = await import('./ui.js');
       view.replaceChildren(
-        h('div.empty', icon('error'), h('h2.title-large', 'Something went wrong'), h('p.body-medium', err.message), h('a.btn.tonal', { href: '#/' }, 'Go home')),
+        h('div.empty', icon('error'), h('h2.title-large', t('Something went wrong')), h('p.body-medium', err.message), h('a.btn.tonal', { href: '#/' }, t('Go home'))),
       );
     }
   };

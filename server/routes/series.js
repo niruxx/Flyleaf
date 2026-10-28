@@ -271,6 +271,7 @@ function setSeriesFinished(userId, seriesId, finished) {
       }
     }
   });
+  if (finished) require('../tracking').enqueue(userId, seriesId);
   return ids.length;
 }
 

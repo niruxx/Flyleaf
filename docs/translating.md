@@ -50,9 +50,17 @@ and translate it where it's shown: `t(item.label)`.
 Then run `npm run i18n` to update `template.json` and every language file
 (`npm run i18n -- --prune` also removes strings that are no longer used).
 
-### What's translatable so far
+### Interface coverage
 
-The navigation, top bar and notifications, Home, sign-in / sign-up / setup, the settings
-navigation and Preferences, the reader's controls and search, and the saved-offline page.
-The rest of the interface still needs wrapping in `t()`. Pull requests that convert a view
-at a time are welcome.
+The library and series views, collections and reading lists, Content Finder, uploads,
+bookmarks, statistics, onboarding, settings and admin panels, metadata editors, and reader
+settings and controls use the translation helpers. Shared dialogs, accessibility labels,
+durations and relative dates also follow the selected language.
+
+Static label tables translate when displayed, using `N_()` plus `t()` at the call site or
+lazy getters. Keep stored values (permissions, metadata roles, key bindings and API values)
+separate from translated labels. Keep names and book content supplied by users unchanged.
+
+Run `npm run i18n` after changing interface text. New entries are empty until translated;
+the interface falls back to English. Provider-supplied descriptions and server error messages
+may still appear in their original language.

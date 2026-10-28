@@ -1,3 +1,4 @@
+import { t, N_ } from '../i18n.js';
 // Audiobook player: one file (M4B with chapters, MP3…) or a folder of tracks, played as one book.
 // Progress is a position across all tracks ("track:seconds"), saved like reading progress, so
 // stats, Continue reading and syncing between devices work the same as for books.
@@ -6,7 +7,7 @@ import { api } from '../api.js';
 import { h, icon, iconButton, menu, cover, formatDuration } from '../ui.js';
 
 const SPEEDS = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5];
-const SLEEP = [[15, '15 minutes'], [30, '30 minutes'], [45, '45 minutes'], [60, '1 hour'], ['chapter', 'End of chapter']];
+const SLEEP = [[15, N_('15 minutes')], [30, N_('30 minutes')], [45, N_('45 minutes')], [60, N_('1 hour')], ['chapter', N_('End of chapter')]];
 const SPEED_KEY = 'flyleaf.audioSpeed';
 
 const clock = (s) => {
@@ -41,7 +42,7 @@ export class AudioEngine {
     this.shell.setLoading(true);
     const info = await api.audioTracks(this.book.id);
     this.tracks = info.tracks;
-    if (!this.tracks.length) throw new Error('This audiobook has no audio files.');
+    if (!this.tracks.length) throw new Error(t('This audiobook has no audio files.'));
     this.chapters = info.chapters;
     this.buildUi();
     await this.measure(info.duration);
@@ -64,13 +65,13 @@ export class AudioEngine {
     });
     on('ended', () => this.onEnded());
     on('error', () => {
-      if (a.src) this.el.status.textContent = 'Couldn’t play this track.';
+      if (a.src) this.el.status.textContent = t('Couldn’t play this track.');
     });
 
     // Start where you left off.
     const saved = startLocator || (this.book.progress && !this.book.progress.finished ? this.book.progress.position : null);
-    const [t, sec] = String(saved || '0:0').split(':').map(Number);
-    await this.load(Number.isFinite(t) ? Math.min(t, this.tracks.length - 1) : 0, Number.isFinite(sec) ? sec : 0);
+    const [localT, sec] = String(saved || '0:0').split(':').map(Number);
+    await this.load(Number.isFinite(localT) ? Math.min(localT, this.tracks.length - 1) : 0, Number.isFinite(sec) ? sec : 0);
 
     this.shell.setSlider({
       min: 0,
@@ -88,9 +89,9 @@ export class AudioEngine {
   async measure(known) {
     if (this.tracks.length === 1 && known) this.durations = [known];
     else {
-      this.el.status.textContent = this.tracks.length > 1 ? `Reading ${this.tracks.length} tracks…` : '';
+      this.el.status.textContent = this.tracks.length > 1 ? t('Reading {length} tracks…', { length: this.tracks.length }) : '';
       this.durations = [];
-      for (const t of this.tracks) {
+      for (const localT of this.tracks) {
         this.durations.push(await new Promise((resolve) => {
           const probe = new Audio();
           probe.preload = 'metadata';
@@ -100,7 +101,7 @@ export class AudioEngine {
           };
           probe.onloadedmetadata = () => done(probe.duration);
           probe.onerror = () => done(0);
-          probe.src = this.trackUrl(t.n);
+          probe.src = this.trackUrl(localT.n);
         }));
       }
       this.el.status.textContent = '';
@@ -115,7 +116,7 @@ export class AudioEngine {
     // Contents: the file's chapters, or one entry per track.
     this.toc = this.chapters?.length
       ? this.chapters.map((c) => ({ label: c.title, target: c.start, depth: 0 }))
-      : this.tracks.length > 1 ? this.tracks.map((t, i) => ({ label: t.title, target: this.offsets[i], depth: 0 })) : [];
+      : this.tracks.length > 1 ? this.tracks.map((localT, i) => ({ label: localT.title, target: this.offsets[i], depth: 0 })) : [];
   }
 
   trackUrl(n) {
@@ -150,9 +151,9 @@ export class AudioEngine {
   /** Jump to a point across the whole book (seconds). */
   async seekGlobal(seconds) {
     seconds = Math.max(0, Math.min(seconds, this.total - 0.5));
-    let t = this.offsets.length - 1;
-    while (t > 0 && this.offsets[t] > seconds) t--;
-    await this.load(t, seconds - this.offsets[t], !this.audio.paused);
+    let localT = this.offsets.length - 1;
+    while (localT > 0 && this.offsets[localT] > seconds) localT--;
+    await this.load(localT, seconds - this.offsets[localT], !this.audio.paused);
     this.save();
   }
 
@@ -232,8 +233,8 @@ export class AudioEngine {
   goToEnd() { this.seekGlobal(this.total - 5); }
   goTo(target) { this.seekGlobal(Number(target)); }
   goToLocator(loc) {
-    const [t, sec] = String(loc).split(':').map(Number);
-    this.load(t || 0, sec || 0, !this.audio.paused);
+    const [localT, sec] = String(loc).split(':').map(Number);
+    this.load(localT || 0, sec || 0, !this.audio.paused);
   }
   currentLocator() {
     const pos = this.position();
@@ -246,14 +247,14 @@ export class AudioEngine {
 
   // ----- UI -----
   buildUi() {
-    const playBtn = h('button.audio-play.state', { type: 'button', 'aria-label': 'Play', onclick: () => this.togglePlay() }, icon('play_arrow', 'filled'));
-    const speed = h('button.audio-chip.state', { type: 'button', title: 'Playback speed' }, '1×');
+    const playBtn = h('button.audio-play.state', { type: 'button', 'aria-label': t('Play'), onclick: () => this.togglePlay() }, icon('play_arrow', 'filled'));
+    const speed = h('button.audio-chip.state', { type: 'button', title: t('Playback speed') }, '1×');
     speed.addEventListener('click', () => menu(speed, SPEEDS.map((v) => ({ label: `${v}×`, checked: this.audio.playbackRate === v, onClick: () => this.setSpeed(v) }))));
-    const sleepBtn = h('button.audio-chip.state', { type: 'button', title: 'Sleep timer' }, icon('bedtime'), h('span', 'Sleep'));
+    const sleepBtn = h('button.audio-chip.state', { type: 'button', title: t('Sleep timer') }, icon('bedtime'), h('span', t('Sleep')));
     sleepBtn.addEventListener('click', () => menu(sleepBtn, [
-      { header: 'Stop playing after' },
-      ...SLEEP.filter(([v]) => v !== 'chapter' || this.toc.length).map(([v, label]) => ({ label, onClick: () => this.setSleep(v) })),
-      this.sleep && { label: 'Turn off', icon: 'close', onClick: () => this.setSleep(null) },
+      { header: t('Stop playing after') },
+      ...SLEEP.filter(([v]) => v !== 'chapter' || this.toc.length).map(([v, label]) => ({ label: t(label), onClick: () => this.setSleep(v) })),
+      this.sleep && { label: t('Turn off'), icon: 'close', onClick: () => this.setSleep(null) },
     ].filter(Boolean)));
     const art = cover({ ...this.book, title: this.book.title }, { showProgress: false });
     this.el = {
@@ -275,11 +276,11 @@ export class AudioEngine {
         this.el.chapter),
       h('div.audio-time', this.el.elapsed, this.el.bar, this.el.remaining),
       h('div.audio-controls',
-        iconButton('skip_previous', 'Previous chapter', () => this.jumpChapter(-1)),
-        iconButton('replay_30', 'Back 30 seconds', () => this.skip(-30)),
+        iconButton('skip_previous', t('Previous chapter'), () => this.jumpChapter(-1)),
+        iconButton('replay_30', t('Back 30 seconds'), () => this.skip(-30)),
         playBtn,
-        iconButton('forward_30', 'Forward 30 seconds', () => this.skip(30)),
-        iconButton('skip_next', 'Next chapter', () => this.jumpChapter(1))),
+        iconButton('forward_30', t('Forward 30 seconds'), () => this.skip(30)),
+        iconButton('skip_next', t('Next chapter'), () => this.jumpChapter(1))),
       h('div.audio-extras', speed, sleepBtn),
       this.el.status));
     // A tap anywhere but the controls shows or hides the reader menu (bookmarks, contents, settings).
@@ -304,7 +305,7 @@ export class AudioEngine {
   drawPlaying() {
     const playing = !this.audio.paused;
     this.el.playBtn.querySelector('.icon').textContent = playing ? 'pause' : 'play_arrow';
-    this.el.playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    this.el.playBtn.setAttribute('aria-label', playing ? t('Pause') : t('Play'));
     this.shell.root.classList.toggle('audio-playing', playing);
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
   }
@@ -319,13 +320,13 @@ export class AudioEngine {
     this.el.bar.firstChild.style.width = `${this.total ? (pos / this.total) * 100 : 0}%`;
     const left = this.total ? formatDuration((this.total - pos) / this.audio.playbackRate, { short: true }) : '';
     this.shell.setSubtitle(this.el.chapter.textContent);
-    this.shell.setPosition(`${clock(pos)} / ${clock(this.total)}`, left ? `${left} left` : '');
+    this.shell.setPosition(t('{value} / {value2}', { value: clock(pos), value2: clock(this.total) }), left ? t('{left} left', { left: left }) : '');
     this.shell.setSliderValue(Math.round(pos));
     this.el.sleepBtn.classList.toggle('selected', Boolean(this.sleep));
     this.el.sleepBtn.querySelector('span').textContent = this.sleep?.until
-      ? `${Math.max(1, Math.round((this.sleep.until - Date.now()) / 60_000))} min`
-      : this.sleep?.chapter != null ? 'End of chapter' : 'Sleep';
-    for (const t of this.toc) t.current = false;
+      ? t('{value} min', { value: Math.max(1, Math.round((this.sleep.until - Date.now()) / 60_000)) })
+      : this.sleep?.chapter != null ? t('End of chapter') : t('Sleep');
+    for (const localT of this.toc) localT.current = false;
     if (ch != null && this.toc[ch]) this.toc[ch].current = true;
     this.drawPlaying();
   }

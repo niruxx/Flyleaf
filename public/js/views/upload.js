@@ -1,3 +1,4 @@
+import { t, plural } from '../i18n.js';
 // Upload: send books, comics and image folders from this device into a library
 // folder, optionally adding the result to a collection.
 
@@ -6,7 +7,7 @@ import { session, navigate, onLeave, isAdmin } from '../router.js';
 import { h, icon, iconButton, button, field, formDialog, snackbar, emptyState, formatBytes, loading, libraryOptions } from '../ui.js';
 import { refreshShell } from '../shell.js';
 
-const KIND_LABEL = { books: 'Books', manga: 'Manga', comics: 'Comics' };
+const KIND_LABEL = { get books() { return t('Books'); }, get manga() { return t('Manga'); }, get comics() { return t('Comics'); } };
 const BOOK_EXT = ['epub', 'kepub', 'mobi', 'azw', 'azw3', 'prc', 'fb2', 'txt', 'pdf', 'docx', 'rtf', 'cbz', 'zip', 'cbr', 'rar', 'cb7', '7z', 'cbt', 'tar'];
 const IMAGE_EXT = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp', 'jxl'];
 const ACCEPT = [...BOOK_EXT, ...IMAGE_EXT].map((e) => `.${e}`).join(',');
@@ -38,7 +39,7 @@ addEventListener('beforeunload', warnOnClose);
 
 export async function uploadView(view, params, stale) {
   if (!can(session.user, 'upload')) {
-    view.append(emptyState('lock', 'Uploading isn’t enabled', 'Ask the admin to turn on uploads for your account.'));
+    view.append(emptyState('lock', t('Uploading isn’t enabled'), t('Ask the admin to turn on uploads for your account.')));
     return;
   }
   view.append(loading());
@@ -49,9 +50,9 @@ export async function uploadView(view, params, stale) {
   if (stale()) return;
   view.replaceChildren();
   if (!libraries.length) {
-    view.append(h('div.page', h('div.page-head.enter', h('h1', 'Upload')), session.user.homeDir
-      ? emptyState('create_new_folder', 'Create a library first', 'Uploads go into your own libraries. Create one in your personal folder.', button('My libraries', { icon: 'folder_special', onclick: () => navigate('/settings/mylibs') }))
-      : emptyState('folder_off', 'No libraries to upload into', 'The admin needs to add a library first.')));
+    view.append(h('div.page', h('div.page-head.enter', h('h1', t('Upload'))), session.user.homeDir
+      ? emptyState('create_new_folder', t('Create a library first'), t('Uploads go into your own libraries. Create one in your personal folder.'), button(t('My libraries'), { icon: 'folder_special', onclick: () => navigate('/settings/mylibs') }))
+      : emptyState('folder_off', t('No libraries to upload into'), t('The admin needs to add a library first.'))));
     return;
   }
   if (!libraries.some((l) => l.id === state.libraryId)) {
@@ -61,7 +62,7 @@ export async function uploadView(view, params, stale) {
   const owned = collections.filter((c) => c.owned);
 
   // ----- Destination -----
-  const libField = field('Library', { value: state.libraryId, options: libraryOptions(libraries, (l) => `${l.name} · ${KIND_LABEL[l.kind]}`) });
+  const libField = field(t('Library'), { value: state.libraryId, options: libraryOptions(libraries, (l) => `${l.name} · ${KIND_LABEL[l.kind]}`) });
   libField.input.addEventListener('change', () => {
     state.libraryId = Number(libField.input.value);
     state.folder = '';
@@ -70,9 +71,9 @@ export async function uploadView(view, params, stale) {
   const crumbs = h('div.up-crumbs');
   const folderList = h('div.up-folders');
   const hint = h('p.body-small.muted.up-hint');
-  const newFolder = button('New folder', { variant: 'text', icon: 'create_new_folder', onclick: async () => {
-    const name = field('Folder name', { required: true, support: 'For example the series or author name.' });
-    await formDialog({ title: 'New folder', icon: 'create_new_folder', fields: [name], submit: 'Create', onSubmit: async () => {
+  const newFolder = button(t('New folder'), { variant: 'text', icon: 'create_new_folder', onclick: async () => {
+    const name = field(t('Folder name'), { required: true, support: t('For example the series or author name.') });
+    await formDialog({ title: t('New folder'), icon: 'create_new_folder', fields: [name], submit: t('Create'), onSubmit: async () => {
       const r = await api.createUploadFolder({ libraryId: state.libraryId, path: state.folder, name: name.input.value });
       state.folder = r.path;
     } });
@@ -96,29 +97,29 @@ export async function uploadView(view, params, stale) {
     folderList.replaceChildren(
       ...(r.folders.length
         ? r.folders.map((f) => h('button.up-folder.state', { type: 'button', onclick: () => { state.folder = r.path ? `${r.path}/${f}` : f; loadFolders(); } }, icon('folder', 'filled'), h('span.up-folder-name', f), icon('chevron_right')))
-        : [h('div.up-empty-folder', icon('folder_open'), r.files ? `${r.files} ${r.files === 1 ? 'file' : 'files'} here, no sub-folders` : 'Empty folder')]),
+        : [h('div.up-empty-folder', icon('folder_open'), r.files ? plural(r.files, '{files} file here, no sub-folders', '{files} files here, no sub-folders', { files: r.files }) : t('Empty folder'))]),
     );
     const mode = r.library.mode;
     hint.textContent = mode === 'komga'
-      ? 'This library treats every folder as one series – upload each series into its own folder.'
+      ? t('This library treats every folder as one series – upload each series into its own folder.')
       : mode === 'kavita'
-        ? 'Series come from file names here (e.g. “Series v01.cbz”), so any folder works.'
-        : 'Each book is its own entry here; series come from the book’s own metadata. Any folder works.';
+        ? t('Series come from file names here (e.g. “Series v01.cbz”), so any folder works.')
+        : t('Each book is its own entry here; series come from the book’s own metadata. Any folder works.');
     target.textContent = `${r.library.name}${r.path ? ` / ${r.path.split('/').join(' / ')}` : ''}`;
   }
 
-  const collField = field('Add to collection', {
+  const collField = field(t('Add to collection'), {
     value: state.collectionId,
-    options: [{ value: '', label: 'Don’t add to a collection' }, ...owned.map((c) => ({ value: c.id, label: c.name })), { value: 'new', label: '+ New collection…' }],
+    options: [{ value: '', label: t('Don’t add to a collection') }, ...owned.map((c) => ({ value: c.id, label: c.name })), { value: 'new', label: t('+ New collection…') }],
   });
   collField.input.addEventListener('change', async () => {
     if (collField.input.value !== 'new') {
       state.collectionId = collField.input.value;
       return;
     }
-    const name = field('Collection name', { required: true });
+    const name = field(t('Collection name'), { required: true });
     let created = null;
-    await formDialog({ title: 'New collection', icon: 'library_add', fields: [name], submit: 'Create', onSubmit: async () => {
+    await formDialog({ title: t('New collection'), icon: 'library_add', fields: [name], submit: t('Create'), onSubmit: async () => {
       created = await api.createCollection({ name: name.input.value });
     } });
     if (created) {
@@ -131,9 +132,9 @@ export async function uploadView(view, params, stale) {
 
   const target = h('strong');
   const destination = h('section.up-card.up-dest.enter',
-    h('h2.title-medium', icon('folder_managed'), 'Destination'),
+    h('h2.title-medium', icon('folder_managed'), t('Destination')),
     libField,
-    h('div.label-large.up-label', 'Folder'),
+    h('div.label-large.up-label', t('Folder')),
     crumbs,
     folderList,
     h('div.up-folder-actions', newFolder),
@@ -146,15 +147,15 @@ export async function uploadView(view, params, stale) {
   const dirInput = h('input', { type: 'file', multiple: true, hidden: true, webkitdirectory: true });
   filesInput.addEventListener('change', () => addFiles([...filesInput.files].map((f) => ({ file: f, name: f.name }))));
   dirInput.addEventListener('change', () => addFiles([...dirInput.files].map((f) => ({ file: f, name: f.webkitRelativePath || f.name }))));
-  const zone = h('div.dropzone', { tabindex: 0, role: 'button', 'aria-label': 'Add files to upload' },
+  const zone = h('div.dropzone', { tabindex: 0, role: 'button', 'aria-label': t('Add files to upload') },
     h('div.dz-orb', icon('cloud_upload', 'filled')),
-    h('div.title-large', 'Drop books, comics or folders here'),
-    h('p.body-medium.muted', 'EPUB, MOBI/AZW3, PDF, DOCX, RTF, FB2, TXT, CBZ, CBR, CB7, CBT – or a folder of images for a chapter.'),
+    h('div.title-large', t('Drop books, comics or folders here')),
+    h('p.body-medium.muted', t('EPUB, MOBI/AZW3, PDF, DOCX, RTF, FB2, TXT, CBZ, CBR, CB7, CBT – or a folder of images for a chapter.')),
     h('div.dz-actions',
-      button('Choose files', { icon: 'note_add', onclick: (e) => { e.stopPropagation(); filesInput.click(); } }),
-      button('Choose a folder', { variant: 'tonal', icon: 'drive_folder_upload', onclick: (e) => { e.stopPropagation(); dirInput.click(); } }),
+      button(t('Choose files'), { icon: 'note_add', onclick: (e) => { e.stopPropagation(); filesInput.click(); } }),
+      button(t('Choose a folder'), { variant: 'tonal', icon: 'drive_folder_upload', onclick: (e) => { e.stopPropagation(); dirInput.click(); } }),
     ),
-    limits.maxBytes ? h('p.body-small.muted', `Up to ${formatBytes(limits.maxBytes)} per file.${limits.storage?.quota ? ` Your personal folder has ${formatBytes(Math.max(0, limits.storage.quota - limits.storage.used))} left of ${formatBytes(limits.storage.quota)}.` : ''}`) : null,
+    limits.maxBytes ? h('p.body-small.muted', t('Up to {value} per file.{value2}', { value: formatBytes(limits.maxBytes), value2: limits.storage?.quota ? t(' Your personal folder has {value} left of {value2}.', { value: formatBytes(Math.max(0, limits.storage.quota - limits.storage.used)), value2: formatBytes(limits.storage.quota) }) : '' })) : null,
     filesInput, dirInput,
   );
   zone.addEventListener('click', () => filesInput.click());
@@ -190,8 +191,8 @@ export async function uploadView(view, params, stale) {
       state.items.push({ id: nextId++, file: x.file, name: x.name, size: x.file.size, status: 'waiting', loaded: 0 });
     }
     state.finished = null;
-    if (skipped.length) snackbar(`Skipped ${skipped.length} ${skipped.length === 1 ? 'file' : 'files'} Flyleaf can’t read`, { duration: 5000 });
-    if (tooBig.length) snackbar(`${tooBig.length} ${tooBig.length === 1 ? 'file is' : 'files are'} over the size limit`, { duration: 5000 });
+    if (skipped.length) snackbar(plural(skipped.length, 'Skipped {length} file Flyleaf can’t read', 'Skipped {length} files Flyleaf can’t read', { length: skipped.length }), { duration: 5000 });
+    if (tooBig.length) snackbar(t('{length} {value} over the size limit', { length: tooBig.length, value: tooBig.length === 1 ? t('file is') : t('files are') }), { duration: 5000 });
     drawQueue();
   }
 
@@ -202,7 +203,7 @@ export async function uploadView(view, params, stale) {
       return;
     }
     if (!items.length) {
-      queue.replaceChildren(h('div.up-queue-empty', icon('inbox'), h('span.body-medium.muted', 'Files you add appear here.')));
+      queue.replaceChildren(h('div.up-queue-empty', icon('inbox'), h('span.body-medium.muted', t('Files you add appear here.'))));
       return;
     }
     const total = items.reduce((a, i) => a + i.size, 0);
@@ -212,20 +213,20 @@ export async function uploadView(view, params, stale) {
     const pct = total ? Math.round((loaded / total) * 100) : 0;
     queue.replaceChildren(...[
       h('div.up-queue-head',
-        h('div', h('div.title-medium', state.running ? `Uploading ${done + 1 > items.length ? items.length : done + 1} of ${items.length}…` : `${items.length} ${items.length === 1 ? 'file' : 'files'} · ${formatBytes(total)}`),
-          h('div.body-small.muted', state.running ? `${formatBytes(loaded)} of ${formatBytes(total)}` : `Into ${target.textContent}`)),
-        !state.running && iconButton('delete_sweep', 'Clear list', () => {
+        h('div', h('div.title-medium', state.running ? t('Uploading {value} of {length}…', { value: done + 1 > items.length ? items.length : done + 1, length: items.length }) : plural(items.length, '{length} file · {value2}', '{length} files · {value2}', { length: items.length, value2: formatBytes(total) })),
+          h('div.body-small.muted', state.running ? t('{value} of {value2}', { value: formatBytes(loaded), value2: formatBytes(total) }) : t('Into {textContent}', { textContent: target.textContent }))),
+        !state.running && iconButton('delete_sweep', t('Clear list'), () => {
           state.items = [];
           drawQueue();
         }),
       ),
       h('div.progress.up-total', h('span', { style: { width: `${pct}%` } })),
       h('div.up-list', items.slice(0, 400).map(row)),
-      items.length > 400 && h('p.body-small.muted', `…and ${items.length - 400} more`),
+      items.length > 400 && h('p.body-small.muted', t('…and {value} more', { value: items.length - 400 })),
       h('div.up-queue-actions',
         state.running
-          ? button('Cancel', { variant: 'text', icon: 'close', onclick: cancelAll })
-          : button(waiting.length ? `Upload ${waiting.length} ${waiting.length === 1 ? 'file' : 'files'}` : 'Done', {
+          ? button(t('Cancel'), { variant: 'text', icon: 'close', onclick: cancelAll })
+          : button(waiting.length ? plural(waiting.length, 'Upload {length} file', 'Upload {length} files', { length: waiting.length }) : t('Done'), {
             icon: 'upload',
             disabled: !waiting.length,
             onclick: start,
@@ -240,10 +241,10 @@ export async function uploadView(view, params, stale) {
       h('span.up-icon', icon(i.status === 'done' ? 'check_circle' : i.status === 'failed' ? 'error' : fileIcon(i.name))),
       h('div.up-text',
         h('div.up-name', i.name),
-        h('div.body-small.muted', i.status === 'failed' ? i.error : i.status === 'done' ? `${formatBytes(i.size)} · saved${i.renamed ? ` as ${i.path.split('/').pop()}` : ''}` : i.status === 'uploading' ? `${formatBytes(i.loaded)} of ${formatBytes(i.size)}` : formatBytes(i.size)),
+        h('div.body-small.muted', i.status === 'failed' ? i.error : i.status === 'done' ? t('{value} · saved{value2}', { value: formatBytes(i.size), value2: i.renamed ? t(' as {value}', { value: i.path.split('/').pop() }) : '' }) : i.status === 'uploading' ? t('{value} of {value2}', { value: formatBytes(i.loaded), value2: formatBytes(i.size) }) : formatBytes(i.size)),
         i.status === 'uploading' && h('div.progress', h('span', { style: { width: `${pct}%` } })),
       ),
-      !state.running && i.status !== 'done' && iconButton('close', 'Remove', () => {
+      !state.running && i.status !== 'done' && iconButton('close', t('Remove'), () => {
         state.items = state.items.filter((x) => x !== i);
         drawQueue();
       }),
@@ -254,11 +255,11 @@ export async function uploadView(view, params, stale) {
     const f = state.finished;
     return h('div.up-finished',
       h('div.up-check', icon('check', 'filled')),
-      h('div.title-large', `${f.count} ${f.count === 1 ? 'file' : 'files'} uploaded`),
-      h('p.body-medium.muted', `Flyleaf is scanning ${f.libraryName}${f.collection ? ` and will add the new series to “${f.collection}”` : ''}.`),
+      h('div.title-large', plural(f.count, '{count} file uploaded', '{count} files uploaded', { count: f.count })),
+      h('p.body-medium.muted', t('Flyleaf is scanning {libraryName}{value}.', { libraryName: f.libraryName, value: f.collection ? t(' and will add the new series to “{collection}”', { collection: f.collection }) : '' })),
       h('div.dz-actions',
-        button('Open library', { icon: 'local_library', onclick: () => navigate(`/library/${f.libraryId}`) }),
-        button('Upload more', { variant: 'tonal', icon: 'add', onclick: () => {
+        button(t('Open library'), { icon: 'local_library', onclick: () => navigate(`/library/${f.libraryId}`) }),
+        button(t('Upload more'), { variant: 'tonal', icon: 'add', onclick: () => {
           state.finished = null;
           drawQueue();
         } }),
@@ -312,9 +313,9 @@ export async function uploadView(view, params, stale) {
       const failed = state.items.filter((i) => i.status === 'failed');
       if (!failed.length) {
         state.items = [];
-        state.finished = { libraryId, libraryName: lib?.name || 'the library', count: doneItems.length, collection: owned.find((c) => c.id === collectionId)?.name || null };
+        state.finished = { libraryId, libraryName: lib?.name || t('the library'), count: doneItems.length, collection: owned.find((c) => c.id === collectionId)?.name || null };
       }
-      snackbar(`Uploaded ${doneItems.length} ${doneItems.length === 1 ? 'file' : 'files'}${failed.length ? ` · ${failed.length} failed` : ''}`);
+      snackbar(plural(doneItems.length, 'Uploaded {length} file{value2}', 'Uploaded {length} files{value2}', { length: doneItems.length, value2: failed.length ? t(' · {length} failed', { length: failed.length }) : '' }));
       refreshShell();
     }
     rerender();
@@ -331,7 +332,7 @@ export async function uploadView(view, params, stale) {
 
   // ----- Layout -----
   view.append(h('div.page.upload-page',
-    h('div.page-head.enter', h('h1', 'Upload'), h('span.body-medium.muted', 'Into ', target)),
+    h('div.page-head.enter', h('h1', t('Upload')), h('span.body-medium.muted', t('Into '), target)),
     h('div.up-layout', destination, h('div.up-main', zone, queue)),
   ));
   state.rerender = drawQueue;
@@ -365,10 +366,10 @@ function send(item, libraryId, folder, onProgress) {
         body = JSON.parse(xhr.responseText);
       } catch {}
       if (xhr.status >= 200 && xhr.status < 300) resolve(body);
-      else reject(new Error(body?.error || `Upload failed (HTTP ${xhr.status})`));
+      else reject(new Error(body?.error || t('Upload failed (HTTP {status})', { status: xhr.status })));
     };
-    xhr.onerror = () => reject(new Error('Network error – check your connection.'));
-    xhr.onabort = () => reject(new Error('Cancelled'));
+    xhr.onerror = () => reject(new Error(t('Network error – check your connection.')));
+    xhr.onabort = () => reject(new Error(t('Cancelled')));
     xhr.send(item.file);
   });
 }

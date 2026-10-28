@@ -1,3 +1,4 @@
+import { t, plural } from '../i18n.js';
 // "Details" for one book or volume: file, metadata and your reading history.
 
 import { api, can, downloadUrl } from '../api.js';
@@ -6,8 +7,8 @@ import { h, icon, button, cover, dialog, formatBytes, formatDuration, timeAgo, c
 import { seriesCard } from './cards.js';
 
 const FORMAT_LABEL = {
-  epub: 'EPUB', mobi: 'MOBI', azw3: 'AZW3', fb2: 'FB2', txt: 'Plain text', docx: 'Word (DOCX)', rtf: 'Rich text (RTF)', pdf: 'PDF',
-  cbz: 'Comic archive (CBZ)', cbr: 'Comic archive (CBR)', cb7: 'Comic archive (CB7)', cbt: 'Comic archive (CBT)', folder: 'Image folder',
+  epub: 'EPUB', mobi: 'MOBI', azw3: 'AZW3', fb2: 'FB2', get txt() { return t('Plain text'); }, get docx() { return t('Word (DOCX)'); }, get rtf() { return t('Rich text (RTF)'); }, pdf: 'PDF',
+  get cbz() { return t('Comic archive (CBZ)'); }, get cbr() { return t('Comic archive (CBR)'); }, get cb7() { return t('Comic archive (CB7)'); }, get cbt() { return t('Comic archive (CBT)'); }, get folder() { return t('Image folder'); },
 };
 const LANGS = (() => {
   try {
@@ -49,7 +50,7 @@ function ring(percent) {
 
 function facts(rows) {
   return h('div.info-facts', rows.filter(Boolean).map(([k, v, opts = {}]) =>
-    h('div.info-fact', h('div.k', k), h('div.v', opts.mono ? h('span.mono', v) : v, opts.copy && h('button.copy-mini', { type: 'button', title: 'Copy', onclick: () => copyText(opts.copy) }, icon('content_copy'))))));
+    h('div.info-fact', h('div.k', k), h('div.v', opts.mono ? h('span.mono', v) : v, opts.copy && h('button.copy-mini', { type: 'button', title: t('Copy'), onclick: () => copyText(opts.copy) }, icon('content_copy'))))));
 }
 
 export async function showBookInfo(bookId) {
@@ -63,7 +64,7 @@ export async function showBookInfo(bookId) {
       try {
         b = await api.bookInfo(bookId);
       } catch (e) {
-        body.replaceChildren(h('div.form-error', icon('error'), e.message), h('div.dialog-actions', button('Close', { variant: 'text', onclick: () => close() })));
+        body.replaceChildren(h('div.form-error', icon('error'), e.message), h('div.dialog-actions', button(t('Close'), { variant: 'text', onclick: () => close() })));
         return;
       }
       body.replaceChildren(render(b, close));
@@ -77,47 +78,47 @@ function render(b, close) {
   const writers = (m.people || []).filter((p) => /writer|author|story/i.test(p.role)).map((p) => p.name);
   const artists = (m.people || []).filter((p) => !/writer|author|story/i.test(p.role)).map((p) => `${p.name}${p.role ? ` (${p.role})` : ''}`);
   const started = r.percent > 0 || r.seconds > 0;
-  const readLabel = r.finished ? 'Read again' : started ? 'Continue' : 'Read';
+  const readLabel = r.finished ? t('Read again') : started ? t('Continue') : t('Read');
 
   const chips = [
     h('span.mini-chip', icon('description'), FORMAT_LABEL[b.format] || b.format.toUpperCase()),
-    b.pageCount ? h('span.mini-chip', icon('auto_stories'), `${b.pageCount} pages`) : null,
+    b.pageCount ? h('span.mini-chip', icon('auto_stories'), t('{pageCount} pages', { pageCount: b.pageCount })) : null,
     b.size ? h('span.mini-chip', icon('hard_drive'), formatBytes(b.size)) : null,
     language(m.language) && h('span.mini-chip', icon('translate'), language(m.language)),
   ];
 
   const readingFacts = facts([
-    ['Started', r.startedAt ? date(r.startedAt) : 'Not yet'],
-    ['Last read', r.lastReadAt ? timeAgo(r.lastReadAt) : '—'],
-    ['Time spent', r.seconds ? formatDuration(r.seconds) : '—'],
-    ['Reading days', r.days ? `${r.days} ${r.days === 1 ? 'day' : 'days'}${r.firstDay && r.firstDay !== r.lastDay ? ` · ${day(r.firstDay)} – ${day(r.lastDay)}` : ''}` : '—'],
-    r.remainingSeconds && ['Time left', `about ${formatDuration(r.remainingSeconds)} at your pace`],
-    b.engine === 'pages' && r.page != null && b.pageCount && ['Position', `Page ${r.page + 1} of ${b.pageCount}`],
-    ['Highlights & notes', String(r.highlights)],
-    ['Bookmarks', String(r.bookmarks)],
+    [t('Started'), r.startedAt ? date(r.startedAt) : t('Not yet')],
+    [t('Last read'), r.lastReadAt ? timeAgo(r.lastReadAt) : '—'],
+    [t('Time spent'), r.seconds ? formatDuration(r.seconds) : '—'],
+    [t('Reading days'), r.days ? plural(r.days, '{days} day{value2}', '{days} days{value2}', { days: r.days, value2: r.firstDay && r.firstDay !== r.lastDay ? ` · ${day(r.firstDay)} – ${day(r.lastDay)}` : '' }) : '—'],
+    r.remainingSeconds && [t('Time left'), t('about {value} at your pace', { value: formatDuration(r.remainingSeconds) })],
+    b.engine === 'pages' && r.page != null && b.pageCount && [t('Position'), t('Page {value} of {pageCount}', { value: r.page + 1, pageCount: b.pageCount })],
+    [t('Highlights & notes'), String(r.highlights)],
+    [t('Bookmarks'), String(r.bookmarks)],
   ]);
 
   const metaFacts = facts([
-    b.series && b.series !== b.title && ['Series', b.series],
-    b.volume != null && ['Volume', String(b.volume)],
-    b.chapter != null && ['Chapter', String(b.chapter)],
-    writers.length && ['Written by', writers.join(', ')],
-    artists.length && ['Art & more', artists.join(', ')],
-    m.publisher && ['Publisher', m.publisher],
-    m.year && ['Published', String(m.year)],
+    b.series && b.series !== b.title && [t('Series'), b.series],
+    b.volume != null && [t('Volume'), String(b.volume)],
+    b.chapter != null && [t('Chapter'), String(b.chapter)],
+    writers.length && [t('Written by'), writers.join(', ')],
+    artists.length && [t('Art & more'), artists.join(', ')],
+    m.publisher && [t('Publisher'), m.publisher],
+    m.year && [t('Published'), String(m.year)],
     m.isbn && ['ISBN', h('a', { href: `https://openlibrary.org/isbn/${m.isbn}`, target: '_blank', rel: 'noopener noreferrer' }, m.isbn), { copy: m.isbn }],
-    m.ageRating && ['Age rating', m.ageRating],
+    m.ageRating && [t('Age rating'), m.ageRating],
   ]);
 
   const fileFacts = facts([
-    ['File name', b.file.name, { mono: true, copy: b.file.name }],
-    isAdmin() && b.file.path && ['Location', b.file.path, { mono: true, copy: b.file.path }],
-    !isAdmin() && ['Folder', b.file.relPath.split(/[\\/]/).slice(0, -1).join('/') || '/', { mono: true }],
-    b.library && ['Library', h('a', { href: `#/library/${b.library.id}`, onclick: () => close() }, b.library.name)],
-    ['Format', FORMAT_LABEL[b.format] || b.format],
-    ['Size', b.size ? `${formatBytes(b.size)} (${b.size.toLocaleString()} bytes)` : '—'],
-    ['Added', `${date(b.file.addedAt)} · ${timeAgo(b.file.addedAt)}`],
-    ['File modified', date(b.file.modifiedAt)],
+    [t('File name'), b.file.name, { mono: true, copy: b.file.name }],
+    isAdmin() && b.file.path && [t('Location'), b.file.path, { mono: true, copy: b.file.path }],
+    !isAdmin() && [t('Folder'), b.file.relPath.split(/[\\/]/).slice(0, -1).join('/') || '/', { mono: true }],
+    b.library && [t('Library'), h('a', { href: `#/library/${b.library.id}`, onclick: () => close() }, b.library.name)],
+    [t('Format'), FORMAT_LABEL[b.format] || b.format],
+    [t('Size'), b.size ? t('{value} ({value2} bytes)', { value: formatBytes(b.size), value2: b.size.toLocaleString() }) : '—'],
+    [t('Added'), `${date(b.file.addedAt)} · ${timeAgo(b.file.addedAt)}`],
+    [t('File modified'), date(b.file.modifiedAt)],
   ]);
 
   const genres = [...(m.genres || []), ...(m.tags || [])].slice(0, 16);
@@ -135,7 +136,7 @@ function render(b, close) {
             close();
             navigate(`/read/${b.id}`);
           } }),
-          can(session.user, 'download') && h('a.btn.tonal.state', { href: downloadUrl(b), download: '' }, icon('download'), 'Download'),
+          can(session.user, 'download') && h('a.btn.tonal.state', { href: downloadUrl(b), download: '' }, icon('download'), t('Download')),
         ),
       ),
       ring(r.finished ? 1 : r.percent),
@@ -143,12 +144,12 @@ function render(b, close) {
     b.description && h('p.body-medium.info-desc', b.description),
     genres.length > 0 && h('div.chip-set.info-genres', genres.map((g) => h('span.chip.static', g))),
     h('div.info-grid',
-      h('section.info-card', h('h3', icon('schedule'), 'Your reading'), readingFacts),
-      metaFacts.children.length > 0 && h('section.info-card', h('h3', icon('library_books'), 'About this book'), metaFacts),
-      h('section.info-card.wide', h('h3', icon('folder_open'), 'File'), fileFacts),
+      h('section.info-card', h('h3', icon('schedule'), t('Your reading')), readingFacts),
+      metaFacts.children.length > 0 && h('section.info-card', h('h3', icon('library_books'), t('About this book')), metaFacts),
+      h('section.info-card.wide', h('h3', icon('folder_open'), t('File')), fileFacts),
     ),
     recommendations(b, close),
-    h('div.dialog-actions', button('Close', { variant: 'text', onclick: () => close() })),
+    h('div.dialog-actions', button(t('Close'), { variant: 'text', onclick: () => close() })),
   );
 }
 
@@ -161,7 +162,7 @@ function recommendations(b, close) {
     const shelf = stagger(h('div.shelf', list.map((s) => seriesCard(s))));
     // Opening a suggestion leaves the sheet.
     shelf.addEventListener('click', (e) => e.target.closest('a[href^="#/series/"]') && close());
-    section.append(h('h3', icon('recommend'), 'You might also like'), shelf);
+    section.append(h('h3', icon('recommend'), t('You might also like')), shelf);
     section.hidden = false;
   }).catch(() => {});
   return section;

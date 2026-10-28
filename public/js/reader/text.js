@@ -1,3 +1,4 @@
+import { t } from '../i18n.js';
 // Text reader (EPUB, MOBI/AZW/AZW3, FB2, TXT→EPUB) built on foliate-js, with highlights & notes.
 
 import { api, fileUrl } from '../api.js';
@@ -24,8 +25,8 @@ async function fonts() {
 
 const EPUB_NS = 'http://www.idpf.org/2007/ops';
 const words = (el, attr) => new Set((attr === 'type' ? el?.getAttributeNS?.(EPUB_NS, 'type') : el?.getAttribute?.('role'))?.split(/\s+/) || []);
-const NOTE_TYPES = { footnote: 'Footnote', endnote: 'Endnote', rearnote: 'Endnote', note: 'Note', glossdef: 'Definition', biblioentry: 'Reference' };
-const NOTE_ROLES = { 'doc-footnote': 'Footnote', 'doc-endnote': 'Endnote', 'doc-biblioentry': 'Reference', definition: 'Definition', note: 'Note' };
+const NOTE_TYPES = { get footnote() { return t('Footnote'); }, get endnote() { return t('Endnote'); }, get rearnote() { return t('Endnote'); }, get note() { return t('Note'); }, get glossdef() { return t('Definition'); }, get biblioentry() { return t('Reference'); } };
+const NOTE_ROLES = { get 'doc-footnote'() { return t('Footnote'); }, get 'doc-endnote'() { return t('Endnote'); }, get 'doc-biblioentry'() { return t('Reference'); }, get definition() { return t('Definition'); }, get note() { return t('Note'); } };
 
 function isSuper(el) {
   if (!el || el.nodeType !== 1) return false;
@@ -38,7 +39,7 @@ function isSuper(el) {
 function noteRefKind(a) {
   const types = words(a, 'type');
   const roles = words(a, 'role');
-  if (['noteref', 'glossref', 'biblioref'].some((t) => types.has(t)) || ['doc-noteref', 'doc-glossref', 'doc-biblioref'].some((r) => roles.has(r))) return 'yes';
+  if (['noteref', 'glossref', 'biblioref'].some((localT) => types.has(localT)) || ['doc-noteref', 'doc-glossref', 'doc-biblioref'].some((r) => roles.has(r))) return 'yes';
   if (types.has('backlink') || roles.has('doc-backlink')) return null;
   const text = a.textContent.trim();
   const marker = /^[[(]?(\d{1,4}|[ivxlc]{1,6}|[a-z]|[*†‡§¶]+)[\])]?$/i.test(text);
@@ -87,7 +88,7 @@ export class TextEngine {
     this.Overlayer = Overlayer;
 
     const res = await fetch(fileUrl(this.book), { credentials: 'same-origin' });
-    if (!res.ok) throw new Error(res.status === 410 ? 'This file is no longer in the library folder.' : `Couldn’t load the book (${res.status}).`);
+    if (!res.ok) throw new Error(res.status === 410 ? t('This file is no longer in the library folder.') : t('Couldn’t load the book ({status}).', { status: res.status }));
     const ext = EXT[this.book.format] || 'epub';
     const file = new File([await res.blob()], `book.${ext}`, { type: MIME[ext] || 'application/octet-stream' });
 
@@ -237,7 +238,7 @@ export class TextEngine {
     this.view.next();
   }
   prev() {
-    if (this.view.renderer.atStart && !this.scrollMode()) return this.shell.toast('Start of book');
+    if (this.view.renderer.atStart && !this.scrollMode()) return this.shell.toast(t('Start of book'));
     if (this.bookTurns()) return this.turnBook('prev');
     this.view.prev();
   }
@@ -335,10 +336,10 @@ export class TextEngine {
     } catch {}
     this.fraction = fraction ?? this.fraction;
     this.currentHref = tocItem?.href;
-    for (const t of this.toc) t.current = t.target === tocItem?.href;
+    for (const localT of this.toc) localT.current = localT.target === tocItem?.href;
     this.shell.setSubtitle(tocItem?.label?.trim() || '');
     const pct = `${(this.fraction * 100).toFixed(this.fraction < 0.1 ? 1 : 0)}%`;
-    const loc = pageItem ? `Page ${pageItem.label}` : location ? `Loc ${location.current + 1} of ${location.total}` : '';
+    const loc = pageItem ? t('Page {label}', { label: pageItem.label }) : location ? t('Loc {value} of {total}', { value: location.current + 1, total: location.total }) : '';
     this.shell.setPosition(pct, [loc, pct].filter(Boolean).join(' · '));
     this.shell.setSliderValue(Math.round(this.fraction * 1000));
     const atEnd = this.view.renderer.atEnd;
@@ -406,29 +407,29 @@ export class TextEngine {
     const doc = await book.sections[target.index].createDocument();
     let el = target.anchor?.(doc);
     if (el?.startContainer) el = el.startContainer.nodeType === 1 ? el.startContainer : el.startContainer.parentElement;
-    if (!el || el.nodeType !== 1) throw new Error('No note there');
+    if (!el || el.nodeType !== 1) throw new Error(t('No note there'));
     // The anchor is often a span or link inside the note: take the note itself.
     while (el.matches('a, span, sup, sub, em, strong, i, b, small') && el.parentElement && el.parentElement !== doc.body) el = el.parentElement;
     if (el === doc.body) el = doc.getElementById(decodeURIComponent(href.split('#')[1] || ''))?.nextElementSibling || null;
-    if (!el) throw new Error('No note there');
-    const type = Object.entries(NOTE_TYPES).find(([t]) => words(el, 'type').has(t))?.[1]
+    if (!el) throw new Error(t('No note there'));
+    const type = Object.entries(NOTE_TYPES).find(([localT]) => words(el, 'type').has(localT))?.[1]
       || Object.entries(NOTE_ROLES).find(([r]) => words(el, 'role').has(r))?.[1];
     const text = el.textContent.trim();
     // A "maybe" that points at a heading or a whole chapter isn't a note: just go there.
-    if (!text || (kind === 'maybe' && (!type && (/^H\d$/.test(el.tagName.toUpperCase()) || text.length > 2500)))) throw new Error('Not a note');
+    if (!text || (kind === 'maybe' && (!type && (/^H\d$/.test(el.tagName.toUpperCase()) || text.length > 2500)))) throw new Error(t('Not a note'));
 
     this.closeFootnote();
     const c = this.colors();
     const body = h('div.fn-body');
     body.append(cleanNote(el));
-    const pop = h('div.fn-pop', { role: 'dialog', 'aria-label': type || 'Note', style: { '--fn-bg': c.bg, '--fn-fg': c.fg, '--fn-link': c.link } },
+    const pop = h('div.fn-pop', { role: 'dialog', 'aria-label': type || t('Note'), style: { '--fn-bg': c.bg, '--fn-fg': c.fg, '--fn-link': c.link } },
       h('div.fn-head',
-        h('span.fn-kind', icon('sticky_note_2'), type || 'Note'),
+        h('span.fn-kind', icon('sticky_note_2'), type || t('Note')),
         h('button.btn.text.state.fn-go', { type: 'button', onclick: () => {
           this.closeFootnote();
           this.view.goTo(href).catch(() => {});
-        } }, 'Go to note'),
-        iconButton('close', 'Close', () => this.closeFootnote())),
+        } }, t('Go to note')),
+        iconButton('close', t('Close'), () => this.closeFootnote())),
       body);
     this.shell.root.append(pop);
     // Next to the link on wide screens; a sheet at the bottom on phones.
@@ -495,8 +496,8 @@ export class TextEngine {
       const cfi = this.view.getCFI(index, range);
       let note = null;
       if (withNote) {
-        const f = field('Note', { multiline: true });
-        const ok = await dialog({ title: 'Add note', icon: 'edit_note', content: h('div', h('p.quote', { style: { fontStyle: 'italic', marginBottom: '8px' } }, `“${text.slice(0, 200)}”`), f), actions: [{ label: 'Cancel' }, { label: 'Save', variant: 'filled', value: true }] });
+        const f = field(t('Note'), { multiline: true });
+        const ok = await dialog({ title: t('Add note'), icon: 'edit_note', content: h('div', h('p.quote', { style: { fontStyle: 'italic', marginBottom: '8px' } }, `“${text.slice(0, 200)}”`), f), actions: [{ label: t('Cancel') }, { label: t('Save'), variant: 'filled', value: true }] });
         if (!ok) return;
         note = f.input.value.trim() || null;
       }
@@ -514,19 +515,19 @@ export class TextEngine {
       await this.view.addAnnotation({ value: cfi, color });
       doc.getSelection()?.removeAllRanges();
       bar.remove();
-      snackbar(note ? 'Note saved' : 'Highlighted');
+      snackbar(note ? t('Note saved') : t('Highlighted'));
     };
     const bar = h('div.sel-toolbar', { role: 'toolbar' },
       Object.entries(HIGHLIGHT_COLORS).filter(([k]) => k !== 'underline').map(([k, hex]) =>
-        h('button.color', { type: 'button', title: `Highlight ${k}`, 'aria-label': `Highlight ${k}`, style: { background: hex }, onclick: () => create(k) })),
-      iconButton('format_underlined', 'Underline', () => create('underline')),
+        h('button.color', { type: 'button', title: t('Highlight {k}', { k: k }), 'aria-label': t('Highlight {k}', { k: k }), style: { background: hex }, onclick: () => create(k) })),
+      iconButton('format_underlined', t('Underline'), () => create('underline')),
       h('span.divider-v'),
-      iconButton('edit_note', 'Highlight with note', () => create('yellow', true)),
-      iconButton('content_copy', 'Copy', () => {
+      iconButton('edit_note', t('Highlight with note'), () => create('yellow', true)),
+      iconButton('content_copy', t('Copy'), () => {
         copyText(text);
         bar.remove();
       }),
-      iconButton('dictionary', 'Look up (define, Wikipedia, translate)', async () => {
+      iconButton('dictionary', t('Look up (define, Wikipedia, translate)'), async () => {
         bar.remove();
         const { openLookup } = await import('./lookup.js');
         const lang = [].concat(this.view.book.metadata?.language || [])[0] || this.book.language || null;
@@ -545,7 +546,7 @@ export class TextEngine {
     if (!a) return;
     this.justShowedAnnotation = true;
     setTimeout(() => (this.justShowedAnnotation = false), 400);
-    const note = field('Note', { value: a.note || '', multiline: true });
+    const note = field(t('Note'), { value: a.note || '', multiline: true });
     let color = a.color;
     const colors = h('div.swatches', Object.entries(HIGHLIGHT_COLORS).map(([k, hex]) =>
       h('button.swatch', { type: 'button', 'aria-label': k, 'aria-pressed': String(k === color), style: { background: hex, width: '32px', height: '32px' }, onclick: (e) => {
@@ -553,13 +554,13 @@ export class TextEngine {
         for (const b of colors.children) b.setAttribute('aria-pressed', String(b === e.currentTarget));
       } }, k === 'underline' && icon('format_underlined'))));
     const result = await dialog({
-      title: 'Highlight',
+      title: t('Highlight'),
       icon: 'ink_highlighter',
       content: h('div', h('p', { style: { fontFamily: 'Georgia, serif', fontStyle: 'italic', marginBottom: '12px', color: 'var(--md-on-surface)' } }, `“${a.text || ''}”`), colors, note),
       actions: [
-        { label: 'Delete', variant: 'text danger', value: 'delete' },
-        { label: 'Copy', value: 'copy' },
-        { label: 'Save', variant: 'filled', value: 'save' },
+        { label: t('Delete'), variant: 'text danger', value: 'delete' },
+        { label: t('Copy'), value: 'copy' },
+        { label: t('Save'), variant: 'filled', value: 'save' },
       ],
     });
     if (result === 'copy') return copyText(a.text || '');
@@ -568,7 +569,7 @@ export class TextEngine {
       this.shell.annotations = this.shell.annotations.filter((x) => x.id !== a.id);
       this.annotationsByValue.delete(value);
       await this.view.deleteAnnotation({ value });
-      snackbar('Highlight removed');
+      snackbar(t('Highlight removed'));
       return;
     }
     if (result === 'save') {

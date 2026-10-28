@@ -1,21 +1,22 @@
+import { t, currentLanguage, plural } from '../i18n.js';
 import { api } from '../api.js';
 import { session, navigate } from '../router.js';
 import { h, icon, button, cover, formatDuration, segmented, emptyState, pageHeader, stagger, field, formDialog, snackbar } from '../ui.js';
 
-const KIND_LABEL = { books: 'Books', manga: 'Manga', comics: 'Comics' };
-const MONTHS = Array.from({ length: 12 }, (_, i) => new Date(2000, i, 1).toLocaleDateString(undefined, { month: 'short' }));
-const WEEKDAYS = Array.from({ length: 7 }, (_, i) => new Date(2000, 0, 2 + i).toLocaleDateString(undefined, { weekday: 'short' }));
+const KIND_LABEL = { get books() { return t('Books'); }, get manga() { return t('Manga'); }, get comics() { return t('Comics'); } };
+const monthNames = () => Array.from({ length: 12 }, (_, i) => new Date(2000, i, 1).toLocaleDateString(currentLanguage(), { month: 'short' }));
+const weekdayNames = () => Array.from({ length: 7 }, (_, i) => new Date(2000, 0, 2 + i).toLocaleDateString(currentLanguage(), { weekday: 'short' }));
 
 export async function statsView(view, params, stale) {
   const page = h('div.page', { style: { maxWidth: '1100px' } });
   view.append(page, );
-  page.append(pageHeader('Reading stats'));
+  page.append(pageHeader(t('Reading stats')));
 
   let days = 30;
   const body = h('div');
   page.append(
     h('div', { style: { margin: '8px 0 16px' } },
-      segmented([{ value: 7, label: 'Week' }, { value: 30, label: 'Month' }, { value: 365, label: 'Year' }], days, (v) => {
+      segmented([{ value: 7, label: t('Week') }, { value: 30, label: t('Month') }, { value: 365, label: t('Year') }], days, (v) => {
         days = v;
         load();
       }),
@@ -32,7 +33,7 @@ export async function statsView(view, params, stale) {
     body.append(goalsRow(s, load), reviewBanner(year));
 
     if (!s.totalSeconds && !s.finished) {
-      body.append(emptyState('insights', 'No reading yet', 'Your reading time, streaks and finished books will show up here once you start reading.'));
+      body.append(emptyState('insights', t('No reading yet'), t('Your reading time, streaks and finished books will show up here once you start reading.')));
       return;
     }
 
@@ -42,20 +43,20 @@ export async function statsView(view, params, stale) {
 
     body.append(
       stagger(h('div.stat-grid',
-        stat('schedule', formatDuration(periodSeconds, { short: true }), days === 7 ? 'This week' : days === 30 ? 'Last 30 days' : 'Last 12 months'),
-        stat('local_fire_department', `${s.streak} ${s.streak === 1 ? 'day' : 'days'}`, best > s.streak ? `Current streak · best ${best}` : 'Current streak · your best'),
-        stat('task_alt', String(s.finished), 'Finished'),
-        stat('hourglass_top', formatDuration(s.totalSeconds, { short: true }), 'All-time reading'),
+        stat('schedule', formatDuration(periodSeconds, { short: true }), days === 7 ? t('This week') : days === 30 ? t('Last 30 days') : t('Last 12 months')),
+        stat('local_fire_department', plural(s.streak, '{streak} day', '{streak} days', { streak: s.streak }), best > s.streak ? t('Current streak · best {best}', { best: best }) : t('Current streak · your best')),
+        stat('task_alt', String(s.finished), t('Finished')),
+        stat('hourglass_top', formatDuration(s.totalSeconds, { short: true }), t('All-time reading')),
       )),
       h('section.section', chart(s, days), h('p.body-small.muted', { style: { marginTop: '8px' } },
-        `${activeInPeriod} active ${activeInPeriod === 1 ? 'day' : 'days'} · average ${formatDuration(activeInPeriod ? periodSeconds / activeInPeriod : 0, { short: true })} per reading day`)),
-      h('section.section', h('div.section-head', h('h2', 'Reading activity')), heatmap(s)),
+        plural(activeInPeriod, '{activeInPeriod} active day · average {value2} per reading day', '{activeInPeriod} active days · average {value2} per reading day', { activeInPeriod: activeInPeriod, value2: formatDuration(activeInPeriod ? periodSeconds / activeInPeriod : 0, { short: true }) }))),
+      h('section.section', h('div.section-head', h('h2', t('Reading activity'))), heatmap(s)),
     );
 
     if (s.byKind.length > 1) {
       const total = s.byKind.reduce((a, k) => a + k.seconds, 0) || 1;
       body.append(
-        h('section.section', h('div.section-head', h('h2', 'By type')),
+        h('section.section', h('div.section-head', h('h2', t('By type'))),
           h('div.chart-card', s.byKind.map((k) =>
             h('div', { style: { margin: '8px 0' } },
               h('div', { style: { display: 'flex', justifyContent: 'space-between' }, class: 'body-medium' },
@@ -69,7 +70,7 @@ export async function statsView(view, params, stale) {
 
     if (s.topBooks.length) {
       body.append(
-        h('section.section', h('div.section-head', h('h2', 'Most read')),
+        h('section.section', h('div.section-head', h('h2', t('Most read'))),
           h('div.list.card', s.topBooks.map(({ book, seconds }) =>
             h('a.list-item.state', { href: `#/series/${book.seriesId}` },
               h('div', { style: { width: '40px', flex: 'none' } }, cover(book, { showProgress: false })),
@@ -122,54 +123,54 @@ function goalsRow(s, reload) {
   const now = new Date();
   const dayOfYear = (now - new Date(now.getFullYear(), 0, 1)) / 86400_000 + 1;
   const expected = goal.books ? Math.floor((goal.books * dayOfYear) / 365) : 0;
-  const pace = !goal.books ? null : goal.finished >= goal.books ? 'Goal reached 🎉' : goal.finished >= expected ? `On track · ${goal.books - goal.finished} to go` : `${expected - goal.finished} behind pace`;
+  const pace = !goal.books ? null : goal.finished >= goal.books ? t('Goal reached 🎉') : goal.finished >= expected ? t('On track · {value} to go', { value: goal.books - goal.finished }) : t('{value} behind pace', { value: expected - goal.finished });
   const pagesRead = goal.pagesRead || 0;
   const expectedPages = goal.pages ? Math.floor((goal.pages * dayOfYear) / 365) : 0;
-  const pagesPace = !goal.pages ? null : pagesRead >= goal.pages ? 'Goal reached 🎉' : pagesRead >= expectedPages
-    ? `On track · ${(goal.pages - pagesRead).toLocaleString()} to go`
-    : `${(expectedPages - pagesRead).toLocaleString()} pages behind pace`;
+  const pagesPace = !goal.pages ? null : pagesRead >= goal.pages ? t('Goal reached 🎉') : pagesRead >= expectedPages
+    ? t('On track · {value} to go', { value: (goal.pages - pagesRead).toLocaleString() })
+    : t('{value} pages behind pace', { value: (expectedPages - pagesRead).toLocaleString() });
   const compact = (n) => (n >= 10_000 ? `${Math.round(n / 1000)}k` : n.toLocaleString());
 
-  const edit = button('Set goals', { variant: 'text', icon: 'flag', onclick: () => goalDialog(s, reload) });
+  const edit = button(t('Set goals'), { variant: 'text', icon: 'flag', onclick: () => goalDialog(s, reload) });
   return h('section.goals',
     h('div.goal-card',
-      ring(goal.books ? goal.finished / goal.books : 0, goal.books ? [h('strong', String(goal.finished)), h('span', `of ${goal.books}`)] : [h('strong', String(goal.finished)), h('span', 'books')]),
+      ring(goal.books ? goal.finished / goal.books : 0, goal.books ? [h('strong', String(goal.finished)), h('span', t('of {books}', { books: goal.books }))] : [h('strong', String(goal.finished)), h('span', t('books'))]),
       h('div.goal-text',
-        h('div.title-medium', `${goal.year} reading goal`),
-        h('div.body-medium.muted', goal.books ? `${goal.finished} of ${goal.books} books finished` : 'Set a number of books to finish this year.'),
+        h('div.title-medium', t('{year} reading goal', { year: goal.year })),
+        h('div.body-medium.muted', goal.books ? t('{finished} of {books} books finished', { finished: goal.finished, books: goal.books }) : t('Set a number of books to finish this year.')),
         pace && h('div.label-large.goal-pace', pace)),
     ),
     h('div.goal-card',
-      ring(goal.pages ? pagesRead / goal.pages : 0, goal.pages ? [h('strong', compact(pagesRead)), h('span', `of ${compact(goal.pages)}`)] : [h('strong', compact(pagesRead)), h('span', 'pages')]),
+      ring(goal.pages ? pagesRead / goal.pages : 0, goal.pages ? [h('strong', compact(pagesRead)), h('span', t('of {value}', { value: compact(goal.pages) }))] : [h('strong', compact(pagesRead)), h('span', t('pages'))]),
       h('div.goal-text',
-        h('div.title-medium', `${goal.year} pages`),
-        h('div.body-medium.muted', goal.pages ? `${pagesRead.toLocaleString()} of ${goal.pages.toLocaleString()} pages read` : `${pagesRead.toLocaleString()} pages read this year`),
+        h('div.title-medium', t('{year} pages', { year: goal.year })),
+        h('div.body-medium.muted', goal.pages ? t('{value} of {value2} pages read', { value: pagesRead.toLocaleString(), value2: goal.pages.toLocaleString() }) : t('{value} pages read this year', { value: pagesRead.toLocaleString() })),
         pagesPace && h('div.label-large.goal-pace', pagesPace)),
     ),
     h('div.goal-card',
-      ring(dailyMin ? todayMin / dailyMin : 0, [h('strong', String(todayMin)), h('span', 'min')]),
+      ring(dailyMin ? todayMin / dailyMin : 0, [h('strong', String(todayMin)), h('span', t('min'))]),
       h('div.goal-text',
-        h('div.title-medium', 'Today'),
-        h('div.body-medium.muted', dailyMin ? `${todayMin} of ${dailyMin} minutes` : `${todayMin} minutes read today`),
-        dailyMin > 0 && h('div.label-large.goal-pace', todayMin >= dailyMin ? 'Daily goal done ✓' : `${dailyMin - todayMin} min to go`)),
+        h('div.title-medium', t('Today')),
+        h('div.body-medium.muted', dailyMin ? t('{todayMin} of {dailyMin} minutes', { todayMin: todayMin, dailyMin: dailyMin }) : t('{todayMin} minutes read today', { todayMin: todayMin })),
+        dailyMin > 0 && h('div.label-large.goal-pace', todayMin >= dailyMin ? t('Daily goal done ✓') : t('{value} min to go', { value: dailyMin - todayMin }))),
     ),
     h('div.goals-edit', edit),
   );
 }
 
 async function goalDialog(s, reload) {
-  const books = field(`Books to finish in ${s.goal.year}`, { type: 'number', value: s.goal.books ?? '', min: 0, max: 10000, support: 'Leave empty for no yearly goal.' });
-  const pages = field(`Pages to read in ${s.goal.year}`, { type: 'number', value: s.goal.pages ?? '', min: 0, max: 1000000, support: 'Comic and PDF pages count as they are; ebook pages are estimated from their length (about 300 words a page). Leave empty for no page goal.' });
-  const minutes = field('Minutes a day', { type: 'number', value: s.dailyGoalMinutes || '', min: 0, max: 1440, support: 'Leave empty for no daily goal.' });
+  const books = field(t('Books to finish in {year}', { year: s.goal.year }), { type: 'number', value: s.goal.books ?? '', min: 0, max: 10000, support: t('Leave empty for no yearly goal.') });
+  const pages = field(t('Pages to read in {year}', { year: s.goal.year }), { type: 'number', value: s.goal.pages ?? '', min: 0, max: 1000000, support: t('Comic and PDF pages count as they are; ebook pages are estimated from their length (about 300 words a page). Leave empty for no page goal.') });
+  const minutes = field(t('Minutes a day'), { type: 'number', value: s.dailyGoalMinutes || '', min: 0, max: 1440, support: t('Leave empty for no daily goal.') });
   await formDialog({
-    title: 'Reading goals',
+    title: t('Reading goals'),
     icon: 'flag',
     fields: [books, pages, minutes],
     onSubmit: async () => {
       await api.setReadingGoal(s.goal.year, { books: books.input.value === '' ? null : Number(books.input.value), pages: pages.input.value === '' ? null : Number(pages.input.value) });
       const m = Math.max(0, Math.min(1440, Math.round(Number(minutes.input.value) || 0)));
       session.user.prefs = await api.savePrefs({ dailyGoalMinutes: m });
-      snackbar('Goals saved');
+      snackbar(t('Goals saved'));
       reload();
     },
   });
@@ -181,7 +182,7 @@ function reviewBanner(year) {
   const y = month >= 11 ? year : year - 1;
   return h('a.review-banner.state', { href: `#/stats/year/${y}` },
     icon('auto_awesome'),
-    h('div', h('div.title-medium', `Your ${y} in review`), h('div.body-small', 'Books, time, favourites and streaks – with a card to share')),
+    h('div', h('div.title-medium', t('Your {y} in review', { y: y })), h('div.body-small', t('Books, time, favourites and streaks – with a card to share'))),
     icon('chevron_right'));
 }
 
@@ -200,7 +201,7 @@ function chart(s, days) {
       d.setDate(start.getDate() + i);
       const key = `${d.getFullYear()}-${d.getMonth()}`;
       const iso = isoDay(d);
-      const m = months.get(key) || { label: d.toLocaleDateString(undefined, { month: 'short' }), seconds: 0, today: false };
+      const m = months.get(key) || { label: d.toLocaleDateString(currentLanguage(), { month: 'short' }), seconds: 0, today: false };
       m.seconds += map.get(iso) || 0;
       if (iso === s.today) m.today = true;
       months.set(key, m);
@@ -212,13 +213,13 @@ function chart(s, days) {
       d.setDate(start.getDate() + i);
       const iso = isoDay(d);
       buckets.push({
-        label: days <= 7 ? d.toLocaleDateString(undefined, { weekday: 'short' }) : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+        label: days <= 7 ? d.toLocaleDateString(currentLanguage(), { weekday: 'short' }) : d.toLocaleDateString(currentLanguage(), { month: 'short', day: 'numeric' }),
         seconds: map.get(iso) || 0,
         today: iso === s.today,
       });
     }
   }
-  return barChart(buckets, 'Time spent reading');
+  return barChart(buckets, t('Time spent reading'));
 }
 
 function barChart(buckets, title, { height } = {}) {
@@ -261,12 +262,12 @@ function heatmap(s) {
       lastMonth = d.getMonth();
       // A partial first month gets no label if the next one starts right after it.
       if (months.length && week - months.at(-1).week < 3) months.pop();
-      months.push({ week, label: MONTHS[lastMonth] });
+      months.push({ week, label: monthNames()[lastMonth] });
     }
     const sec = map.get(iso) || 0;
     cells.push(h(`span.cell.l${level(sec)}${iso === s.today ? '.today' : ''}`, {
       style: { gridColumn: String(week + 1), gridRow: String(d.getDay() + 1) },
-      title: `${d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}: ${sec ? formatDuration(sec) : 'no reading'}`,
+      title: `${d.toLocaleDateString(currentLanguage(), { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}: ${sec ? formatDuration(sec) : t('no reading')}`,
     }));
   }
   const best = s.longestStreak;
@@ -274,17 +275,17 @@ function heatmap(s) {
     h('div.heatmap-scroll',
       h('div.heatmap',
         h('div.heat-months', months.map((m) => h('span', { style: { gridColumn: `${m.week + 1} / span 4` } }, m.label))),
-        h('div.heat-days', [1, 3, 5].map((n) => h('span', { style: { gridRow: String(n + 1) } }, WEEKDAYS[n]))),
+        h('div.heat-days', [1, 3, 5].map((n) => h('span', { style: { gridRow: String(n + 1) } }, weekdayNames()[n]))),
         h('div.heat-grid', cells),
       )),
     h('div.heat-foot',
-      h('span.body-small.muted', best?.days ? `Longest streak: ${best.days} ${best.days === 1 ? 'day' : 'days'} (${shortDate(best.start)} – ${shortDate(best.end)})` : ''),
-      h('span.heat-legend', 'Less', [0, 1, 2, 3, 4].map((l) => h(`span.cell.l${l}`)), 'More')),
+      h('span.body-small.muted', best?.days ? plural(best.days, 'Longest streak: {days} day ({value2} – {value3})', 'Longest streak: {days} days ({value2} – {value3})', { days: best.days, value2: shortDate(best.start), value3: shortDate(best.end) }) : ''),
+      h('span.heat-legend', t('Less'), [0, 1, 2, 3, 4].map((l) => h(`span.cell.l${l}`)), t('More'))),
   );
 }
 
 const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const shortDate = (day) => (day ? new Date(`${day}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '');
+const shortDate = (day) => (day ? new Date(`${day}T00:00:00`).toLocaleDateString(currentLanguage(), { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 
 // ---------------------------------------------------------------------------
 // Year in review
@@ -301,38 +302,38 @@ export async function yearReviewView(view, params, stale) {
 
   const hero = h('section.yr-hero.enter',
     h('div.yr-glow'),
-    h('div.label-large', 'Year in review'),
+    h('div.label-large', t('Year in review')),
     h('h1.yr-year', String(year)),
     h('p.body-large', r.totalSeconds
-      ? `You read for ${formatDuration(r.totalSeconds)} on ${r.activeDays} ${r.activeDays === 1 ? 'day' : 'days'}${r.finished ? ` and finished ${r.finished} ${r.finished === 1 ? 'book' : 'books'}` : ''}.`
-      : 'No reading recorded this year yet.'),
+      ? plural(r.activeDays, 'You read for {value} on {activeDays} day{value3}.', 'You read for {value} on {activeDays} days{value3}.', { value: formatDuration(r.totalSeconds), activeDays: r.activeDays, value3: r.finished ? t(' and finished {finished} {value}', { finished: r.finished, value: r.finished === 1 ? t('book') : t('books') }) : '' })
+      : t('No reading recorded this year yet.')),
     h('div.yr-actions',
-      button('Back to stats', { variant: 'text', icon: 'arrow_back', onclick: () => navigate('/stats') }),
-      r.totalSeconds > 0 && button('Share card', { variant: 'tonal', icon: 'ios_share', onclick: () => shareCard(r) })),
+      button(t('Back to stats'), { variant: 'text', icon: 'arrow_back', onclick: () => navigate('/stats') }),
+      r.totalSeconds > 0 && button(t('Share card'), { variant: 'tonal', icon: 'ios_share', onclick: () => shareCard(r) })),
   );
   page.append(hero, h('div', { style: { margin: '16px 0' } }, picker));
   if (!r.totalSeconds && !r.finished) {
-    page.append(emptyState('auto_stories', `Nothing for ${year}`, 'Read something and it’ll show up here.'));
+    page.append(emptyState('auto_stories', t('Nothing for {year}', { year: year }), t('Read something and it’ll show up here.')));
     return;
   }
 
   const favDay = r.byWeekday.indexOf(Math.max(...r.byWeekday));
   page.append(
     stagger(h('div.stat-grid',
-      stat('hourglass_top', formatDuration(r.totalSeconds, { short: true }), 'Time reading'),
-      stat('task_alt', String(r.finished), r.goal ? `Finished · goal ${r.goal}` : 'Books finished'),
-      stat('description', r.pages ? r.pages.toLocaleString() : '–', r.pagesGoal ? `Pages read · goal ${r.pagesGoal.toLocaleString()}` : 'Pages read'),
-      stat('local_fire_department', `${r.longestStreak.days} ${r.longestStreak.days === 1 ? 'day' : 'days'}`, 'Longest streak'),
-      stat('calendar_month', String(r.activeDays), 'Reading days'),
-      stat('today', new Date(2000, 0, 2 + favDay).toLocaleDateString(undefined, { weekday: 'long' }), 'Favourite day'),
-      stat('trending_up', r.busiestDay ? formatDuration(r.busiestDay.seconds, { short: true }) : '–', r.busiestDay ? `Biggest day · ${shortDate(r.busiestDay.day)}` : 'Biggest day'),
-      stat('ink_highlighter', String(r.highlights), 'Highlights made'),
+      stat('hourglass_top', formatDuration(r.totalSeconds, { short: true }), t('Time reading')),
+      stat('task_alt', String(r.finished), r.goal ? t('Finished · goal {goal}', { goal: r.goal }) : t('Books finished')),
+      stat('description', r.pages ? r.pages.toLocaleString() : '–', r.pagesGoal ? t('Pages read · goal {value}', { value: r.pagesGoal.toLocaleString() }) : t('Pages read')),
+      stat('local_fire_department', plural(r.longestStreak.days, '{days} day', '{days} days', { days: r.longestStreak.days }), t('Longest streak')),
+      stat('calendar_month', String(r.activeDays), t('Reading days')),
+      stat('today', new Date(2000, 0, 2 + favDay).toLocaleDateString(currentLanguage(), { weekday: 'long' }), t('Favourite day')),
+      stat('trending_up', r.busiestDay ? formatDuration(r.busiestDay.seconds, { short: true }) : '–', r.busiestDay ? t('Biggest day · {value}', { value: shortDate(r.busiestDay.day) }) : t('Biggest day')),
+      stat('ink_highlighter', String(r.highlights), t('Highlights made')),
     )),
-    h('section.section', barChart(r.byMonth.map((seconds, i) => ({ label: MONTHS[i], seconds })), 'Month by month')),
+    h('section.section', barChart(r.byMonth.map((seconds, i) => ({ label: monthNames()[i], seconds })), t('Month by month'))),
   );
 
   if (r.topSeries.length) {
-    page.append(h('section.section', h('div.section-head', h('h2', 'Your top series')),
+    page.append(h('section.section', h('div.section-head', h('h2', t('Your top series'))),
       stagger(h('div.yr-top', r.topSeries.map(({ series, seconds }, i) =>
         h('a.yr-top-item.state', { href: `#/series/${series.id}` },
           h('span.yr-rank', String(i + 1)),
@@ -346,16 +347,16 @@ export async function yearReviewView(view, params, stale) {
       h('div.body-medium', { style: { display: 'flex', justifyContent: 'space-between' } }, h('span', x.name), h('span.muted', formatDuration(x.seconds, { short: true }))),
       h('div.progress', { style: { marginTop: '6px', height: '8px' } }, h('span', { style: { width: `${(x.seconds / list[0].seconds) * 100}%` } })))));
   if (r.topGenres.length || r.topCreators.length) {
-    page.append(h('section.section.yr-pair', ranked('Top genres', r.topGenres), ranked('Top writers', r.topCreators)));
+    page.append(h('section.section.yr-pair', ranked(t('Top genres'), r.topGenres), ranked(t('Top writers'), r.topCreators)));
   }
 
   if (r.finishedBooks.length) {
-    page.append(h('section.section', h('div.section-head', h('h2', `Finished in ${year} (${r.finishedBooks.length})`)),
+    page.append(h('section.section', h('div.section-head', h('h2', t('Finished in {year} ({length})', { year: year, length: r.finishedBooks.length }))),
       stagger(h('div.grid', r.finishedBooks.slice().reverse().map((b) =>
         h('a.tile', { href: `#/series/${b.seriesId}`, title: b.label },
           cover(b, { showProgress: false }),
           h('div.t-title', b.series || b.title),
-          h('div.t-sub', new Date(b.finishedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }))))))));
+          h('div.t-sub', new Date(b.finishedAt).toLocaleDateString(currentLanguage(), { month: 'short', day: 'numeric' }))))))));
   }
 }
 
@@ -382,15 +383,15 @@ async function shareCard(r) {
   const font = (size, weight = 400) => `${weight} ${size}px "Roboto Flex", system-ui, sans-serif`;
   ctx.fillStyle = '#fff';
   ctx.font = font(44, 500);
-  ctx.fillText('My year in reading', 80, 140);
+  ctx.fillText(t('My year in reading'), 80, 140);
   ctx.font = font(220, 800);
   ctx.fillText(String(r.year), 70, 360);
 
   const tiles = [
-    [formatDuration(r.totalSeconds, { short: true }), 'reading'],
-    [String(r.finished), r.finished === 1 ? 'book finished' : 'books finished'],
-    [String(r.activeDays), 'reading days'],
-    [`${r.longestStreak.days}`, 'day longest streak'],
+    [formatDuration(r.totalSeconds, { short: true }), t('reading')],
+    [String(r.finished), r.finished === 1 ? t('book finished') : t('books finished')],
+    [String(r.activeDays), t('reading days')],
+    [`${r.longestStreak.days}`, t('day longest streak')],
   ];
   tiles.forEach(([value, label], i) => {
     const x = 80 + (i % 2) * 470;
@@ -407,10 +408,10 @@ async function shareCard(r) {
   });
 
   ctx.font = font(36, 600);
-  ctx.fillText('Top series', 80, 950);
+  ctx.fillText(t('Top series'), 80, 950);
   ctx.font = font(34);
-  r.topSeries.slice(0, 4).forEach((t, i) => {
-    let name = `${i + 1}. ${t.series.name}`;
+  r.topSeries.slice(0, 4).forEach((localT, i) => {
+    let name = `${i + 1}. ${localT.series.name}`;
     while (ctx.measureText(name).width > W - 160 && name.length > 4) name = `${name.slice(0, -2)}…`;
     ctx.fillText(name, 80, 1010 + i * 56);
   });
@@ -422,7 +423,7 @@ async function shareCard(r) {
   const file = new File([blob], `flyleaf-${r.year}.png`, { type: 'image/png' });
   if (navigator.canShare?.({ files: [file] })) {
     try {
-      await navigator.share({ files: [file], title: `My ${r.year} in reading` });
+      await navigator.share({ files: [file], title: t('My {year} in reading', { year: r.year }) });
       return;
     } catch (e) {
       if (e.name === 'AbortError') return;

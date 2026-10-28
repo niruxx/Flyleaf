@@ -1,10 +1,11 @@
+import { t } from '../i18n.js';
 import { api } from '../api.js';
 import { onLeave } from '../router.js';
 import { h } from '../ui.js';
 
 /** Small pill that shows while the library is being scanned; polls until idle. */
 export function scanIndicator(onDone) {
-  const el = h('span.scan-pill', { hidden: true }, h('span.spinner'), h('span.txt', 'Scanning…'));
+  const el = h('span.scan-pill', { hidden: true }, h('span.spinner'), h('span.txt', t('Scanning…')));
   let timer;
   let wasRunning = false;
   let stopped = false;
@@ -15,7 +16,7 @@ export function scanIndicator(onDone) {
       el.hidden = !s.running;
       if (s.running) {
         el.querySelector('.txt').textContent =
-          s.phase === 'metadata' && s.total ? `Reading metadata ${s.processed}/${s.total}` : s.phase === 'walking' ? `Scanning… ${s.found} found` : 'Scanning…';
+          s.phase === 'metadata' && s.total ? t('Reading metadata {processed}/{total}', { processed: s.processed, total: s.total }) : s.phase === 'walking' ? t('Scanning… {found} found', { found: s.found }) : t('Scanning…');
         wasRunning = true;
       } else if (wasRunning) {
         wasRunning = false;

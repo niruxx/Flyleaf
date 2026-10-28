@@ -1,9 +1,12 @@
+import { t } from '../i18n.js';
 // Page-based reader for manga/comics (CBZ, CBR, CB7, CBT, image folders) and PDFs.
 
 import { api, pageUrl, fileUrl } from '../api.js';
-import { h, resolveColor } from '../ui.js';
+import { h, resolveColor, iconButton } from '../ui.js';
 import { LOOKS } from '../components/reader-settings.js';
 import { turnPages, measure, reducedMotion, finishTurn } from './turn.js';
+
+import { PageZoom } from './zoom.js';
 
 const MAX_CANVAS_PIXELS = 12_000_000; // stay well under iOS Safari's canvas limits
 // Auto-scroll speeds (levels 1–10) in pixels per second on an 800px-tall screen.
@@ -108,9 +111,9 @@ class ImageSource {
         const img = new Image();
         img.decoding = 'async';
         img.draggable = false;
-        img.alt = `Page ${i + 1}`;
+        img.alt = t('Page {value}', { value: i + 1 });
         img.onload = () => (img.decode ? img.decode().catch(() => {}) : Promise.resolve()).then(() => resolve(img));
-        img.onerror = () => reject(new Error(`Page ${i + 1} failed to load`));
+        img.onerror = () => reject(new Error(t('Page {value} failed to load', { value: i + 1 })));
         img.src = pageUrl(this.book, i, this.width);
       });
       p.catch(() => this.cache.delete(i));
@@ -193,14 +196,14 @@ class PdfSource {
     if (!needle) return;
     for (let i = 0; i < this.count; i++) {
       const page = await this.doc.getPage(i + 1);
-      const text = (await page.getTextContent()).items.map((t) => t.str).join(' ').replace(/\s+/g, ' ');
+      const text = (await page.getTextContent()).items.map((localT) => localT.str).join(' ').replace(/\s+/g, ' ');
       // Folding keeps lengths for Latin text, so positions line up with the original well enough for excerpts.
       const hay = fold(text);
       const items = [];
       for (let at = hay.indexOf(needle); at !== -1 && items.length < 50; at = hay.indexOf(needle, at + needle.length)) {
         items.push({ target: i, pre: text.slice(Math.max(0, at - 50), at), match: text.slice(at, at + needle.length), post: text.slice(at + needle.length, at + needle.length + 50) });
       }
-      if (items.length) yield { label: `Page ${i + 1}`, items };
+      if (items.length) yield { label: t('Page {value}', { value: i + 1 }), items };
       if (i % 5 === 4 || i === this.count - 1) yield { progress: (i + 1) / this.count };
     }
   }
@@ -272,7 +275,7 @@ export class PageEngine {
   async open(startLocator) {
     this.shell.setLoading(true);
     await this.source.init();
-    if (!this.source.count) throw new Error('This book has no pages.');
+    if (!this.source.count) throw new Error(t('This book has no pages.'));
     const saved = this.book.progress;
     let start = saved?.page != null && !saved.finished ? saved.page : 0;
     if (startLocator != null && /^\d+$/.test(startLocator)) start = Number(startLocator);
@@ -300,6 +303,7 @@ export class PageEngine {
   }
 
   destroy() {
+    this.zoomCleanup?.();
     this.stopAutoScroll();
     this.cleanups.forEach((fn) => fn());
     this.source.destroy();
@@ -397,8 +401,8 @@ export class PageEngine {
       c.getContext('2d').drawImage(el, Math.round(crop.x * W), Math.round(crop.y * H), c.width, c.height, 0, 0, c.width, c.height);
       c.style.aspectRatio = `${c.width} / ${c.height}`;
       c.setAttribute('role', 'img');
-      c.setAttribute('aria-label', el.alt || `Page ${i + 1}`);
-      c.dataset.alt = el.alt || `Page ${i + 1}`;
+      c.setAttribute('aria-label', el.alt || t('Page {value}', { value: i + 1 }));
+      c.dataset.alt = el.alt || t('Page {value}', { value: i + 1 });
       out = c;
     }
     const gains = whiten && paperGains(a.paper);
@@ -484,7 +488,7 @@ export class PageEngine {
       return this.renderPaged('prev');
     }
     const spread = this.spreadOf(this.page);
-    if (spread[0] === 0) return this.shell.toast('Start of book');
+    if (spread[0] === 0) return this.shell.toast(t('Start of book'));
     this.half = 0;
     this.wantSecondHalf = true;
     this.go(this.spreadOf(spread[0] - 1)[0], { dir: 'prev' });
@@ -537,7 +541,7 @@ export class PageEngine {
     const label = spread.length > 1 ? `${spread[0] + 1}–${last + 1} / ${this.count}` : `${spread[0] + 1} / ${this.count}`;
     this.shell.setPosition(label, `${spread[0] + 1} / ${this.count}`);
     this.shell.setSliderValue(this.page);
-    this.shell.setSubtitle(`Page ${spread[0] + 1} of ${this.count}`);
+    this.shell.setSubtitle(t('Page {value} of {count}', { value: spread[0] + 1, count: this.count }));
     this.tracker.update({ page: this.page, position: String(this.page), percent: (last + 1) / this.count });
     this.shell.pageTurned();
   }
@@ -547,6 +551,7 @@ export class PageEngine {
   build() {
     const stage = this.shell.stage;
     this.stripCleanup?.();
+    this.zoomCleanup?.();
     stage.replaceChildren();
     this.shell.setSlider({
       min: 0,
@@ -565,11 +570,17 @@ export class PageEngine {
     const container = h('div.paged');
     this.container = container;
     this.shell.stage.append(container);
+    const reset = iconButton('zoom_out_map', t('Reset zoom'), () => this.zoom.reset());
+    reset.classList.add('zoom-reset');
+    reset.hidden = true;
+    this.shell.stage.append(reset);
+    this.zoom = new PageZoom(container, (active) => { reset.hidden = !active; });
     this.attachGestures(container);
     this.renderPaged();
   }
 
   async renderPaged(dir) {
+    this.zoom?.reset();
     const seq = ++this.renderSeq;
     this.atEnd = false;
     const spread = this.spreadOf(this.page);
@@ -679,45 +690,112 @@ export class PageEngine {
   }
 
   attachGestures(el) {
+    const pointers = new Map();
     let start = null;
     let moved = false;
+    let pinched = false;
+    let pair = null;
+    let tap = null;
+    let timer;
+    const clearTap = () => { clearTimeout(timer); tap = null; };
+    const geometry = () => {
+      const [a, b] = [...pointers.values()];
+      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, distance: Math.hypot(a.x - b.x, a.y - b.y) };
+    };
     el.addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'mouse' && e.button !== 0) return;
-      start = { x: e.clientX, y: e.clientY, t: Date.now(), id: e.pointerId };
-      moved = false;
+      if (e.target.closest('button, a')) return;
+      el.setPointerCapture(e.pointerId);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size === 1) {
+        start = { x: e.clientX, y: e.clientY, t: Date.now() };
+        moved = false;
+        pinched = false;
+      } else {
+        clearTap();
+        pinched = moved = true;
+        pair = geometry();
+        finishTurn();
+      }
     });
     el.addEventListener('pointermove', (e) => {
-      if (start && e.pointerId === start.id && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10) moved = true;
+      const previous = pointers.get(e.pointerId);
+      if (!previous) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size >= 2) {
+        const next = geometry();
+        if (pair?.distance > 0) {
+          this.zoom.zoom(this.zoom.scale * next.distance / pair.distance, pair.x, pair.y);
+          this.zoom.pan(next.x - pair.x, next.y - pair.y);
+        }
+        pair = next;
+      } else {
+        if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10) moved = true;
+        if (this.zoom.active) this.zoom.pan(e.clientX - previous.x, e.clientY - previous.y);
+        else if (moved && this.s.scaling !== 'screen') {
+          el.scrollLeft -= e.clientX - previous.x;
+          el.scrollTop -= e.clientY - previous.y;
+        }
+      }
+      if (moved) clearTap();
     });
-    el.addEventListener('pointerup', (e) => {
-      if (!start || e.pointerId !== start.id) return;
+    const release = (e) => {
+      if (!pointers.delete(e.pointerId)) return;
+      pair = pointers.size >= 2 ? geometry() : null;
+      if (pointers.size || !start) return;
       const dx = e.clientX - start.x;
       const dy = e.clientY - start.y;
-      const zoomed = (window.visualViewport?.scale || 1) > 1.05;
-      const canScrollX = el.scrollWidth > el.clientWidth + 4;
-      if (this.shell.swipeEnabled() && !zoomed && !canScrollX && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - start.t < 800) {
-        dx < 0 ? this.right() : this.left();
+      if (e.type === 'pointerup' && !pinched) {
+        if (!this.zoom.active && this.shell.swipeEnabled() && el.scrollWidth <= el.clientWidth + 4 && Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - start.t < 800) {
+          dx < 0 ? this.right() : this.left();
+        } else if (!moved && Date.now() - start.t < 500) {
+          const now = Date.now();
+          if (tap && now - tap.t < 300 && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 40) {
+            clearTap();
+            finishTurn();
+            this.zoom.active ? this.zoom.reset() : this.zoom.zoom(2.5, e.clientX, e.clientY);
+          } else {
+            clearTap();
+            tap = { x: e.clientX, y: e.clientY, t: now };
+            const x = (e.clientX - el.getBoundingClientRect().left) / el.clientWidth;
+            timer = setTimeout(() => {
+              tap = null;
+              this.zoom.active ? this.shell.toggleChrome() : this.shell.handleTap(x);
+            }, 300);
+          }
+        }
       }
       start = null;
-    });
-    el.addEventListener('pointercancel', () => (start = null));
-    el.addEventListener('click', (e) => {
-      if (moved) return;
-      const r = el.getBoundingClientRect();
-      this.shell.handleTap((e.clientX - r.left) / r.width);
-    });
+    };
+    el.addEventListener('pointerup', release);
+    el.addEventListener('pointercancel', release);
+    el.addEventListener('lostpointercapture', release);
     el.addEventListener('wheel', (e) => {
-      if (this.s.scaling !== 'screen' || Math.abs(e.deltaY) < 20 || e.ctrlKey) return;
+      if (e.ctrlKey) {
+        e.preventDefault();
+        clearTap();
+        finishTurn();
+        this.zoom.zoom(this.zoom.scale * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
+        return;
+      }
+      if (this.zoom.active) {
+        e.preventDefault();
+        this.zoom.pan(-e.deltaX, -e.deltaY);
+        return;
+      }
+      if (this.s.scaling !== 'screen' || Math.abs(e.deltaY) < 20) return;
       e.preventDefault();
       const now = Date.now();
       if (now - (this.lastWheel || 0) < 350) return;
       this.lastWheel = now;
       e.deltaY > 0 ? this.next() : this.prev();
     }, { passive: false });
+    this.zoomCleanup = () => { clearTap(); this.zoom.reset(); };
   }
 
   /** The chapter end screen, one "page" after the last. */
   showEndPage() {
+    this.zoom?.reset();
     this.atEnd = true;
     this.renderSeq++;
     this.container.replaceChildren(h(`div.spread.end-spread${this.s.pageTurn === 'none' ? '' : '.turn-next'}`, this.shell.endPanel({ paged: true })));
@@ -849,7 +927,7 @@ export class PageEngine {
   startAutoScroll() {
     const c = this.container;
     if (!this.scrollMode() || this.autoScrolling || !c) return;
-    if (c.scrollTop + c.clientHeight >= c.scrollHeight - 2) return this.shell.toast('End of chapter');
+    if (c.scrollTop + c.clientHeight >= c.scrollHeight - 2) return this.shell.toast(t('End of chapter'));
     this.autoScrolling = true;
     this.autoHeldUntil = 0;
     let pos = c.scrollTop;
@@ -887,7 +965,7 @@ export class PageEngine {
   autoScrollSpeed(delta) {
     const level = Math.max(1, Math.min(10, (Number(this.s.autoScrollSpeed) || 3) + delta));
     this.shell.changeSetting('autoScrollSpeed', level);
-    this.shell.toast(`Speed ${level}`);
+    this.shell.toast(t('Speed {level}', { level: level }));
   }
 
   async stripJump(p, initial = false) {
@@ -910,9 +988,9 @@ export class PageEngine {
 }
 
 function debounce(fn, ms) {
-  let t;
+  let localT;
   return (...a) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...a), ms);
+    clearTimeout(localT);
+    localT = setTimeout(() => fn(...a), ms);
   };
 }

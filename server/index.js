@@ -57,6 +57,7 @@ api.use(healthRoutes.health);
 api.use('/setup/restore', backupRoutes.setup);
 api.use(auth.requireUser);
 api.use(healthRoutes.metrics);
+api.use('/tracking', require('./routes/tracking').router);
 api.use('/me', authRoutes.me);
 api.use('/me', require('./routes/my-libraries').router);
 api.use(require('./routes/profile').router);
@@ -152,6 +153,7 @@ require('./plugins/manager').seedBuiltins().then(() => require('./plugins/downlo
 require('./plugins/suwayomi-host').boot();
 require('./push').wire();
 require('./follows').start();
+require('./tracking').start();
 require('./backup').startSchedule();
 require('./activity').start();
 require('./watcher').start();
@@ -167,6 +169,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     log.info('Shutting down');
     require('./plugins/suwayomi-host').shutdown();
     require('./watcher').stop();
+    require('./tracking').stop();
     server.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000).unref();
   });

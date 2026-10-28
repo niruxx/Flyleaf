@@ -1,3 +1,4 @@
+import { t, plural } from '../i18n.js';
 // Content Finder: search plugin sources and download books, manga and comics
 // into your libraries.
 
@@ -5,7 +6,7 @@ import { api, can } from '../api.js';
 import { session, isAdmin, navigate, onLeave } from '../router.js';
 import { h, icon, iconButton, button, setButtonLabel, cover, dialog, snackbar, loading, skeleton, emptyState, stagger, field, formatBytes, timeAgo, libraryOptions, confirmDialog, toggleSwitch, pageBanner } from '../ui.js';
 
-const KIND_LABEL = { books: 'Books', manga: 'Manga', comics: 'Comics' };
+const KIND_LABEL = { get books() { return t('Books'); }, get manga() { return t('Manga'); }, get comics() { return t('Comics'); } };
 const LAST_SOURCE = 'flyleaf.finder.source';
 const ALL = '*';
 
@@ -32,7 +33,7 @@ function saveLast(id) {
 
 export async function finderView(view, params, stale) {
   if (!can(session.user, 'contentFinder')) {
-    view.append(emptyState('lock', 'Content Finder isn’t enabled', 'Ask the admin to turn on Content Finder for your account.'));
+    view.append(emptyState('lock', t('Content Finder isn’t enabled'), t('Ask the admin to turn on Content Finder for your account.')));
     return;
   }
   view.append(loading());
@@ -40,14 +41,14 @@ export async function finderView(view, params, stale) {
   if (stale()) return;
   view.replaceChildren();
 
-  const downloadsBtn = button('Downloads', { variant: 'tonal', icon: 'download', onclick: () => navigate('/finder/downloads') });
-  const head = h('div.page-head.enter', h('h1', 'Content Finder'),
+  const downloadsBtn = button(t('Downloads'), { variant: 'tonal', icon: 'download', onclick: () => navigate('/finder/downloads') });
+  const head = h('div.page-head.enter', h('h1', t('Content Finder')),
     h('div.finder-actions', downloadsBtn,
-      isAdmin() && button('Plugins', { variant: 'text', icon: 'tune', onclick: () => navigate('/settings/plugins') })));
+      isAdmin() && button(t('Plugins'), { variant: 'text', icon: 'tune', onclick: () => navigate('/settings/plugins') })));
 
   if (!sources.length) {
-    view.append(h('div.page', head, emptyState('extension_off', 'No sources yet', isAdmin() ? 'Install a plugin to start finding books.' : 'The admin hasn’t installed any sources yet.',
-      isAdmin() && button('Install plugins', { icon: 'extension', onclick: () => navigate('/settings/plugins') }))));
+    view.append(h('div.page', head, emptyState('extension_off', t('No sources yet'), isAdmin() ? t('Install a plugin to start finding books.') : t('The admin hasn’t installed any sources yet.'),
+      isAdmin() && button(t('Install plugins'), { icon: 'extension', onclick: () => navigate('/settings/plugins') }))));
     return;
   }
 
@@ -74,10 +75,10 @@ export async function finderView(view, params, stale) {
       renderKinds();
       renderChips();
       if (current === ALL) run(true);
-    } }, icon(k === 'books' ? 'menu_book' : k === 'manga' ? 'auto_stories' : k === 'comics' ? 'photo_library' : 'select_all'), k ? KIND_LABEL[k] : 'Everything')));
+    } }, icon(k === 'books' ? 'menu_book' : k === 'manga' ? 'auto_stories' : k === 'comics' ? 'photo_library' : 'select_all'), k ? KIND_LABEL[k] : t('Everything'))));
   }
   const searchable = () => ready.filter(matchesFilter);
-  const sourceFind = h('input.source-find', { type: 'search', placeholder: `Find a source (${sources.length})…`, 'aria-label': 'Find a source', autocomplete: 'off',
+  const sourceFind = h('input.source-find', { type: 'search', placeholder: t('Find a source ({length})…', { length: sources.length }), 'aria-label': t('Find a source'), autocomplete: 'off',
     oninput: () => {
       sourceFilter = sourceFind.value.trim().toLowerCase();
       renderChips();
@@ -95,8 +96,8 @@ export async function finderView(view, params, stale) {
     const shownSources = sources.filter((s) => matchesFilter(s) || s.id === current);
     chips.replaceChildren(...[
       ready.length > 1 && h('button.chip.state', { type: 'button', role: 'tab', 'aria-pressed': String(current === ALL), onclick: () => pick(ALL) }, icon('travel_explore'),
-        sourceFilter ? `All matching (${searchable().length})` : 'All sources'),
-      !shownSources.length && h('span.body-small.muted', 'No source matches.'),
+        sourceFilter ? t('All matching ({length})', { length: searchable().length }) : t('All sources')),
+      !shownSources.length && h('span.body-small.muted', t('No source matches.')),
       ...shownSources.map((s) => h('button.chip.state', { type: 'button', role: 'tab', 'aria-pressed': String(current === s.id), title: s.description || s.name, onclick: () => pick(s.id) },
         sourceIcon(s), s.name, (s.needsSetup || s.error) && icon('warning'))),
     ].filter(Boolean));
@@ -114,7 +115,7 @@ export async function finderView(view, params, stale) {
       return genreRow.replaceChildren();
     }
     if (current !== src.id) return;
-    genreRow.replaceChildren(h('span.label-medium.muted', icon('category'), 'Genre'), ...[{ id: '', name: 'All' }, ...list].map((g) => h('button.chip.state', { type: 'button', 'aria-pressed': String(genre === g.id), dataset: { genre: g.id }, onclick: () => {
+    genreRow.replaceChildren(h('span.label-medium.muted', icon('category'), t('Genre')), ...[{ id: '', name: 'All' }, ...list].map((g) => h('button.chip.state', { type: 'button', 'aria-pressed': String(genre === g.id), dataset: { genre: g.id }, onclick: () => {
       genre = g.id;
       stack.length = 0;
       for (const b of genreRow.querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.genre === g.id));
@@ -131,7 +132,7 @@ export async function finderView(view, params, stale) {
     run(true);
   }
 
-  const input = h('input', { type: 'search', placeholder: 'Search…', value: query, 'aria-label': 'Search sources', enterkeyhint: 'search', autocomplete: 'off' });
+  const input = h('input', { type: 'search', placeholder: t('Search…'), value: query, 'aria-label': t('Search sources'), enterkeyhint: 'search', autocomplete: 'off' });
   const searchBar = h('form.finder-search', { onsubmit: (e) => {
     e.preventDefault();
     query = input.value.trim();
@@ -139,7 +140,7 @@ export async function finderView(view, params, stale) {
     const q = new URLSearchParams({ ...(current ? { source: current } : {}), ...(query ? { q: query } : {}) });
     history.replaceState(null, '', `#/finder${q.toString() ? `?${q}` : ''}`);
     run(true);
-  } }, icon('search'), input, query && iconButton('close', 'Clear', () => {
+  } }, icon('search'), input, query && iconButton('close', t('Clear'), () => {
     input.value = '';
     query = '';
     run(true);
@@ -149,7 +150,7 @@ export async function finderView(view, params, stale) {
   const more = h('div.finder-more');
 
   view.append(h('div.page.finder', head,
-    h('p.body-medium.muted.enter', { style: { margin: '-8px 0 16px' } }, 'Search the sources your admin has installed and download straight into a library. Only download books you’re allowed to.'),
+    h('p.body-medium.muted.enter', { style: { margin: '-8px 0 16px' } }, t('Search the sources your admin has installed and download straight into a library. Only download books you’re allowed to.')),
     sources.length > 6 && h('div.source-find-wrap', icon('filter_list'), sourceFind),
     kindChips, chips, searchBar, genreRow, crumbs, results, more));
   renderKinds();
@@ -199,12 +200,12 @@ export async function finderView(view, params, stale) {
       more.replaceChildren();
     }
     renderCrumbs();
-    input.placeholder = current === ALL ? (sourceFilter ? `Search ${searchable().length} matching sources…` : 'Search every source…') : `Search ${sourceById(current)?.name || ''}…`;
+    input.placeholder = current === ALL ? (sourceFilter ? t('Search {length} matching sources…', { length: searchable().length }) : t('Search every source…')) : t('Search {value}…', { value: sourceById(current)?.name || '' });
 
     if (current === ALL) {
       const pool = searchable();
       if (!pool.length) {
-        results.replaceChildren(emptyState('search_off', 'No source matches', 'Clear the source filter to search everything.'));
+        results.replaceChildren(emptyState('search_off', t('No source matches'), t('Clear the source filter to search everything.')));
         return;
       }
       if (!query) {
@@ -217,13 +218,13 @@ export async function finderView(view, params, stale) {
       results.replaceChildren();
       for (const s of pool) {
         const section = h('section.finder-section', h('div.finder-section-head', sourceIcon(s), h('h2.title-medium', s.name),
-          h('button.btn.text.state', { type: 'button', onclick: () => pick(s.id) }, 'See all', icon('chevron_right'))), loading());
+          h('button.btn.text.state', { type: 'button', onclick: () => pick(s.id) }, t('See all'), icon('chevron_right'))), loading());
         results.append(section);
         api.finderSearch(s.id, query, 1).then((r) => {
           if (my !== token) return;
           section.lastChild.replaceWith(r.items.length
             ? h('div.shelf', r.items.slice(0, 20).map((it) => tile(s, it)))
-            : h('p.body-medium.muted.finder-none', 'No matches.'));
+            : h('p.body-medium.muted.finder-none', t('No matches.')));
         }).catch((e) => my === token && section.lastChild.replaceWith(h('p.body-medium.finder-none.error-text', e.message)));
       }
       return;
@@ -231,13 +232,13 @@ export async function finderView(view, params, stale) {
 
     const src = sourceById(current);
     if (src.error) {
-      results.replaceChildren(emptyState('cloud_off', `${src.name} isn’t available`, src.error,
-        isAdmin() && button('Open plugin settings', { onclick: () => navigate('/settings/plugins') })));
+      results.replaceChildren(emptyState('cloud_off', t('{name} isn’t available', { name: src.name }), src.error,
+        isAdmin() && button(t('Open plugin settings'), { onclick: () => navigate('/settings/plugins') })));
       return;
     }
     if (src.needsSetup) {
-      results.replaceChildren(emptyState('settings', `${src.name} needs setting up`, `Missing: ${src.needsSetup.join(', ')}.`,
-        isAdmin() && button('Open plugin settings', { onclick: () => navigate('/settings/plugins') })));
+      results.replaceChildren(emptyState('settings', t('{name} needs setting up', { name: src.name }), t('Missing: {value}.', { value: src.needsSetup.join(', ') }),
+        isAdmin() && button(t('Open plugin settings'), { onclick: () => navigate('/settings/plugins') })));
       return;
     }
     try {
@@ -245,29 +246,29 @@ export async function finderView(view, params, stale) {
       if (my !== token) return;
       if (reset) results.replaceChildren();
       if (r.needsQuery) {
-        results.replaceChildren(emptyState('search', `Search ${src.name}`, 'Type a title or author above.'));
+        results.replaceChildren(emptyState('search', t('Search {name}', { name: src.name }), t('Type a title or author above.')));
         return;
       }
       if (!r.items.length && pageNo === 1) {
-        results.replaceChildren(emptyState('search_off', 'Nothing found', query ? `No results for “${query}” on ${src.name}.` : 'This source has nothing to show.'));
+        results.replaceChildren(emptyState('search_off', t('Nothing found'), query ? t('No results for “{query}” on {name}.', { query: query, name: src.name }) : t('This source has nothing to show.')));
         return;
       }
       let grid = results.querySelector('.grid');
       if (!grid) {
-        if (!query && !stack.length) results.append(h('h2.title-medium.finder-label', 'Popular'));
+        if (!query && !stack.length) results.append(h('h2.title-medium.finder-label', t('Popular')));
         grid = stagger(h('div.grid'));
         results.append(grid);
       }
       grid.append(...r.items.map((it) => tile(src, it)));
       // No more pages: leave it empty (replaceChildren would print a null as the text "null").
-      more.replaceChildren(...(r.hasMore ? [button('Load more', { variant: 'tonal', icon: 'expand_more', onclick: (e) => {
+      more.replaceChildren(...(r.hasMore ? [button(t('Load more'), { variant: 'tonal', icon: 'expand_more', onclick: (e) => {
         e.currentTarget.disabled = true;
         pageNo++;
         run(false);
       } })] : []));
     } catch (e) {
       if (my !== token) return;
-      results.replaceChildren(emptyState('cloud_off', `${src.name} didn’t respond`, e.message, button('Try again', { variant: 'tonal', icon: 'refresh', onclick: () => run(true) })));
+      results.replaceChildren(emptyState('cloud_off', t('{name} didn’t respond', { name: src.name }), e.message, button(t('Try again'), { variant: 'tonal', icon: 'refresh', onclick: () => run(true) })));
     }
   }
 
@@ -283,7 +284,7 @@ export async function finderView(view, params, stale) {
         try {
           d = await api.finderDetails(src.id, item.id);
         } catch (e) {
-          body.replaceChildren(emptyState('error', 'Couldn’t load this item', e.message), h('div.dialog-actions', button('Close', { variant: 'text', onclick: () => close() })));
+          body.replaceChildren(emptyState('error', t('Couldn’t load this item'), e.message), h('div.dialog-actions', button(t('Close'), { variant: 'text', onclick: () => close() })));
           return;
         }
         body.replaceChildren(detailsContent(src, d, close));
@@ -297,7 +298,7 @@ export async function finderView(view, params, stale) {
     const usable = libraries.filter((l) => l.writable);
     const fits = (l) => (src.kinds || []).includes(l.kind);
     const preferred = usable.find((l) => l.own && fits(l)) || usable.find(fits) || usable[0];
-    const lib = field('Save to library', { value: preferred?.id ?? '', options: libraryOptions(usable, (l) => `${l.name} (${KIND_LABEL[l.kind]})`) });
+    const lib = field(t('Save to library'), { value: preferred?.id ?? '', options: libraryOptions(usable, (l) => `${l.name} (${KIND_LABEL[l.kind]})`) });
 
     const many = d.files.length > 1;
     // Books: offer one format (the plugin lists the best first). Manga/comics: chapters/volumes, pick any.
@@ -306,20 +307,20 @@ export async function finderView(view, params, stale) {
       const input = h('input', { type: singleChoice ? 'radio' : 'checkbox', name: 'finder-file', checked: singleChoice ? i === 0 : !many });
       input.dataset.index = i;
       return h('label.file-row', input,
-        h('div', h('div.body-large', f.title || f.format?.toUpperCase() || `File ${i + 1}`),
-          h('div.body-small.muted', [f.format?.toUpperCase(), f.size ? formatBytes(f.size) : null, f.volume != null ? `Vol. ${f.volume}` : null, f.chapter != null ? `Ch. ${f.chapter}` : null, f.language, f.date].filter(Boolean).join(' · '))));
+        h('div', h('div.body-large', f.title || f.format?.toUpperCase() || t('File {value}', { value: i + 1 })),
+          h('div.body-small.muted', [f.format?.toUpperCase(), f.size ? formatBytes(f.size) : null, f.volume != null ? t('Vol. {volume}', { volume: f.volume }) : null, f.chapter != null ? t('Ch. {chapter}', { chapter: f.chapter }) : null, f.language, f.date].filter(Boolean).join(' · '))));
     });
-    const selectAll = !singleChoice && many && h('label.check', h('input', { type: 'checkbox', onchange: (e) => rows.forEach((r) => (r.querySelector('input').checked = e.target.checked)) }), `Select all ${d.files.length}`);
+    const selectAll = !singleChoice && many && h('label.check', h('input', { type: 'checkbox', onchange: (e) => rows.forEach((r) => (r.querySelector('input').checked = e.target.checked)) }), t('Select all {length}', { length: d.files.length }));
 
-    const go = button('Download', { icon: 'download', onclick: async () => {
+    const go = button(t('Download'), { icon: 'download', onclick: async () => {
       const picked = rows.map((r) => r.querySelector('input')).filter((x) => x.checked).map((x) => d.files[Number(x.dataset.index)]);
-      if (!picked.length) return snackbar('Pick at least one file.');
-      if (!lib.input.value) return snackbar('Choose a library first.');
+      if (!picked.length) return snackbar(t('Pick at least one file.'));
+      if (!lib.input.value) return snackbar(t('Choose a library first.'));
       go.disabled = true;
       try {
         await api.finderDownload(src.id, { libraryId: Number(lib.input.value), book: { title: d.title, author: d.author, series: d.series, ageRating: d.ageRating, layout: d.layout, sourceId: d.id }, files: picked });
         close();
-        snackbar(`Downloading ${picked.length === 1 ? `“${d.title}”` : `${picked.length} files`}…`, { action: 'View', onAction: () => navigate('/finder/downloads') });
+        snackbar(t('Downloading {value}…', { value: picked.length === 1 ? t('“{title}”', { title: d.title }) : t('{length} files', { length: picked.length }) }), { action: t('View'), onAction: () => navigate('/finder/downloads') });
         import('../shell.js').then((m) => m.refreshDownloadsBadge());
       } catch (e) {
         snackbar(e.message, { duration: 6000 });
@@ -330,21 +331,21 @@ export async function finderView(view, params, stale) {
     // Follow: new chapters/volumes are checked for and (by default) downloaded into the chosen library.
     const followable = d.files.length > 0 && !singleChoice && usable.length > 0;
     let following = null;
-    const followBtn = followable && button('Follow', { variant: 'outlined', icon: 'notifications', onclick: async () => {
+    const followBtn = followable && button(t('Follow'), { variant: 'outlined', icon: 'notifications', onclick: async () => {
       followBtn.disabled = true;
       try {
         if (following) {
           await api.unfollow(following.id);
           following = null;
-          snackbar(`Stopped following “${d.series || d.title}”`);
+          snackbar(t('Stopped following “{value}”', { value: d.series || d.title }));
         } else {
-          if (!lib.input.value) return snackbar('Choose a library first.');
+          if (!lib.input.value) return snackbar(t('Choose a library first.'));
           following = await api.follow({
             plugin: src.id, sourceId: d.id, libraryId: Number(lib.input.value), autoDownload: true,
             book: { title: d.title, author: d.author, series: d.series, cover: d.cover, ageRating: d.ageRating, layout: d.layout },
             files: d.files.map((f) => f.id),
           });
-          snackbar(`Following “${d.series || d.title}”. New chapters will download into ${usable.find((l) => l.id === Number(lib.input.value))?.name || 'the library'}.`, { action: 'Manage', onAction: () => navigate('/finder/following'), duration: 6000 });
+          snackbar(t('Following “{value}”. New chapters will download into {value2}.', { value: d.series || d.title, value2: usable.find((l) => l.id === Number(lib.input.value))?.name || t('the library') }), { action: t('Manage'), onAction: () => navigate('/finder/following'), duration: 6000 });
         }
         drawFollow();
       } catch (e) {
@@ -356,9 +357,9 @@ export async function finderView(view, params, stale) {
     const drawFollow = () => {
       if (!followBtn) return;
       followBtn.querySelector('.icon').textContent = following ? 'notifications_active' : 'notifications';
-      setButtonLabel(followBtn, following ? 'Following' : 'Follow');
+      setButtonLabel(followBtn, following ? t('Following') : t('Follow'));
       followBtn.classList.toggle('selected', Boolean(following));
-      followBtn.title = following ? 'Stop following' : 'Get new chapters automatically';
+      followBtn.title = following ? t('Stop following') : t('Get new chapters automatically');
     };
     if (followBtn) api.followStatus(src.id, d.id).then((f) => {
       following = f;
@@ -374,17 +375,17 @@ export async function finderView(view, params, stale) {
           d.author && h('p.title-small.muted', d.author),
           d.status && h('span.mini-chip', d.status),
           d.genres.length > 0 && h('div.chip-set', d.genres.slice(0, 10).map((g) => h('span.chip.static', g))),
-          d.url && h('a.btn.text.state', { href: d.url, target: '_blank', rel: 'noopener noreferrer' }, icon('open_in_new'), 'View on site'),
+          d.url && h('a.btn.text.state', { href: d.url, target: '_blank', rel: 'noopener noreferrer' }, icon('open_in_new'), t('View on site')),
         ),
       ),
       d.summary && h('p.body-medium.finder-summary', d.summary),
       d.files.length
-        ? h('div', h('div.label-large', { style: { margin: '16px 0 8px' } }, singleChoice ? 'Format' : `Files (${d.files.length})`), selectAll, h('div.file-list', rows))
-        : h('p.body-medium.muted', 'This item has nothing to download.'),
+        ? h('div', h('div.label-large', { style: { margin: '16px 0 8px' } }, singleChoice ? t('Format') : t('Files ({length})', { length: d.files.length })), selectAll, h('div.file-list', rows))
+        : h('p.body-medium.muted', t('This item has nothing to download.')),
       usable.length ? lib : h('p.form-error', icon('error'), session.user.homeDir
-        ? h('span', 'Create a library in your personal folder first: ', h('a', { href: '#/settings/mylibs', onclick: () => close() }, 'My libraries'), '.')
-        : 'You don’t have access to any library to save into.'),
-      h('div.dialog-actions', button('Cancel', { variant: 'text', onclick: () => close() }), followBtn, d.files.length > 0 && usable.length > 0 && go),
+        ? h('span', t('Create a library in your personal folder first: '), h('a', { href: '#/settings/mylibs', onclick: () => close() }, t('My libraries')), '.')
+        : t('You don’t have access to any library to save into.')),
+      h('div.dialog-actions', button(t('Cancel'), { variant: 'text', onclick: () => close() }), followBtn, d.files.length > 0 && usable.length > 0 && go),
     );
   }
 
@@ -405,7 +406,7 @@ export async function downloadsView(view, params, stale) {
   // The admin sees everyone's downloads, one tab per person. Everyone else only gets their own
   // from the server, so they get no tabs.
   const tabs = h('div.download-tabs', { role: 'tablist', hidden: true });
-  view.append(h('div.page', h('div.page-head.downloads-head.enter', iconButton('arrow_back', 'Back', () => navigate('/finder')), h('h1', 'Downloads')), tabs, body));
+  view.append(h('div.page', h('div.page-head.downloads-head.enter', iconButton('arrow_back', t('Back'), () => navigate('/finder')), h('h1', t('Downloads'))), tabs, body));
   let tab = isAdmin() ? params.query.get('user') || 'all' : 'all';
 
   let timer;
@@ -413,7 +414,7 @@ export async function downloadsView(view, params, stale) {
 
   // Which chapter/volume a download was, when its title is just the series.
   const titleOf = (d) => {
-    const part = d.fileTitle || (d.chapter != null ? `Chapter ${d.chapter}` : d.volume != null ? `Volume ${d.volume}` : null);
+    const part = d.fileTitle || (d.chapter != null ? t('Chapter {chapter}', { chapter: d.chapter }) : d.volume != null ? t('Volume {volume}', { volume: d.volume }) : null);
     return part && !d.title.includes(part) ? `${d.title} – ${part}` : d.title;
   };
   const failed = (d) => d.status === 'failed' && d.error !== 'Cancelled';
@@ -438,26 +439,26 @@ export async function downloadsView(view, params, stale) {
       h('div.text',
         h('div.body-large', title),
         h('div.body-small.muted', [
-          d.status === 'downloading' ? `${formatBytes(d.received)}${d.total ? ` of ${formatBytes(d.total)}` : ''}` : null,
-          d.status === 'queued' ? 'Waiting…' : null,
-          d.status === 'done' ? `Added to ${d.library || 'library'} · ${timeAgo(d.finishedAt)}` : null,
+          d.status === 'downloading' ? t('{value}{value2}', { value: formatBytes(d.received), value2: d.total ? t(' of {value}', { value: formatBytes(d.total) }) : '' }) : null,
+          d.status === 'queued' ? t('Waiting…') : null,
+          d.status === 'done' ? t('Added to {value} · {value2}', { value: d.library || t('library'), value2: timeAgo(d.finishedAt) }) : null,
           failed(d) ? `${d.error}${d.finishedAt ? ` · ${timeAgo(d.finishedAt)}` : ''}` : null,
-          cancelled ? `Cancelled${d.finishedAt ? ` · ${timeAgo(d.finishedAt)}` : ''}` : null,
+          cancelled ? t('Cancelled{value}', { value: d.finishedAt ? ` · ${timeAgo(d.finishedAt)}` : '' }) : null,
           d.plugin,
           // In a person's own tab the name would just repeat the tab.
-          isAdmin() && tab === 'all' && d.userName ? `by ${d.userName}` : null,
+          isAdmin() && tab === 'all' && d.userName ? t('by {userName}', { userName: d.userName }) : null,
         ].filter(Boolean).join(' · ')),
         busy && h('div.progress', pct == null ? { class: 'indeterminate' } : null, h('span', { style: { width: `${pct ?? 30}%` } })),
       ),
-      failed(d) && button('Retry', { variant: 'tonal', icon: 'refresh', onclick: run(async () => {
+      failed(d) && button(t('Retry'), { variant: 'tonal', icon: 'refresh', onclick: run(async () => {
         await api.retryDownload(d.id);
-        snackbar(`Retrying “${title}”`);
+        snackbar(t('Retrying “{title}”', { title: title }));
       }) }),
-      cancelled && iconButton('refresh', 'Download again', run(async () => {
+      cancelled && iconButton('refresh', t('Download again'), run(async () => {
         await api.retryDownload(d.id);
-        snackbar(`Downloading “${title}” again`);
+        snackbar(t('Downloading “{title}” again', { title: title }));
       })),
-      iconButton(busy ? 'close' : 'delete', busy ? 'Cancel' : 'Remove', run(() => api.cancelDownload(d.id))),
+      iconButton(busy ? 'close' : 'delete', busy ? t('Cancel') : t('Remove'), run(() => api.cancelDownload(d.id))),
     );
   }
 
@@ -472,7 +473,7 @@ export async function downloadsView(view, params, stale) {
     const people = new Map();
     for (const d of all) {
       const key = String(d.userId ?? 'none');
-      const p = people.get(key) || { key, name: d.userId == null ? 'Deleted users' : d.userName || d.username || 'Unknown', count: 0, attention: 0 };
+      const p = people.get(key) || { key, name: d.userId == null ? t('Deleted users') : d.userName || d.username || t('Unknown'), count: 0, attention: 0 };
       p.count++;
       if (active(d) || failed(d)) p.attention++;
       people.set(key, p);
@@ -490,10 +491,10 @@ export async function downloadsView(view, params, stale) {
         history.replaceState(null, '', `#/finder/downloads${key === 'all' ? '' : `?user=${encodeURIComponent(key)}`}`);
         refresh();
       },
-    }, key === 'all' ? icon('groups') : icon('person'), h('span', label), h('span.count', String(count)), attention > 0 && h('span.dot', { title: `${attention} in progress or failed` }));
+    }, key === 'all' ? icon('groups') : icon('person'), h('span', label), h('span.count', String(count)), attention > 0 && h('span.dot', { title: t('{attention} in progress or failed', { attention: attention }) }));
     tabs.replaceChildren(
-      tabButton('all', 'All users', all.length, all.filter((d) => active(d) || failed(d)).length),
-      ...list.map((p) => tabButton(p.key, p.key === me ? `${p.name} (you)` : p.name, p.count, p.attention)),
+      tabButton('all', t('All users'), all.length, all.filter((d) => active(d) || failed(d)).length),
+      ...list.map((p) => tabButton(p.key, p.key === me ? t('{name} (you)', { name: p.name }) : p.name, p.count, p.attention)),
     );
     tabs.hidden = false;
   }
@@ -504,7 +505,7 @@ export async function downloadsView(view, params, stale) {
     try {
       rows = await api.downloads();
     } catch (e) {
-      body.replaceChildren(emptyState('error', 'Couldn’t load downloads', e.message));
+      body.replaceChildren(emptyState('error', t('Couldn’t load downloads'), e.message));
       return;
     }
     if (stale()) return;
@@ -516,30 +517,30 @@ export async function downloadsView(view, params, stale) {
     // Retry all / Clear act on the open tab only.
     const who = isAdmin() && tab !== 'all' && tab !== 'none' ? tab : undefined;
     if (!rows.length) {
-      body.replaceChildren(emptyState('download_done', 'No downloads', 'Books you download from Content Finder appear here.', button('Find books', { icon: 'travel_explore', onclick: () => navigate('/finder') })));
+      body.replaceChildren(emptyState('download_done', t('No downloads'), t('Books you download from Content Finder appear here.'), button(t('Find books'), { icon: 'travel_explore', onclick: () => navigate('/finder') })));
       return;
     }
     const inProgress = rows.filter(active);
     const failures = rows.filter(failed);
     const history = rows.filter((d) => !active(d) && !failed(d));
     body.replaceChildren(...[
-      inProgress.length > 0 && section('In progress', inProgress),
-      section('Failed', failures, {
-        empty: 'Nothing has failed.',
+      inProgress.length > 0 && section(t('In progress'), inProgress),
+      section(t('Failed'), failures, {
+        empty: t('Nothing has failed.'),
         actions: failures.length ? [
-          button('Retry all', { variant: 'tonal', icon: 'refresh', onclick: run(async () => {
+          button(t('Retry all'), { variant: 'tonal', icon: 'refresh', onclick: run(async () => {
             const r = await api.retryFailedDownloads(who);
-            snackbar(r.retried ? `Retrying ${r.retried} ${r.retried === 1 ? 'download' : 'downloads'}` : 'Nothing to retry');
+            snackbar(r.retried ? plural(r.retried, 'Retrying {retried} download', 'Retrying {retried} downloads', { retried: r.retried }) : t('Nothing to retry'));
           }) }),
-          button('Clear', { variant: 'text', icon: 'clear_all', onclick: run(async () => {
-            if (!(await confirmDialog({ title: 'Clear failed downloads?', message: 'They’re removed from this list and won’t be retried. You can always download them again from Content Finder.', confirm: 'Clear', danger: true }))) return;
+          button(t('Clear'), { variant: 'text', icon: 'clear_all', onclick: run(async () => {
+            if (!(await confirmDialog({ title: t('Clear failed downloads?'), message: t('They’re removed from this list and won’t be retried. You can always download them again from Content Finder.'), confirm: t('Clear'), danger: true }))) return;
             await api.clearDownloads('failed', who);
           }) }),
         ] : [],
       }),
-      section('History', history, {
-        empty: 'Finished downloads appear here.',
-        actions: history.length ? [button('Clear history', { variant: 'text', icon: 'clear_all', onclick: run(() => api.clearDownloads('history', who)) })] : [],
+      section(t('History'), history, {
+        empty: t('Finished downloads appear here.'),
+        actions: history.length ? [button(t('Clear history'), { variant: 'text', icon: 'clear_all', onclick: run(() => api.clearDownloads('history', who)) })] : [],
       }),
     ].filter(Boolean));
     if (inProgress.length) timer = setTimeout(refresh, 1500);
@@ -550,17 +551,17 @@ export async function downloadsView(view, params, stale) {
 // ---------------------------------------------------------------------------
 // Following: series checked for new chapters, and what turned up
 
-const UPDATE_LABEL = { new: 'Not downloaded', queued: 'Queued', downloading: 'Downloading', done: 'Downloaded', downloaded: 'Downloaded', failed: 'Failed' };
+const UPDATE_LABEL = { get new() { return t('Not downloaded'); }, get queued() { return t('Queued'); }, get downloading() { return t('Downloading'); }, get done() { return t('Downloaded'); }, get downloaded() { return t('Downloaded'); }, get failed() { return t('Failed'); } };
 
 export async function followingView(view, params, stale) {
   const page = h('div.page');
   view.append(page);
   const banner = pageBanner({
     icon: 'notifications_active',
-    eyebrow: 'Content Finder',
-    title: 'Following',
-    sub: 'Series checked for new chapters and volumes',
-    actions: [iconButton('refresh', 'Check all now', () => checkAll())],
+    eyebrow: t('Content Finder'),
+    title: t('Following'),
+    sub: t('Series checked for new chapters and volumes'),
+    actions: [iconButton('refresh', t('Check all now'), () => checkAll())],
   });
   const watch = h('div');
   const body = h('div', loading());
@@ -570,10 +571,10 @@ export async function followingView(view, params, stale) {
   api.libraries().then((l) => (libraries = l.filter((x) => x.writable))).catch(() => {});
 
   async function checkAll() {
-    snackbar('Checking your series for new chapters…');
+    snackbar(t('Checking your series for new chapters…'));
     try {
       const r = await api.checkFollows();
-      snackbar(r.found ? `Found ${r.found} new ${r.found === 1 ? 'chapter' : 'chapters'}` : 'Everything’s up to date');
+      snackbar(r.found ? plural(r.found, 'Found {found} new chapter', 'Found {found} new chapters', { found: r.found }) : t('Everything’s up to date'));
     } catch (e) {
       snackbar(e.message, { duration: 6000 });
     }
@@ -583,15 +584,15 @@ export async function followingView(view, params, stale) {
   // "Watch my downloads": match what you downloaded to its source and keep checking it.
   function drawWatch() {
     const on = session.user.prefs.watchDownloads !== false;
-    const syncBtn = button('Check my downloads now', { variant: 'tonal', icon: 'manage_search', onclick: async () => {
+    const syncBtn = button(t('Check my downloads now'), { variant: 'tonal', icon: 'manage_search', onclick: async () => {
       syncBtn.disabled = true;
-      setButtonLabel(syncBtn, 'Matching your downloads…');
+      setButtonLabel(syncBtn, t('Matching your downloads…'));
       try {
         const r = await api.syncFollows(false);
         const parts = [
-          r.followed ? `Now following ${r.followed} ${r.followed === 1 ? 'series' : 'series'}` : 'No new series to follow',
-          r.found ? `${r.found} newer ${r.found === 1 ? 'chapter' : 'chapters'} available` : null,
-          r.unmatched.length ? `${r.unmatched.length} couldn’t be found on their source` : null,
+          r.followed ? plural(r.followed, 'Now following {followed} series', 'Now following {followed} series', { followed: r.followed }) : t('No new series to follow'),
+          r.found ? plural(r.found, '{found} newer chapter available', '{found} newer chapters available', { found: r.found }) : null,
+          r.unmatched.length ? t('{length} couldn’t be found on their source', { length: r.unmatched.length }) : null,
         ].filter(Boolean);
         snackbar(parts.join(' · '), { duration: 7000 });
         load();
@@ -599,17 +600,17 @@ export async function followingView(view, params, stale) {
         snackbar(e.message, { duration: 6000 });
       } finally {
         syncBtn.disabled = false;
-        setButtonLabel(syncBtn, 'Check my downloads now');
+        setButtonLabel(syncBtn, t('Check my downloads now'));
       }
     } });
     watch.replaceChildren(h('section.watch-card.enter',
       h('span.f-icon', icon('manage_search')),
       h('div.text',
-        h('div.title-small', 'Watch my downloads'),
-        h('div.body-small.muted', 'Match everything you’ve downloaded with Content Finder to its source, and tell me when newer chapters come out.')),
+        h('div.title-small', t('Watch my downloads')),
+        h('div.body-small.muted', t('Match everything you’ve downloaded with Content Finder to its source, and tell me when newer chapters come out.'))),
       toggleSwitch(on, async (v) => {
         session.user.prefs = await api.savePrefs({ watchDownloads: v });
-      }, 'Watch my downloads'),
+      }, t('Watch my downloads')),
       syncBtn));
   }
 
@@ -619,40 +620,40 @@ export async function followingView(view, params, stale) {
     try {
       [data, updates] = await Promise.all([api.follows(), api.followUpdates(60)]);
     } catch (e) {
-      body.replaceChildren(emptyState('error', 'Couldn’t load', e.message));
+      body.replaceChildren(emptyState('error', t('Couldn’t load'), e.message));
       return;
     }
     if (stale()) return;
     banner.setArt(data.follows.map((f) => f.cover).filter(Boolean));
     banner.setSub(data.follows.length
-      ? `${data.follows.length} series · ${data.checkHours ? `checked every ${data.checkHours} ${data.checkHours === 1 ? 'hour' : 'hours'}` : 'automatic checks are off (FOLLOW_CHECK_HOURS=0)'}${data.checking ? ' · checking now' : ''}`
-      : 'Series checked for new chapters and volumes');
+      ? t('{length} series · {value}{value2}', { length: data.follows.length, value: data.checkHours ? plural(data.checkHours, 'checked every {checkHours} hour', 'checked every {checkHours} hours', { checkHours: data.checkHours }) : t('automatic checks are off (FOLLOW_CHECK_HOURS=0)'), value2: data.checking ? t(' · checking now') : '' })
+      : t('Series checked for new chapters and volumes'));
 
     const cards = data.follows.map((f) => {
       const auto = toggleSwitch(f.autoDownload, async (v) => {
         await api.updateFollow(f.id, { autoDownload: v });
-        snackbar(v ? 'New chapters will download automatically' : 'You’ll be notified, and can download them yourself');
-      }, 'Download new chapters automatically');
-      const more = iconButton('more_vert', 'More', () => import('../ui.js').then(({ menu }) => menu(more, [
-        { label: 'Check now', icon: 'refresh', onClick: async () => {
+        snackbar(v ? t('New chapters will download automatically') : t('You’ll be notified, and can download them yourself'));
+      }, t('Download new chapters automatically'));
+      const more = iconButton('more_vert', t('More'), () => import('../ui.js').then(({ menu }) => menu(more, [
+        { label: t('Check now'), icon: 'refresh', onClick: async () => {
           try {
             const r = await api.checkFollow(f.id);
-            snackbar(r.found ? `${r.found} new in ${f.title}` : `${f.title} is up to date`);
+            snackbar(r.found ? t('{found} new in {title}', { found: r.found, title: f.title }) : t('{title} is up to date', { title: f.title }));
           } catch (e) {
             snackbar(e.message, { duration: 6000 });
           }
           load();
         } },
-        { header: 'New chapters go into' },
+        { header: t('New chapters go into') },
         ...libraries.map((l) => ({ label: l.name, icon: 'folder', checked: l.id === f.libraryId, onClick: async () => {
           await api.updateFollow(f.id, { libraryId: l.id });
           load();
         } })),
         '-',
-        { label: 'Open in Content Finder', icon: 'travel_explore', onClick: () => navigate(`/finder?source=${encodeURIComponent(f.plugin)}&open=${encodeURIComponent(f.sourceId)}&title=${encodeURIComponent(f.title)}`) },
-        { label: 'Unfollow', icon: 'notifications_off', onClick: async () => {
+        { label: t('Open in Content Finder'), icon: 'travel_explore', onClick: () => navigate(`/finder?source=${encodeURIComponent(f.plugin)}&open=${encodeURIComponent(f.sourceId)}&title=${encodeURIComponent(f.title)}`) },
+        { label: t('Unfollow'), icon: 'notifications_off', onClick: async () => {
           await api.unfollow(f.id);
-          snackbar(`Stopped following “${f.title}”`);
+          snackbar(t('Stopped following “{title}”', { title: f.title }));
           load();
         } },
       ])));
@@ -660,22 +661,22 @@ export async function followingView(view, params, stale) {
         cover({ title: f.title, coverUrl: f.cover }, { showProgress: false }),
         h('div.follow-info',
           h('div.title-medium', f.title),
-          h('div.follow-meta', [f.plugin.split('~').pop(), f.library ? `→ ${f.library}` : 'no library chosen', `${f.known} files known`].join(' · ')),
-          h('div.follow-meta', f.lastError ? `Last check failed: ${f.lastError}` : f.lastCheckedAt ? `Checked ${timeAgo(f.lastCheckedAt)}${f.lastNewAt ? ` · last new ${timeAgo(f.lastNewAt)}` : ''}` : 'Not checked yet'),
-          f.recentUpdates > 0 && h('span.follow-new', `${f.recentUpdates} new this week`),
-          h('div.follow-actions', h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flex: '1' } }, auto, h('span.body-small', 'Auto-download')), more)));
+          h('div.follow-meta', [f.plugin.split('~').pop(), f.library ? `→ ${f.library}` : t('no library chosen'), t('{known} files known', { known: f.known })].join(' · ')),
+          h('div.follow-meta', f.lastError ? t('Last check failed: {lastError}', { lastError: f.lastError }) : f.lastCheckedAt ? t('Checked {value}{value2}', { value: timeAgo(f.lastCheckedAt), value2: f.lastNewAt ? t(' · last new {value}', { value: timeAgo(f.lastNewAt) }) : '' }) : t('Not checked yet')),
+          f.recentUpdates > 0 && h('span.follow-new', t('{recentUpdates} new this week', { recentUpdates: f.recentUpdates })),
+          h('div.follow-actions', h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flex: '1' } }, auto, h('span.body-small', t('Auto-download'))), more)));
     });
 
     const rows = updates.map((u) => h('div.update-row',
       cover({ title: u.title, coverUrl: u.cover }, { showProgress: false }),
-      h('div.text', h('div.title-small', `${u.title} · ${u.file.label}`), h('div.body-small.muted', `${u.plugin.split('~').pop()} · found ${timeAgo(u.foundAt)}${u.error ? ` · ${u.error}` : ''}`)),
+      h('div.text', h('div.title-small', `${u.title} · ${u.file.label}`), h('div.body-small.muted', t('{value} · found {value2}{value3}', { value: u.plugin.split('~').pop(), value2: timeAgo(u.foundAt), value3: u.error ? ` · ${u.error}` : '' }))),
       h(`span.update-status.${u.status}`, UPDATE_LABEL[u.status] || u.status),
-      (u.status === 'new' || u.status === 'failed') && button('Download', { variant: 'tonal', icon: 'download', onclick: async (e) => {
+      (u.status === 'new' || u.status === 'failed') && button(t('Download'), { variant: 'tonal', icon: 'download', onclick: async (e) => {
         const btn = e.currentTarget;
         btn.disabled = true;
         try {
           await api.downloadUpdate(u.id);
-          snackbar(`Downloading ${u.title} · ${u.file.label}`);
+          snackbar(t('Downloading {title} · {label}', { title: u.title, label: u.file.label }));
           import('../shell.js').then((m) => m.refreshDownloadsBadge());
           load();
         } catch (err) {
@@ -687,16 +688,16 @@ export async function followingView(view, params, stale) {
 
     body.replaceChildren(...[
       h('section.section',
-        h('div.section-head', h('h2.with-icon', h('span.sec-icon', icon('bookmark_added')), 'Series you follow', data.follows.length > 0 && h('span.sec-count', String(data.follows.length)))),
+        h('div.section-head', h('h2.with-icon', h('span.sec-icon', icon('bookmark_added')), t('Series you follow'), data.follows.length > 0 && h('span.sec-count', String(data.follows.length)))),
         cards.length
           ? stagger(h('div.follow-list', cards))
-          : emptyState('notifications_active', 'You’re not following anything yet', 'Open a manga or comic in Content Finder and tap Follow, or turn on “Watch my downloads” above.', button('Open Content Finder', { icon: 'travel_explore', onclick: () => navigate('/finder') }))),
+          : emptyState('notifications_active', t('You’re not following anything yet'), t('Open a manga or comic in Content Finder and tap Follow, or turn on “Watch my downloads” above.'), button(t('Open Content Finder'), { icon: 'travel_explore', onclick: () => navigate('/finder') }))),
       updates.length > 0 && h('section.section',
         h('div.section-head',
-          h('h2.with-icon', h('span.sec-icon', icon('new_releases')), 'Updates', h('span.sec-count', String(updates.length))),
-          waiting.length > 1 && button(`Download all ${waiting.length}`, { variant: 'tonal', icon: 'download', onclick: async () => {
+          h('h2.with-icon', h('span.sec-icon', icon('new_releases')), t('Updates'), h('span.sec-count', String(updates.length))),
+          waiting.length > 1 && button(t('Download all {length}', { length: waiting.length }), { variant: 'tonal', icon: 'download', onclick: async () => {
             for (const u of waiting) await api.downloadUpdate(u.id).catch(() => {});
-            snackbar(`Downloading ${waiting.length} chapters`);
+            snackbar(t('Downloading {length} chapters', { length: waiting.length }));
             load();
           } })),
         h('div.list.card', rows)),

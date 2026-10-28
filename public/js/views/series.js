@@ -1,3 +1,4 @@
+import { t, plural } from '../i18n.js';
 // Series overview: artwork, title, creators, links, actions, status, tags,
 // genres, people, publication info, summary, related series and volumes.
 
@@ -18,7 +19,7 @@ export async function seriesView(view, params, stale) {
   const s = await api.series(params.id).catch((e) => (e.status === 404 ? null : Promise.reject(e)));
   if (stale()) return;
   page.replaceChildren();
-  if (!s) return page.append(emptyState('search_off', 'Series not found', 'It may have been removed, or it’s outside your age restriction.', h('a.btn.tonal', { href: '#/library' }, 'Browse library')));
+  if (!s) return page.append(emptyState('search_off', t('Series not found'), t('It may have been removed, or it’s outside your age restriction.'), h('a.btn.tonal', { href: '#/library' }, t('Browse library'))));
 
   const p = prefs();
   const reload = () => render();
@@ -29,61 +30,61 @@ export async function seriesView(view, params, stale) {
   const art = cover({ ...s, title: s.name }, { showProgress: false });
   art.style.viewTransitionName = 'hero-cover';
   art.addEventListener('click', () => s.blur && art.classList.toggle('blurred'));
-  if (s.blur) art.title = 'Tap to reveal';
+  if (s.blur) art.title = t('Tap to reveal');
 
   const writers = s.people.filter((x) => /writer|author|story|creator/i.test(x.role));
   const creators = (writers.length ? writers : s.people).slice(0, 4);
 
-  let readLabel = 'Start reading';
+  let readLabel = t('Start reading');
   let readIcon = 'play_arrow';
-  if (next?.progress && !next.progress.finished) readLabel = `Continue ${next.label}`;
+  if (next?.progress && !next.progress.finished) readLabel = t('Continue {label}', { label: next.label });
   else if (started && s.readCount === s.count) {
-    readLabel = 'Read again';
+    readLabel = t('Read again');
     readIcon = 'replay';
-  } else if (started && next) readLabel = `Read ${next.label}`;
-  else if (s.count > 1 && next) readLabel = `Start ${next.label}`;
+  } else if (started && next) readLabel = t('Read {label}', { label: next.label });
+  else if (s.count > 1 && next) readLabel = t('Start {label}', { label: next.label });
 
-  const wantBtn = iconButton(s.wantToRead ? 'bookmark_heart' : 'bookmark_add', s.wantToRead ? 'Remove from Want to read' : 'Want to read', async () => {
+  const wantBtn = iconButton(s.wantToRead ? 'bookmark_heart' : 'bookmark_add', s.wantToRead ? t('Remove from Want to read') : t('Want to read'), async () => {
     s.wantToRead = !s.wantToRead;
     await api.setSeriesUser(s.id, { wantToRead: s.wantToRead });
     wantBtn.querySelector('.icon').textContent = s.wantToRead ? 'bookmark_heart' : 'bookmark_add';
     wantBtn.classList.toggle('selected', s.wantToRead);
-    snackbar(s.wantToRead ? 'Added to Want to read' : 'Removed from Want to read');
+    snackbar(s.wantToRead ? t('Added to Want to read') : t('Removed from Want to read'));
   }, 'tonal');
   wantBtn.classList.toggle('selected', s.wantToRead);
 
   // "Edit" button: admin metadata tools + download options (per spec).
-  const editBtn = button(isAdmin() ? 'Edit' : 'Options', { variant: 'outlined', icon: isAdmin() ? 'edit' : 'tune' });
+  const editBtn = button(isAdmin() ? t('Edit') : t('Options'), { variant: 'outlined', icon: isAdmin() ? 'edit' : 'tune' });
   editBtn.append(icon('arrow_drop_down'));
   editBtn.addEventListener('click', () => {
     const items = [];
     if (isAdmin()) {
       items.push(
-        { label: 'Edit metadata', icon: 'edit_note', onClick: () => import('../components/editors.js').then((m) => m.editSeries(s.id).then(reload)) },
-        { label: 'Fetch metadata online', icon: 'travel_explore', onClick: () => import('../components/editors.js').then((m) => m.fetchMetadata(s).then(reload)) },
-        { label: 'Change artwork', icon: 'image', onClick: () => import('../components/editors.js').then((m) => m.editSeries(s.id).then(reload)) },
-        { label: 'Refresh from files', icon: 'refresh', onClick: async () => { await api.refreshSeries(s.id); snackbar('Metadata re-read from files'); reload(); } },
+        { label: t('Edit metadata'), icon: 'edit_note', onClick: () => import('../components/editors.js').then((m) => m.editSeries(s.id).then(reload)) },
+        { label: t('Fetch metadata online'), icon: 'travel_explore', onClick: () => import('../components/editors.js').then((m) => m.fetchMetadata(s).then(reload)) },
+        { label: t('Change artwork'), icon: 'image', onClick: () => import('../components/editors.js').then((m) => m.editSeries(s.id).then(reload)) },
+        { label: t('Refresh from files'), icon: 'refresh', onClick: async () => { await api.refreshSeries(s.id); snackbar(t('Metadata re-read from files')); reload(); } },
         '-',
       );
     }
     if (canDownload()) {
       items.push(
-        { header: 'Download' },
-        { label: 'Download whole series (.zip)', icon: 'folder_zip', onClick: () => download(seriesDownloadUrl(s.id), `${s.name} – all volumes`) },
+        { header: t('Download') },
+        { label: t('Download whole series (.zip)'), icon: 'folder_zip', onClick: () => download(seriesDownloadUrl(s.id), t('{name} – all volumes', { name: s.name })) },
         ...s.books.slice(0, 40).map((b) => ({ label: b.label, icon: 'download', trailing: b.format.toUpperCase(), onClick: () => download(`/api/books/${b.id}/download`, b.label, b.size) })),
         '-',
-        { label: 'Send to…', icon: 'send_to_mobile', onClick: () => sendTo({ series: s }) },
+        { label: t('Send to…'), icon: 'send_to_mobile', onClick: () => sendTo({ series: s }) },
       );
     }
     items.push(
-      { label: 'Add to category', icon: 'playlist_add', onClick: () => addToCollection([s.id], `“${s.name}”`).then(reload) },
-      { label: s.userBlur ? 'Unblur artwork' : 'Blur artwork (NSFW)', icon: s.userBlur ? 'visibility' : 'visibility_off', onClick: async () => { await api.setSeriesUser(s.id, { blur: !s.userBlur }); reload(); } },
-      { label: 'Reading profile…', icon: 'chrome_reader_mode', onClick: () => pickProfile(s) },
+      { label: t('Add to category'), icon: 'playlist_add', onClick: () => addToCollection([s.id], `“${s.name}”`).then(reload) },
+      { label: s.userBlur ? t('Unblur artwork') : t('Blur artwork (NSFW)'), icon: s.userBlur ? 'visibility' : 'visibility_off', onClick: async () => { await api.setSeriesUser(s.id, { blur: !s.userBlur }); reload(); } },
+      { label: t('Reading profile…'), icon: 'chrome_reader_mode', onClick: () => pickProfile(s) },
     );
     menu(editBtn, items);
   });
 
-  const moreBtn = iconButton('more_vert', 'More', () => seriesActions(moreBtn, { ...s, blur: s.userBlur }, { onChange: reload }));
+  const moreBtn = iconButton('more_vert', t('More'), () => seriesActions(moreBtn, { ...s, blur: s.userBlur }, { onChange: reload }));
 
   // ----- Status + user tags -----
   const statusRow = h('div.chip-set', USER_STATUS.map((u) =>
@@ -97,20 +98,20 @@ export async function seriesView(view, params, stale) {
   const tagSet = h('div.chip-set');
   const renderTags = () => {
     tagSet.replaceChildren(
-      ...s.userTags.map((t, i) => h('span.chip.input-chip.selected',
-        h('a', { href: `#/tag/${encodeURIComponent(t)}`, style: { color: 'inherit', textDecoration: 'none' } }, `#${t}`),
-        h('button', { type: 'button', 'aria-label': `Remove tag ${t}`, onclick: async () => {
+      ...s.userTags.map((localT, i) => h('span.chip.input-chip.selected',
+        h('a', { href: `#/tag/${encodeURIComponent(localT)}`, style: { color: 'inherit', textDecoration: 'none' } }, `#${localT}`),
+        h('button', { type: 'button', 'aria-label': t('Remove tag {t}', { t: localT }), onclick: async () => {
           s.userTags.splice(i, 1);
           await api.setSeriesUser(s.id, { tags: s.userTags });
           renderTags();
         } }, icon('close')))),
-      h('button.chip.state', { type: 'button', onclick: addTag }, icon('add'), 'Add tag'),
+      h('button.chip.state', { type: 'button', onclick: addTag }, icon('add'), t('Add tag')),
     );
   };
   async function addTag() {
     const existing = await api.userTags().catch(() => []);
-    const input = h('input', { type: 'text', placeholder: 'New tag', list: 'tag-suggest', style: { border: 'none', outline: 'none', background: 'transparent', width: '120px', fontSize: '14px' } });
-    const chip = h('span.chip.selected', icon('sell'), input, h('datalist#tag-suggest', existing.map((t) => h('option', { value: t.name }))));
+    const input = h('input', { type: 'text', placeholder: t('New tag'), list: 'tag-suggest', style: { border: 'none', outline: 'none', background: 'transparent', width: '120px', fontSize: '14px' } });
+    const chip = h('span.chip.selected', icon('sell'), input, h('datalist#tag-suggest', existing.map((localT) => h('option', { value: localT.name }))));
     tagSet.lastChild.replaceWith(chip);
     input.focus();
     const commit = async () => {
@@ -133,26 +134,26 @@ export async function seriesView(view, params, stale) {
   const st = s.stats || {};
   const FMT = (f) => f.toUpperCase();
   const facts = [
-    ['Publication', s.status ? h('span.status-pill', { class: s.status }, STATUS_LABEL[s.status]) : 'Unknown'],
-    s.year && ['Released', String(s.year)],
-    s.publisher && ['Publisher', s.publisher],
-    ['Age rating', s.ageRatingLabel],
-    ['In library', `${s.count} ${s.count === 1 ? 'item' : 'items'}`],
+    [t('Publication'), s.status ? h('span.status-pill', { class: s.status }, STATUS_LABEL[s.status]) : t('Unknown')],
+    s.year && [t('Released'), String(s.year)],
+    s.publisher && [t('Publisher'), s.publisher],
+    [t('Age rating'), s.ageRatingLabel],
+    [t('In library'), plural(s.count, '{count} item', '{count} items', { count: s.count })],
     ...['volume', 'chapter'].map((kind) => {
       const g = numberGaps(s.books.filter((b) => !b.special && (kind === 'chapter' ? b.chapter != null : b.volume != null && b.chapter == null)).map((b) => b[kind]));
-      return g && [kind === 'volume' ? 'Volumes' : 'Chapters', `${g.ranges}${g.missing.length ? ` · missing ${g.missingText}` : ''}`];
+      return g && [kind === 'volume' ? t('Volumes') : t('Chapters'), t('{ranges}{value}', { ranges: g.ranges, value: g.missing.length ? t(' · missing {missingText}', { missingText: g.missingText }) : '' })];
     }),
-    ['Your progress', s.readCount ? `${s.readCount} of ${s.count} read` : started ? 'Started' : 'Not started'],
-    s.language && ['Language', s.language],
-    s.lastRead && ['Last read', timeAgo(s.lastRead)],
-    st.secondsRead > 0 && ['Time spent reading', `${formatDuration(st.secondsRead)} over ${st.daysRead} ${st.daysRead === 1 ? 'day' : 'days'}`],
-    st.highlights + st.bookmarks > 0 && ['Your notes', `${st.highlights} highlights · ${st.bookmarks} bookmarks`],
-    st.formats?.length > 0 && ['Formats', st.formats.map((f) => (st.formats.length > 1 ? `${FMT(f.format)} ×${f.count}` : FMT(f.format))).join(', ')],
-    st.size > 0 && ['Size on disk', formatBytes(st.size)],
-    st.pages > 0 && ['Pages', st.pages.toLocaleString()],
-    st.firstAdded && ['Added', new Date(st.firstAdded).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })],
-    st.lastAdded && st.lastAdded - st.firstAdded > 86400_000 && ['Newest file', timeAgo(st.lastAdded)],
-    st.folder && ['Folder', h('span.mono', st.folder)],
+    [t('Your progress'), s.readCount ? t('{readCount} of {count} read', { readCount: s.readCount, count: s.count }) : started ? t('Started') : t('Not started')],
+    s.language && [t('Language'), s.language],
+    s.lastRead && [t('Last read'), timeAgo(s.lastRead)],
+    st.secondsRead > 0 && [t('Time spent reading'), plural(st.daysRead, '{value} over {daysRead} day', '{value} over {daysRead} days', { value: formatDuration(st.secondsRead), daysRead: st.daysRead })],
+    st.highlights + st.bookmarks > 0 && [t('Your notes'), t('{highlights} highlights · {bookmarks} bookmarks', { highlights: st.highlights, bookmarks: st.bookmarks })],
+    st.formats?.length > 0 && [t('Formats'), st.formats.map((f) => (st.formats.length > 1 ? `${FMT(f.format)} ×${f.count}` : FMT(f.format))).join(', ')],
+    st.size > 0 && [t('Size on disk'), formatBytes(st.size)],
+    st.pages > 0 && [t('Pages'), st.pages.toLocaleString()],
+    st.firstAdded && [t('Added'), new Date(st.firstAdded).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })],
+    st.lastAdded && st.lastAdded - st.firstAdded > 86400_000 && [t('Newest file'), timeAgo(st.lastAdded)],
+    st.folder && [t('Folder'), h('span.mono', st.folder)],
   ].filter(Boolean);
 
   // ----- Summary -----
@@ -163,7 +164,7 @@ export async function seriesView(view, params, stale) {
     summary = h('div.summary-wrap', text);
     if (p.blurUnreadSummaries && !started) {
       text.classList.add('spoiler');
-      const reveal = button('Show summary', { variant: 'tonal', icon: 'visibility', onclick: () => {
+      const reveal = button(t('Show summary'), { variant: 'tonal', icon: 'visibility', onclick: () => {
         text.classList.remove('spoiler');
         reveal.parentElement.remove();
       } });
@@ -180,7 +181,7 @@ export async function seriesView(view, params, stale) {
     eyebrow,
     h('h1', s.name),
     s.localizedName && s.localizedName !== s.name && h('div.alt', s.localizedName),
-    creators.length > 0 && h('div.creators', 'by ', creators.map((c, i) => [i ? ', ' : '', h('a', { href: `#/person/${encodeURIComponent(c.name)}` }, c.name)])),
+    creators.length > 0 && h('div.creators', t('by '), creators.map((c, i) => [i ? ', ' : '', h('a', { href: `#/person/${encodeURIComponent(c.name)}` }, c.name)])),
     s.links.length > 0 && h('div.chip-set', s.links.map((l) =>
       h('a.chip.link-chip.state', { href: l.url, target: '_blank', rel: 'noopener noreferrer' }, icon(LINK_ICON[l.source] || 'open_in_new'), l.source))),
     h('div.actions',
@@ -198,17 +199,17 @@ export async function seriesView(view, params, stale) {
     s.progress > 0 && h('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', maxWidth: '460px', width: '100%' } },
       h('div.progress', { style: { flex: '1' } }, h('span', { style: { width: `${Math.round(s.progress * 100)}%` } })),
       h('span.label-medium.muted', `${Math.round(s.progress * 100)}%`)),
-    h('div.info-block', h('span.label', 'Your status'), statusRow),
-    h('div.info-block', h('span.label', 'Your tags'), tagSet),
-    s.genres.length > 0 && h('div.info-block', h('span.label', 'Genres'),
+    h('div.info-block', h('span.label', t('Your status')), statusRow),
+    h('div.info-block', h('span.label', t('Your tags')), tagSet),
+    s.genres.length > 0 && h('div.info-block', h('span.label', t('Genres')),
       h('div.chip-set', s.genres.map((g) => h('a.chip.genre-chip.state', { href: `#/genre/${encodeURIComponent(g)}` }, g)))),
-    s.tags.length > 0 && h('div.info-block', h('span.label', 'Tags'),
-      h('div.chip-set', s.tags.slice(0, 24).map((t) => h('span.chip', t)))),
-    s.people.length > 0 && h('div.info-block', h('span.label', 'Writers & artists'),
+    s.tags.length > 0 && h('div.info-block', h('span.label', t('Tags')),
+      h('div.chip-set', s.tags.slice(0, 24).map((localT) => h('span.chip', localT)))),
+    s.people.length > 0 && h('div.info-block', h('span.label', t('Writers & artists')),
       h('div.people', s.people.map((x) =>
         h('a.person', { href: `#/person/${encodeURIComponent(x.name)}` }, h('span.avatar', x.name[0]), h('span', h('div.n', x.name), h('div.r', x.role)))))),
     h('div.facts', facts.map(([k, v]) => h('div.fact', h('div.k', k), h('div.v', v)))),
-    summary && h('div.info-block', h('span.label', 'Summary'), summary),
+    summary && h('div.info-block', h('span.label', t('Summary')), summary),
   );
 
   const scape = h('div.scape');
@@ -222,11 +223,11 @@ export async function seriesView(view, params, stale) {
   if (s.relations.length) {
     const grid = stagger(h('div.grid', s.relations.map((r) => {
       const card = seriesCard(r.series, { onChange: reload });
-      card.querySelector('.t-sub').textContent = RELATION_LABEL[r.kind] || r.kind;
+      card.querySelector('.t-sub').textContent = t(RELATION_LABEL[r.kind] || r.kind);
       return card;
     })));
     const details = h('details.section', { open: !p.collapseRelationships },
-      h('summary.section-head', { style: { cursor: 'pointer', listStyle: 'none' } }, h('h2', 'Related series'), icon('expand_more')),
+      h('summary.section-head', { style: { cursor: 'pointer', listStyle: 'none' } }, h('h2', t('Related series')), icon('expand_more')),
       grid,
     );
     page.append(details);
@@ -234,10 +235,10 @@ export async function seriesView(view, params, stale) {
 
   // ----- Volumes -----
   const groups = [
-    ['Volumes', s.books.filter((b) => !b.special && b.volume != null && b.chapter == null)],
-    ['Chapters', s.books.filter((b) => !b.special && b.chapter != null)],
-    [s.kind === 'books' ? 'Books' : 'Other', s.books.filter((b) => !b.special && b.volume == null && b.chapter == null)],
-    ['Specials', s.books.filter((b) => b.special)],
+    [t('Volumes'), s.books.filter((b) => !b.special && b.volume != null && b.chapter == null)],
+    [t('Chapters'), s.books.filter((b) => !b.special && b.chapter != null)],
+    [s.kind === 'books' ? t('Books') : t('Other'), s.books.filter((b) => !b.special && b.volume == null && b.chapter == null)],
+    [t('Specials'), s.books.filter((b) => b.special)],
   ].filter(([, list]) => list.length);
   const single = groups.length === 1;
   // Grid of covers, or a detailed list with format, pages, size and progress.
@@ -248,7 +249,7 @@ export async function seriesView(view, params, stale) {
     const kind = label === 'Volumes' ? 'volume' : label === 'Chapters' ? 'chapter' : null;
     const g = kind && numberGaps(list.map((b) => b[kind]));
     return g?.missing.length > 0 && h('div.gap-note', icon('report'),
-      `Missing ${kind === 'volume' ? (g.missing.length === 1 ? 'volume' : 'volumes') : (g.missing.length === 1 ? 'chapter' : 'chapters')} ${g.missingText} (you have ${g.ranges})`);
+      t('Missing {value} {missingText} (you have {ranges})', { value: kind === 'volume' ? (g.missing.length === 1 ? t('volume') : t('volumes')) : (g.missing.length === 1 ? t('chapter') : t('chapters')), missingText: g.missingText, ranges: g.ranges }));
   };
   const drawVolumes = () => volumes.replaceChildren(...groups.map(([label, list]) =>
     h('div.vol-group', !single && h('h3.title-medium', { style: { margin: '0 0 12px' } }, label), gapNote(label, list),
@@ -257,8 +258,8 @@ export async function seriesView(view, params, stale) {
         : stagger(h('div.grid', list.map((b) => volumeCard(b, { series: s, onChange: reload })))))));
   drawVolumes();
   const layoutToggle = segmented([
-    { value: 'grid', icon: 'grid_view', label: '', title: 'Covers' },
-    { value: 'list', icon: 'view_list', label: '', title: 'Details' },
+    { value: 'grid', icon: 'grid_view', label: '', title: t('Covers') },
+    { value: 'list', icon: 'view_list', label: '', title: t('Details') },
   ], layout, (v) => {
     layout = v;
     saveVolLayout(v);
@@ -267,7 +268,7 @@ export async function seriesView(view, params, stale) {
   layoutToggle.classList.add('compact');
   page.append(
     h('section.section',
-      h('div.section-head', h('h2', single && groups[0][0] !== 'Other' ? `${groups[0][0]} (${s.books.length})` : `In this series (${s.books.length})`), layoutToggle),
+      h('div.section-head', h('h2', single && groups[0][0] !== 'Other' ? `${groups[0][0]} (${s.books.length})` : t('In this series ({length})', { length: s.books.length })), layoutToggle),
       volumes,
     ),
   );
@@ -284,7 +285,7 @@ export async function seriesView(view, params, stale) {
   api.similarSeries(s.id, 18).then((list) => {
     if (!list.length || !more.isConnected) return;
     more.append(
-      h('div.section-head', h('h2', 'More like this')),
+      h('div.section-head', h('h2', t('More like this'))),
       stagger(h('div.grid', list.map((x) => seriesCard(x)))),
     );
     more.hidden = false;
@@ -320,7 +321,7 @@ export function numberGaps(nums) {
   return {
     ranges: ranges.length > 6 ? `${ranges.slice(0, 6).join(', ')}, …` : ranges.join(', '),
     missing,
-    missingText: missingParts.length > 8 ? `${missingParts.slice(0, 8).join(', ')} and more` : missingParts.join(', '),
+    missingText: missingParts.length > 8 ? t('{value} and more', { value: missingParts.slice(0, 8).join(', ') }) : missingParts.join(', '),
   };
 }
 
@@ -329,14 +330,14 @@ const starIcon = (rating, i) => (rating >= i * 2 ? icon('star', 'filled') : rati
 
 /** Stars for a 1–10 (half-star) rating. */
 function stars(rating) {
-  const out = h('span.stars', { title: `${rating / 2} of 5 stars` });
+  const out = h('span.stars', { title: t('{value} of 5 stars', { value: rating / 2 }) });
   for (let i = 1; i <= 5; i++) out.append(starIcon(rating, i));
   return out;
 }
 
 /** Tap a star for a whole star, tap it again for half. */
 function starInput(value, onChange) {
-  const wrap = h('span.stars.input', { role: 'radiogroup', 'aria-label': 'Your rating' });
+  const wrap = h('span.stars.input', { role: 'radiogroup', 'aria-label': t('Your rating') });
   const draw = () => wrap.replaceChildren(...[1, 2, 3, 4, 5].map((i) =>
     h('button', { type: 'button', 'aria-label': `${i} ${i === 1 ? 'star' : 'stars'}`, onclick: () => {
       value = value === i * 2 ? i * 2 - 1 : value === i * 2 - 1 && i === 1 ? null : i * 2;
@@ -350,42 +351,42 @@ function starInput(value, onChange) {
 function renderReviews(section, s, r) {
   const mine = r.mine || { rating: null, body: '', spoiler: false };
   let rating = mine.rating;
-  const text = h('textarea.review-input', { rows: 3, maxlength: 5000, placeholder: 'What did you think? (optional)' });
+  const text = h('textarea.review-input', { rows: 3, maxlength: 5000, placeholder: t('What did you think? (optional)') });
   text.value = mine.body || '';
   const spoiler = h('input', { type: 'checkbox', checked: mine.spoiler });
-  const save = button(r.mine ? 'Update review' : 'Post', { variant: 'tonal', icon: 'rate_review', onclick: async () => {
+  const save = button(r.mine ? t('Update review') : t('Post'), { variant: 'tonal', icon: 'rate_review', onclick: async () => {
     const next = await api.saveReview(s.id, { rating, body: text.value, spoiler: spoiler.checked });
-    snackbar(rating || text.value.trim() ? 'Review saved' : 'Review removed');
+    snackbar(rating || text.value.trim() ? t('Review saved') : t('Review removed'));
     renderReviews(section, s, next);
   } });
-  const remove = r.mine && button('Delete', { variant: 'text', icon: 'delete', onclick: async () => {
+  const remove = r.mine && button(t('Delete'), { variant: 'text', icon: 'delete', onclick: async () => {
     renderReviews(section, s, await api.deleteReview(s.id));
-    snackbar('Review removed');
+    snackbar(t('Review removed'));
   } });
 
   const others = r.reviews.filter((x) => !x.mine);
   // The DOM's replaceChildren would print `false`; h() skips it.
   section.replaceChildren(h('div',
-    h('div.section-head', h('h2', 'Ratings & reviews')),
+    h('div.section-head', h('h2', t('Ratings & reviews'))),
     r.count > 0 && h('div.rating-summary',
       h('span.big', (r.average / 2).toFixed(1)),
-      h('div', stars(Math.round(r.average)), h('div.body-small.muted', `${r.count} ${r.count === 1 ? 'rating' : 'ratings'} on this server`))),
+      h('div', stars(Math.round(r.average)), h('div.body-small.muted', plural(r.count, '{count} rating on this server', '{count} ratings on this server', { count: r.count })))),
     h('div.review',
-      h('div.review-head', h('div.who.title-small', r.mine ? 'Your review' : 'Rate this series'), starInput(rating, (v) => (rating = v))),
+      h('div.review-head', h('div.who.title-small', r.mine ? t('Your review') : t('Rate this series')), starInput(rating, (v) => (rating = v))),
       text,
       h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '8px' } },
-        h('label.check', { style: { flex: '1' } }, spoiler, 'Contains spoilers'),
+        h('label.check', { style: { flex: '1' } }, spoiler, t('Contains spoilers')),
         remove, save)),
     others.length > 0 && h('div.review-list', { style: { marginTop: '12px' } }, others.map((x) => {
-      const body = x.body && h(`p.review-body.body-medium${x.spoiler ? '.spoiler' : ''}`, { title: x.spoiler ? 'Spoiler – tap to reveal' : null, onclick: (e) => e.currentTarget.classList.remove('spoiler') }, x.body);
+      const body = x.body && h(`p.review-body.body-medium${x.spoiler ? '.spoiler' : ''}`, { title: x.spoiler ? t('Spoiler – tap to reveal') : null, onclick: (e) => e.currentTarget.classList.remove('spoiler') }, x.body);
       return h('div.review',
         h('div.review-head',
           avatarFor(x.user),
           h('div.who', h('div.title-small', x.user.displayName), h('div.body-small.muted', timeAgo(x.updatedAt))),
           x.rating && stars(x.rating),
-          isAdmin() && iconButton('delete', 'Remove this review', async () => {
+          isAdmin() && iconButton('delete', t('Remove this review'), async () => {
             renderReviews(section, s, await api.removeReview(s.id, x.user.id));
-            snackbar('Review removed');
+            snackbar(t('Review removed'));
           })),
         body);
     }))));
@@ -413,16 +414,16 @@ function volumeRow(b, s, onChange) {
   const pct = p?.finished ? 100 : Math.round((p?.percent || 0) * 100);
   const meta = [
     b.format.toUpperCase(),
-    b.pageCount ? `${b.pageCount} pages` : null,
+    b.pageCount ? t('{pageCount} pages', { pageCount: b.pageCount }) : null,
     b.size ? formatBytes(b.size) : null,
-    `added ${timeAgo(b.addedAt)}`,
+    t('added {value}', { value: timeAgo(b.addedAt) }),
   ].filter(Boolean).join(' · ');
-  const info = iconButton('info', 'Details', (e) => {
+  const info = iconButton('info', t('Details'), (e) => {
     e.preventDefault();
     e.stopPropagation();
     import('../components/book-info.js').then((m) => m.showBookInfo(b.id));
   });
-  const more = iconButton('more_vert', 'More actions', (e) => {
+  const more = iconButton('more_vert', t('More actions'), (e) => {
     e.preventDefault();
     e.stopPropagation();
     bookActions(more, b, { series: s, onChange });
@@ -434,10 +435,10 @@ function volumeRow(b, s, onChange) {
       h('div.vol-meta', meta),
       h('div.vol-progress',
         p?.finished
-          ? h('span.mini-chip', icon('check'), 'Finished')
+          ? h('span.mini-chip', icon('check'), t('Finished'))
           : pct > 0
             ? [h('div.progress', h('span', { style: { width: `${pct}%` } })), h('span.label-small', `${pct}%${p?.updatedAt ? ` · ${timeAgo(p.updatedAt)}` : ''}`)]
-            : h('span.label-small.muted', 'Not started')),
+            : h('span.label-small.muted', t('Not started'))),
     ),
     info,
     more,
@@ -507,9 +508,9 @@ function rgbHue(r, g, b) {
 async function pickProfile(s) {
   const { profiles } = await api.profiles();
   const m = menu(document.activeElement || document.body, [
-    { header: 'Reading profile for this series' },
-    { label: 'Use library default', icon: 'restart_alt', onClick: async () => { await api.setSeriesProfile(s.id, null); snackbar('Using the library’s profile'); } },
-    ...profiles.map((p) => ({ label: p.name, icon: 'chrome_reader_mode', onClick: async () => { await api.setSeriesProfile(s.id, p.id); snackbar(`“${p.name}” will be used for this series`); } })),
+    { header: t('Reading profile for this series') },
+    { label: t('Use library default'), icon: 'restart_alt', onClick: async () => { await api.setSeriesProfile(s.id, null); snackbar(t('Using the library’s profile')); } },
+    ...profiles.map((p) => ({ label: p.name, icon: 'chrome_reader_mode', onClick: async () => { await api.setSeriesProfile(s.id, p.id); snackbar(t('“{name}” will be used for this series', { name: p.name })); } })),
   ]);
   return m;
 }
@@ -536,21 +537,21 @@ function followPanel(s) {
     draw(d);
     // Poll while something is downloading; once it all finishes, offer to show the new files.
     if (d.active.length) timer = setTimeout(() => box.isConnected && load(), 3000);
-    else if (wasActive) snackbar('New chapters downloaded', { action: 'Show', onAction: () => render() });
+    else if (wasActive) snackbar(t('New chapters downloaded'), { action: t('Show'), onAction: () => render() });
     wasActive = d.active.length > 0;
   }
 
   function draw(d) {
     const f = d.follow;
-    const head = h('div.section-head', h('h2', 'New chapters'), h('span.mini-chip', icon('extension'), d.source.name));
+    const head = h('div.section-head', h('h2', t('New chapters')), h('span.mini-chip', icon('extension'), d.source.name));
     let body;
     if (!f) {
       let auto = true;
-      const follow = button('Follow', { icon: 'add_alert', onclick: async () => {
+      const follow = button(t('Follow'), { icon: 'add_alert', onclick: async () => {
         follow.disabled = true;
         try {
           const r = await api.followSeries(s.id, auto);
-          snackbar(r.found ? `Following – found ${r.found} new ${r.found === 1 ? 'chapter' : 'chapters'}${auto ? ', downloading now' : ''}` : 'Following – you’ll get new chapters as they come out');
+          snackbar(r.found ? plural(r.found, 'Following – found {found} new chapter{value2}', 'Following – found {found} new chapters{value2}', { found: r.found, value2: auto ? t(', downloading now') : '' }) : t('Following – you’ll get new chapters as they come out'));
           load();
         } catch (err) {
           snackbar(err.message, { duration: 6000 });
@@ -560,21 +561,21 @@ function followPanel(s) {
       body = h('div.follow-card',
         icon('notifications_none'),
         h('div.text',
-          h('div.body-large', 'Get new chapters automatically'),
-          h('div.body-small.muted', `This series came from ${d.source.name}. Follow it to check for new chapters every few hours.`),
-          h('label.follow-auto', toggleSwitch(true, (v) => (auto = v), 'Download new chapters automatically'), h('span.body-medium', 'Download them automatically'))),
+          h('div.body-large', t('Get new chapters automatically')),
+          h('div.body-small.muted', t('This series came from {name}. Follow it to check for new chapters every few hours.', { name: d.source.name })),
+          h('label.follow-auto', toggleSwitch(true, (v) => (auto = v), t('Download new chapters automatically')), h('span.body-medium', t('Download them automatically')))),
         h('div.follow-actions', follow));
     } else {
       const status = [
-        f.lastCheckedAt ? `checked ${timeAgo(f.lastCheckedAt)}` : 'not checked yet',
-        f.lastNewAt && `last new chapter ${timeAgo(f.lastNewAt)}`,
-        f.library && `saves to ${f.library}`,
+        f.lastCheckedAt ? t('checked {value}', { value: timeAgo(f.lastCheckedAt) }) : t('not checked yet'),
+        f.lastNewAt && t('last new chapter {value}', { value: timeAgo(f.lastNewAt) }),
+        f.library && t('saves to {library}', { library: f.library }),
       ].filter(Boolean).join(' · ');
-      const check = button('Check now', { variant: 'text', icon: 'refresh', onclick: async () => {
+      const check = button(t('Check now'), { variant: 'text', icon: 'refresh', onclick: async () => {
         check.disabled = true;
         try {
           const r = await api.checkFollow(f.id);
-          snackbar(r.found ? `Found ${r.found} new ${r.found === 1 ? 'chapter' : 'chapters'}` : 'No new chapters yet');
+          snackbar(r.found ? plural(r.found, 'Found {found} new chapter', 'Found {found} new chapters', { found: r.found }) : t('No new chapters yet'));
           load();
         } catch (err) {
           snackbar(err.message, { duration: 6000 });
@@ -585,41 +586,41 @@ function followPanel(s) {
       body = h('div.follow-card.following',
         icon('notifications_active', 'filled'),
         h('div.text',
-          h('div.body-large', 'Following'),
+          h('div.body-large', t('Following')),
           h('div.body-small.muted', status),
-          f.lastError && h('div.body-small', { style: { color: 'var(--md-error)' } }, `Last check failed: ${f.lastError}`),
+          f.lastError && h('div.body-small', { style: { color: 'var(--md-error)' } }, t('Last check failed: {lastError}', { lastError: f.lastError })),
           h('label.follow-auto',
             toggleSwitch(f.autoDownload, async (v) => {
               try {
                 await api.updateFollow(f.id, { autoDownload: v });
-                snackbar(v ? 'New chapters will download automatically' : 'New chapters will show in Updates without downloading');
+                snackbar(v ? t('New chapters will download automatically') : t('New chapters will show in Updates without downloading'));
               } catch (err) {
                 snackbar(err.message, { duration: 6000 });
               }
-            }, 'Download new chapters automatically'),
-            h('span.body-medium', 'Download new chapters automatically'))),
+            }, t('Download new chapters automatically')),
+            h('span.body-medium', t('Download new chapters automatically')))),
         h('div.follow-actions', check,
-          iconButton('notifications_off', 'Unfollow', async () => {
+          iconButton('notifications_off', t('Unfollow'), async () => {
             await api.unfollow(f.id);
-            snackbar('Unfollowed');
+            snackbar(t('Unfollowed'));
             load();
           })));
     }
 
     const active = d.active.length > 0 && h('div.follow-downloads',
-      h('div.label-large', h('span.pulse-dot'), `Downloading ${d.active.length} ${d.active.length === 1 ? 'file' : 'files'}`),
+      h('div.label-large', h('span.pulse-dot'), plural(d.active.length, 'Downloading {length} file', 'Downloading {length} files', { length: d.active.length })),
       ...d.active.map((a) => {
         const pct = a.total ? Math.round((a.received / a.total) * 100) : null;
-        const state = a.status === 'queued' ? 'Waiting in the queue' : pct != null ? `${pct}% · ${formatBytes(a.received)} of ${formatBytes(a.total)}` : formatBytes(a.received || 0);
+        const state = a.status === 'queued' ? t('Waiting in the queue') : pct != null ? t('{pct}% · {value} of {value2}', { pct: pct, value: formatBytes(a.received), value2: formatBytes(a.total) }) : formatBytes(a.received || 0);
         return h('div.follow-dl',
           h('div.text',
             h('div.body-medium', a.label),
-            h('div.body-small.muted', [state, !a.mine && a.by && `for ${a.by}`].filter(Boolean).join(' · '))),
+            h('div.body-small.muted', [state, !a.mine && a.by && t('for {by}', { by: a.by })].filter(Boolean).join(' · '))),
           h('div.progress', { class: pct == null ? 'indeterminate' : '' }, h('span', { style: { width: pct != null ? `${pct}%` : '' } })));
       }));
     const recent = f && d.updates.length > 0 && h('div.follow-updates',
-      h('div.label-large', 'Recently found'),
-      ...d.updates.map((u) => h('div.body-small', icon(u.queued ? 'download_done' : 'new_releases'), `${u.label} · ${timeAgo(u.foundAt)}${u.queued ? '' : ' · not downloaded'}`)));
+      h('div.label-large', t('Recently found')),
+      ...d.updates.map((u) => h('div.body-small', icon(u.queued ? 'download_done' : 'new_releases'), `${u.label} · ${timeAgo(u.foundAt)}${u.queued ? '' : t(' · not downloaded')}`)));
 
     box.replaceChildren(...[head, body, active, recent].filter(Boolean));
     box.hidden = false;

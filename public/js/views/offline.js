@@ -31,9 +31,9 @@ export async function offlineView(view) {
       h('span', `${plural(list.length, '{n} book', '{n} books')} · ${formatBytes(total)}`),
       est?.quota ? h('span.muted', ` · ${t('{used} used of about {quota} available to Flyleaf', { used: formatBytes(est.usage), quota: formatBytes(est.quota) })}`) : null,
       list.length > 0 && button(t('Remove all'), { variant: 'text', icon: 'delete_sweep', onclick: async () => {
-        if (!(await confirmDialog({ title: 'Remove all saved books?', message: 'They’re removed from this device only. Your progress isn’t affected.', confirm: 'Remove', danger: true }))) return;
+        if (!(await confirmDialog({ title: t('Remove all saved books?'), message: t('They’re removed from this device only. Your progress isn’t affected.'), confirm: t('Remove'), danger: true }))) return;
         await removeAll();
-        snackbar('Removed from this device');
+        snackbar(t('Removed from this device'));
       } }));
     body.replaceChildren(
       usage,
@@ -49,7 +49,7 @@ export async function offlineView(view) {
               cover({ id: b.id, title: b.label || b.title, coverUrl: b.coverUrl, format: b.format }, { showProgress: false }),
               remove,
               h('div.t-title', b.series && b.label !== b.series ? `${b.series} · ${b.label}` : b.title),
-              h('div.t-sub', `${formatBytes(b.size)} · saved ${timeAgo(b.savedAt)}`));
+              h('div.t-sub', t('{value} · saved {value2}', { value: formatBytes(b.size), value2: timeAgo(b.savedAt) })));
           })))
         : emptyState('download_for_offline', t('Nothing saved yet'), t('Open a book’s ⋮ menu and choose “Save for offline”, or “Save next 3 for offline” on a series.'),
             navigator.onLine && button(t('Browse library'), { icon: 'local_library', onclick: () => navigate('/library') })),

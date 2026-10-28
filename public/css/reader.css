@@ -1091,3 +1091,19 @@
   backface-visibility: visible;
   -webkit-backface-visibility: visible;
 }
+
+/* Gestures belong to the page viewport, so chrome and browser zoom stay separate. */
+.reader .paged { touch-action: none; }
+.reader .paged .spread { transform-origin: 0 0; }
+.reader .paged.zoomed { overflow: hidden; cursor: grab; }
+.reader .paged.zoomed:active { cursor: grabbing; }
+.reader .paged.zoomed .spread { animation: none; }
+.reader .zoom-reset {
+  position: absolute;
+  right: max(16px, var(--safe-right));
+  bottom: calc(150px + var(--safe-bottom, 0px));
+  z-index: 11;
+  background: var(--md-surface-container);
+  color: var(--md-on-surface);
+}
+.reader .zoom-reset[hidden] { display: none; }

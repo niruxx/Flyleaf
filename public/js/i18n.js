@@ -26,7 +26,7 @@ export function t(text, vars) {
 export const N_ = (text) => text;
 
 /** "1 book" / "3 books" (plural forms are their own keys: t('{n} book') and t('{n} books')). */
-export const plural = (n, one, many, vars = {}) => t(n === 1 ? one : many, { n: n.toLocaleString(), ...vars });
+export const plural = (n, one, many, vars = {}) => t(n === 1 ? one : many, { n: n.toLocaleString(lang), ...vars });
 
 export const currentLanguage = () => lang;
 

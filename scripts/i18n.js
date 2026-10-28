@@ -18,12 +18,20 @@ const srcDir = path.join(root, 'public', 'js');
 const localeDir = path.join(root, 'public', 'locales');
 const prune = process.argv.includes('--prune');
 
-const LIT = String.raw`'((?:[^'\\]|\\.)*)'`;
+const LIT = String.raw`('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")`;
 const patterns = [
   new RegExp(String.raw`\b(?:t|N_)\(\s*${LIT}`, 'g'),
   new RegExp(String.raw`\bplural\([^,()]+(?:\([^()]*\))?,\s*${LIT},\s*${LIT}`, 'g'),
 ];
-const unescape = (s) => s.replace(/\\(.)/g, '$1');
+// Decode both JavaScript quote styles, including escaped line breaks and Unicode.
+const unescape = (literal) => literal.slice(1, -1).replace(
+  /\\(u\{[\da-f]+\}|u[\da-f]{4}|x[\da-f]{2}|\r?\n|.)/gis,
+  (_, escape) => {
+    if (escape.startsWith('u{')) return String.fromCodePoint(parseInt(escape.slice(2, -1), 16));
+    if (/^[ux][\da-f]+$/i.test(escape)) return String.fromCodePoint(parseInt(escape.slice(1), 16));
+    return ({ n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', v: '\v', 0: '\0', '\n': '', '\r\n': '' })[escape] ?? escape;
+  },
+);
 
 function walk(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {

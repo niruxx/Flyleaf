@@ -1,3 +1,4 @@
+import { t, plural } from '../i18n.js';
 // Series cards, volume cards and "continue reading" cards.
 
 import { h, icon, cover, markHero, onContext, timeAgo } from '../ui.js';
@@ -6,8 +7,8 @@ import { seriesActions, bookActions } from './actions.js';
 function moreButton(onOpen) {
   return h('button.more', {
     type: 'button',
-    'aria-label': 'More actions',
-    title: 'More actions',
+    'aria-label': t('More actions'),
+    title: t('More actions'),
     onclick: (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -20,7 +21,7 @@ export function seriesCard(s, { onChange } = {}) {
   const unread = s.count != null ? s.count - (s.readCount || 0) : null;
   const finished = s.count > 0 && unread === 0;
   const coverEl = cover({ ...s, title: s.name }, { finished, count: unread > 0 && s.count > 1 ? unread : undefined });
-  const sub = [s.authors?.[0], s.count != null ? `${s.count} ${s.count === 1 ? 'item' : 'items'}` : null].filter(Boolean).join(' · ');
+  const sub = [s.authors?.[0], s.count != null ? plural(s.count, '{count} item', '{count} items', { count: s.count }) : null].filter(Boolean).join(' · ');
   const el = h('a.tile', { href: `#/series/${s.id}`, title: s.name, onclick: () => markHero(coverEl) },
     coverEl,
     moreButton((btn) => seriesActions(btn, s, { onChange })),
@@ -34,10 +35,10 @@ export function seriesCard(s, { onChange } = {}) {
 export function volumeCard(b, { series, onChange } = {}) {
   const p = b.progress;
   let sub;
-  if (p?.finished) sub = 'Finished';
+  if (p?.finished) sub = t('Finished');
   else if (p && p.percent > 0) sub = `${Math.round(p.percent * 100)}% · ${timeAgo(p.updatedAt)}`;
-  else if (b.format === 'audio') sub = b.pageCount > 1 ? `Audiobook · ${b.pageCount} tracks` : 'Audiobook';
-  else if (b.pageCount) sub = `${b.pageCount} pages`;
+  else if (b.format === 'audio') sub = b.pageCount > 1 ? t('Audiobook · {pageCount} tracks', { pageCount: b.pageCount }) : t('Audiobook');
+  else if (b.pageCount) sub = t('{pageCount} pages', { pageCount: b.pageCount });
   else sub = b.format.toUpperCase();
   const el = h('a.tile', { href: `#/read/${b.id}`, title: b.title },
     cover({ ...b, title: b.label }),
@@ -52,7 +53,7 @@ export function volumeCard(b, { series, onChange } = {}) {
 export function resumeCard(book) {
   const p = book.progress;
   const pct = Math.round((p?.percent || 0) * 100);
-  const where = book.engine === 'pages' && book.pageCount && p?.page != null ? `Page ${p.page + 1} of ${book.pageCount}` : `${pct}%`;
+  const where = book.engine === 'pages' && book.pageCount && p?.page != null ? t('Page {value} of {pageCount}', { value: p.page + 1, pageCount: book.pageCount }) : `${pct}%`;
   // The cover, blurred, tints the card behind the text.
   return h('a.resume-card', { href: `#/series/${book.seriesId}`, style: book.coverUrl && !book.blur ? { '--art': `url("${book.coverUrl}")` } : null },
     cover({ ...book, title: book.label }, { showProgress: false }),
@@ -65,8 +66,8 @@ export function resumeCard(book) {
         h('div.progress', h('span', { style: { width: `${pct}%` } })),
         h('button.icon-btn.filled.state', {
           type: 'button',
-          title: 'Resume',
-          'aria-label': `Resume ${book.title}`,
+          title: t('Resume'),
+          'aria-label': t('Resume {title}', { title: book.title }),
           onclick: (e) => {
             e.preventDefault();
             location.hash = `#/read/${book.id}`;

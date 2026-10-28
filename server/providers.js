@@ -151,6 +151,7 @@ function fromMangaDex(m) {
     if (k === 'al') ids.anilist = String(v);
     if (k === 'mal') ids.mal = String(v);
     if (k === 'mu') ids.mangaupdates = String(v);
+    if (k === 'kt') ids.kitsu = String(v);
   }
   const tagsBy = (group) => (a.tags || []).filter((t) => t.attributes.group === group).map((t) => t.attributes.name.en);
   return {

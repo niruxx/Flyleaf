@@ -55,7 +55,7 @@ export async function readerView(view, params, stale) {
     if (q && engine.search) shell.openSearch(q);
   } catch (err) {
     console.error(err);
-    shell.fail(err.message || 'This file could not be opened.');
+    shell.fail(err.message || t('This file could not be opened.'));
   }
 }
 
@@ -89,12 +89,12 @@ function createShell(data, tracker) {
     settingsBtn,
   );
 
-  const slider = h('input.slider', { type: 'range', min: 0, max: 100, value: 0, step: 1, 'aria-label': 'Position in book' });
+  const slider = h('input.slider', { type: 'range', min: 0, max: 100, value: 0, step: 1, 'aria-label': t('Position in book') });
   const pageNo = h('span.pageno', '');
   const prevBtn = iconButton('chevron_left', t('Previous page'), () => shell.engine?.left());
   const nextBtn = iconButton('chevron_right', t('Next page'), () => shell.engine?.right());
-  const prevBook = book.prev && iconButton('skip_previous', `Previous: ${book.prev.label}`, () => openBook(book.prev));
-  const nextBook = book.next && iconButton('skip_next', `Next: ${book.next.label}`, () => openBook(book.next));
+  const prevBook = book.prev && iconButton('skip_previous', t('Previous: {label}', { label: book.prev.label }), () => openBook(book.prev));
+  const nextBook = book.next && iconButton('skip_next', t('Next: {label}', { label: book.next.label }), () => openBook(book.next));
   // Auto-scroll (webtoon mode): play/pause and speed.
   const autoBtn = iconButton('play_arrow', t('Auto-scroll (P)'), () => shell.engine?.toggleAutoScroll?.());
   const autoSpeed = h('span.auto-speed.label-large');
@@ -173,18 +173,18 @@ function createShell(data, tracker) {
     sheet((close) => {
       const fontsBox = h('div');
       const footer = h('div.sheet-footer',
-        h('div.who', overridden ? `Custom settings for this series (based on “${data.profile?.name || 'Default'}”)` : `Using reading profile “${data.profile?.name || 'Default'}”`),
-        button('Reset to profile', { variant: 'text', icon: 'restart_alt', onclick: async () => {
+        h('div.who', overridden ? t('Custom settings for this series (based on “{value}”)', { value: data.profile?.name || t('Default') }) : t('Using reading profile “{value}”', { value: data.profile?.name || t('Default') })),
+        button(t('Reset to profile'), { variant: 'text', icon: 'restart_alt', onclick: async () => {
           await api.saveReaderSettings(book.seriesId, null);
           close();
           navigate(`/read/${book.id}`, { replace: true });
         } }),
-        data.profile && button(`Save to “${data.profile.name}”`, { variant: 'tonal', icon: 'save', onclick: async () => {
+        data.profile && button(t('Save to “{name}”', { name: data.profile.name }), { variant: 'tonal', icon: 'save', onclick: async () => {
           const { resolvedDir, ...clean } = settings;
           await api.updateProfile(data.profile.id, { settings: clean });
           await api.saveReaderSettings(book.seriesId, null);
           overridden = false;
-          snackbar(`Saved to “${data.profile.name}”`);
+          snackbar(t('Saved to “{name}”', { name: data.profile.name }));
           close();
         } }),
       );
@@ -210,17 +210,17 @@ function createShell(data, tracker) {
       const views = {
         toc: () =>
           toc.length
-            ? toc.map((t) => h(`button.list-item.state.depth-${Math.min(t.depth || 0, 3)}${t.current ? '.current' : ''}`, { type: 'button', onclick: () => {
+            ? toc.map((localT) => h(`button.list-item.state.depth-${Math.min(localT.depth || 0, 3)}${localT.current ? '.current' : ''}`, { type: 'button', onclick: () => {
                 close();
-                shell.engine.goTo(t.target);
-              } }, h('span.text', t.label), t.page != null && h('span.trailing', String(t.page + 1))))
-            : [h('p.muted', { style: { padding: '16px 24px' } }, 'This book has no table of contents.')],
+                shell.engine.goTo(localT.target);
+              } }, h('span.text', localT.label), localT.page != null && h('span.trailing', String(localT.page + 1))))
+            : [h('p.muted', { style: { padding: '16px 24px' } }, t('This book has no table of contents.'))],
         bookmarks: () => listOf('bookmark'),
         highlights: () => listOf('highlight'),
       };
       function listOf(kind) {
         const list = annotations.filter((a) => a.kind === kind);
-        if (!list.length) return [h('p.muted', { style: { padding: '16px 24px' } }, kind === 'bookmark' ? 'No bookmarks yet – tap the bookmark icon to add one.' : 'No highlights yet – select some text to highlight it.')];
+        if (!list.length) return [h('p.muted', { style: { padding: '16px 24px' } }, kind === 'bookmark' ? t('No bookmarks yet – tap the bookmark icon to add one.') : t('No highlights yet – select some text to highlight it.'))];
         return list.map((a) => annotationRow(a, book, async () => {
           annotations = (await api.reader(book.id)).annotations;
           shell.engine?.setAnnotations?.(annotations);
@@ -231,7 +231,7 @@ function createShell(data, tracker) {
           shell.engine.goToLocator(x.locator);
         } }));
       }
-      const tabs = [['toc', 'Contents', 'toc'], ['bookmarks', 'Bookmarks', 'bookmark'], book.engine === 'text' && ['highlights', 'Highlights', 'ink_highlighter']].filter(Boolean);
+      const tabs = [['toc', t('Contents'), 'toc'], ['bookmarks', t('Bookmarks'), 'bookmark'], book.engine === 'text' && ['highlights', t('Highlights'), 'ink_highlighter']].filter(Boolean);
       const seg = segmented(tabs.map(([value, label, ic]) => ({ value, label, icon: ic })), 'toc', (v) => show(v));
       function show(v) {
         seg.setValue(v);
@@ -265,7 +265,7 @@ function createShell(data, tracker) {
         eng.goTo(r.target);
         shell.toast(t('Search result'));
       } }, h('span.excerpt', excerptPre(r.pre), h('mark', r.match), excerptPost(r.post)));
-      const group = (g) => h('div.search-group', h('div.search-chapter', g.label || 'Text'), g.items.map(item));
+      const group = (g) => h('div.search-group', h('div.search-chapter', g.label || t('Text')), g.items.map(item));
       const draw = () => {
         list.replaceChildren(...found.groups.map(group));
         const n = total();
@@ -295,7 +295,7 @@ function createShell(data, tracker) {
             }
           }
         } catch (e) {
-          status.textContent = e.message || 'Search failed.';
+          status.textContent = e.message || t('Search failed.');
         }
         if (id !== searchRun) return;
         found.done = true;
@@ -340,11 +340,11 @@ function createShell(data, tracker) {
     if (existing) {
       await api.deleteAnnotation(existing.id);
       annotations = annotations.filter((a) => a.id !== existing.id);
-      shell.toast('Bookmark removed');
+      shell.toast(t('Bookmark removed'));
     } else {
       const a = await api.addAnnotation(book.id, { kind: 'bookmark', ...loc });
       annotations = [...annotations, a];
-      shell.toast('Page bookmarked');
+      shell.toast(t('Page bookmarked'));
     }
     shell.refreshBookmark();
   }
@@ -382,8 +382,8 @@ function createShell(data, tracker) {
       updateFill();
     },
     setArrows(rtl) {
-      prevBtn.title = rtl ? 'Next page' : 'Previous page';
-      nextBtn.title = rtl ? 'Previous page' : 'Next page';
+      prevBtn.title = rtl ? t('Next page') : t('Previous page');
+      nextBtn.title = rtl ? t('Previous page') : t('Next page');
     },
     setLoading(on) {
       loadingEl.hidden = !on;
@@ -443,17 +443,17 @@ function createShell(data, tracker) {
     },
     toast(text, ms = 1400) {
       root.querySelector('.toast')?.remove();
-      const t = h('div.toast', text);
-      root.append(t);
-      setTimeout(() => t.remove(), ms);
+      const localT = h('div.toast', text);
+      root.append(localT);
+      setTimeout(() => localT.remove(), ms);
     },
     fail(message) {
       shell.setLoading(false);
       shell.showChrome(true);
       stage.replaceChildren(
         h('div.empty', { style: { color: 'var(--md-on-surface)', background: 'var(--md-surface)', height: '100%', justifyContent: 'center' } },
-          icon('error'), h('h2.title-large', 'Couldn’t open this book'), h('p.body-medium', message),
-          h('a.btn.tonal', { href: `#/series/${book.seriesId}` }, 'Back to series')),
+          icon('error'), h('h2.title-large', t('Couldn’t open this book')), h('p.body-medium', message),
+          h('a.btn.tonal', { href: `#/series/${book.seriesId}` }, t('Back to series'))),
       );
     },
     /** Keyboard → configured action. */
@@ -464,6 +464,10 @@ function createShell(data, tracker) {
     openSearch,
     handleKey(e) {
       const eng = shell.engine;
+      if (e.key === 'Escape' && eng?.zoom?.active) {
+        e.preventDefault();
+        return eng.zoom.reset();
+      }
       // "/" or Ctrl/⌘+F: search in the book (instead of the browser's find, which can't see inside it).
       if (eng?.search && (e.key === '/' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f'))) {
         e.preventDefault();

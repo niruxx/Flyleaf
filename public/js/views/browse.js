@@ -1,3 +1,4 @@
+import { t, plural } from '../i18n.js';
 // Series grids: a library, all series, Want to read, a genre, a person, a tag,
 // a collection, or search results – with filters, sorting and infinite scroll.
 
@@ -10,21 +11,21 @@ import { scanIndicator } from './scan.js';
 
 const PAGE = 90;
 const SORTS = [
-  { value: 'relevance', label: 'Best match', search: true },
-  { value: 'name', label: 'Title A–Z' },
-  { value: 'name_desc', label: 'Title Z–A' },
-  { value: 'author', label: 'Author' },
-  { value: 'added', label: 'Recently added' },
-  { value: 'read', label: 'Recently read' },
-  { value: 'year', label: 'Release year' },
-  { value: 'updated', label: 'Recently updated' },
+  { value: 'relevance', get label() { return t('Best match'); }, search: true },
+  { value: 'name', get label() { return t('Title A–Z'); } },
+  { value: 'name_desc', get label() { return t('Title Z–A'); } },
+  { value: 'author', get label() { return t('Author'); } },
+  { value: 'added', get label() { return t('Recently added'); } },
+  { value: 'read', get label() { return t('Recently read'); } },
+  { value: 'year', get label() { return t('Release year'); } },
+  { value: 'updated', get label() { return t('Recently updated'); } },
 ];
 const LETTERS = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'];
 const READ_FILTERS = [
-  { value: '', label: 'All' },
-  { value: 'unread', label: 'Unread' },
-  { value: 'reading', label: 'In progress' },
-  { value: 'completed', label: 'Completed' },
+  { value: '', get label() { return t('All'); } },
+  { value: 'unread', get label() { return t('Unread'); } },
+  { value: 'reading', get label() { return t('In progress'); } },
+  { value: 'completed', get label() { return t('Completed'); } },
 ];
 
 /** Build the route handler for one kind of series list. */
@@ -33,7 +34,7 @@ function browse(kind) {
     const page = h('div.page');
     view.append(page);
     const fixed = {};
-    let title = 'All series';
+    let title = t('All series');
     let sub = null;
     const headActions = [];
     let initial = {}; // a smart filter's saved choices
@@ -48,16 +49,16 @@ function browse(kind) {
           if (!lib) return navigate('/library', { replace: true });
           fixed.library = lib.id;
           title = lib.name;
-          sub = `${lib.personal ? (lib.own ? 'Your library · ' : `${lib.ownerName}’s personal library · `) : ''}${lib.seriesCount} series · ${lib.kind === 'books' ? 'Books' : lib.kind === 'manga' ? 'Manga' : 'Comics'} · ${{ books: 'Regular books', kavita: 'Kavita-style (file names)', komga: 'Komga-style (folders)' }[lib.mode] || lib.mode}`;
+          sub = t('{value}{seriesCount} series · {value2} · {value3}', { value: lib.personal ? (lib.own ? t('Your library · ') : t('{ownerName}’s personal library · ', { ownerName: lib.ownerName })) : '', seriesCount: lib.seriesCount, value2: lib.kind === 'books' ? t('Books') : lib.kind === 'manga' ? t('Manga') : t('Comics'), value3: { books: t('Regular books'), kavita: t('Kavita-style (file names)'), komga: 'Komga-style (folders)' }[lib.mode] || lib.mode });
           if (isAdmin()) {
             headActions.push(scanIndicator(() => load(true)));
-            headActions.push(iconButton('sync', 'Scan for new files', async () => {
+            headActions.push(iconButton('sync', t('Scan for new files'), async () => {
               await api.scanLibrary(lib.id);
-              snackbar(`Scanning ${lib.name}…`);
+              snackbar(t('Scanning {name}…', { name: lib.name }));
             }));
-            headActions.push(iconButton('travel_explore', 'Match metadata online', async () => {
+            headActions.push(iconButton('travel_explore', t('Match metadata online'), async () => {
               await api.matchLibrary(lib.id);
-              snackbar('Looking up metadata for unmatched series…');
+              snackbar(t('Looking up metadata for unmatched series…'));
             }));
           }
         }
@@ -65,39 +66,39 @@ function browse(kind) {
       }
       case 'want':
         fixed.want = 1;
-        title = 'Want to read';
-        sub = 'Series you’ve saved for later';
+        title = t('Want to read');
+        sub = t('Series you’ve saved for later');
         break;
       case 'genre':
         fixed.genre = params.name;
         title = params.name;
-        sub = 'Genre';
+        sub = t('Genre');
         break;
       case 'person':
         fixed.person = params.name;
         title = params.name;
-        sub = 'Writer / artist';
+        sub = t('Writer / artist');
         break;
       case 'tag':
         fixed.userTag = params.name;
         title = `#${params.name}`;
-        sub = 'Your tag';
+        sub = t('Your tag');
         break;
       case 'search':
         fixed.q = params.query.get('q') || '';
-        title = `Results for “${fixed.q}”`;
+        title = t('Results for “{q}”', { q: fixed.q });
         break;
       case 'shelf': {
         shelf = (await api.smartFilters()).find((x) => x.id === Number(params.id));
-        if (!shelf) return page.append(emptyState('search_off', 'Shelf not found', 'It may have been deleted.'));
+        if (!shelf) return page.append(emptyState('search_off', t('Shelf not found'), t('It may have been deleted.')));
         const f = shelf.filter;
         for (const k of ['library', 'kind', 'tag', 'userTag', 'person', 'want', 'collection', 'q']) if (f[k] != null) fixed[k] = f[k];
         initial = { read: f.read || '', status: f.status || '', userStatus: f.userStatus || '', genres: f.genre || [], sort: f.sort };
         title = shelf.name;
         sub = describeFilter(f);
-        headActions.push(iconButton('edit', 'Edit shelf', () => editShelf(shelf)));
-        headActions.push(iconButton('delete', 'Delete shelf', async () => {
-          if (!(await confirmDialog({ title: `Delete “${shelf.name}”?`, message: 'Only the shelf goes – the series stay in your library.', confirm: 'Delete', danger: true }))) return;
+        headActions.push(iconButton('edit', t('Edit shelf'), () => editShelf(shelf)));
+        headActions.push(iconButton('delete', t('Delete shelf'), async () => {
+          if (!(await confirmDialog({ title: t('Delete “{name}”?', { name: shelf.name }), message: t('Only the shelf goes – the series stay in your library.'), confirm: t('Delete'), danger: true }))) return;
           await api.deleteSmartFilter(shelf.id);
           refreshShell();
           navigate('/', { replace: true });
@@ -106,25 +107,25 @@ function browse(kind) {
       }
       case 'collection': {
         const c = await api.collection(params.id).catch(() => null);
-        if (!c) return page.append(emptyState('search_off', 'Collection not found'));
+        if (!c) return page.append(emptyState('search_off', t('Collection not found')));
         fixed.collection = c.id;
         title = c.name;
-        sub = c.summary || `${c.count} series${c.promoted ? ' · shared with everyone' : ''}`;
+        sub = c.summary || t('{count} series{value}', { count: c.count, value: c.promoted ? t(' · shared with everyone') : '' });
         if (c.owned) {
-          headActions.push(iconButton('edit', 'Edit collection', async () => {
-            const name = field('Name', { value: c.name, required: true });
-            const summary = field('Description', { value: c.summary || '', multiline: true });
+          headActions.push(iconButton('edit', t('Edit collection'), async () => {
+            const name = field(t('Name'), { value: c.name, required: true });
+            const summary = field(t('Description'), { value: c.summary || '', multiline: true });
             const promote = h('input', { type: 'checkbox', checked: c.promoted });
             await formDialog({
-              title: 'Edit collection',
-              fields: [name, summary, isAdmin() && h('label.check', promote, 'Share with all users')],
+              title: t('Edit collection'),
+              fields: [name, summary, isAdmin() && h('label.check', promote, t('Share with all users'))],
               onSubmit: () => api.updateCollection(c.id, { name: name.input.value, summary: summary.input.value, promoted: promote.checked }),
             });
             refreshShell();
             render();
           }));
-          headActions.push(iconButton('delete', 'Delete collection', async () => {
-            if (!(await confirmDialog({ title: `Delete “${c.name}”?`, message: 'The series stay in your library.', confirm: 'Delete', danger: true }))) return;
+          headActions.push(iconButton('delete', t('Delete collection'), async () => {
+            if (!(await confirmDialog({ title: t('Delete “{name}”?', { name: c.name }), message: t('The series stay in your library.'), confirm: t('Delete'), danger: true }))) return;
             await api.deleteCollection(c.id);
             refreshShell();
             navigate('/collections', { replace: true });
@@ -151,14 +152,14 @@ function browse(kind) {
     const persist = () => kind !== 'search' && kind !== 'shelf' && store.set(prefKey, JSON.stringify({ sort: state.sort }));
 
     const BANNER = {
-      library: params.id ? ['local_library', 'Library'] : ['collections_bookmark', 'Everything you can read'],
-      want: ['bookmark_heart', 'Saved for later'],
-      genre: ['category', 'Genre'],
-      person: ['person', 'Writer / artist'],
-      tag: ['sell', 'Your tag'],
-      search: ['search', 'Search'],
-      collection: ['collections_bookmark', 'Collection'],
-      shelf: ['filter_alt', 'Smart shelf'],
+      library: params.id ? ['local_library', t('Library')] : ['collections_bookmark', t('Everything you can read')],
+      want: ['bookmark_heart', t('Saved for later')],
+      genre: ['category', t('Genre')],
+      person: ['person', t('Writer / artist')],
+      tag: ['sell', t('Your tag')],
+      search: ['search', t('Search')],
+      collection: ['collections_bookmark', t('Collection')],
+      shelf: ['filter_alt', t('Smart shelf')],
     }[kind];
     // The eyebrow already names genres, people and tags, so their detail line is the count.
     const banner = pageBanner({ icon: BANNER[0], eyebrow: BANNER[1], title, sub: ['genre', 'person', 'tag'].includes(kind) ? null : sub, actions: headActions });
@@ -182,18 +183,18 @@ function browse(kind) {
       } }))));
       return chip;
     };
-    const statusChip = filterChip('Publication', () => STATUS_LABEL[state.status] || 'Publication',
-      () => [{ value: '', label: 'Any status', checked: !state.status }, ...Object.entries(STATUS_LABEL).map(([value, label]) => ({ value, label, checked: state.status === value }))],
+    const statusChip = filterChip(t('Publication'), () => STATUS_LABEL[state.status] || t('Publication'),
+      () => [{ value: '', label: t('Any status'), checked: !state.status }, ...Object.entries(STATUS_LABEL).map(([value, label]) => ({ value, label, checked: state.status === value }))],
       (v) => (state.status = v));
-    const userStatusChip = filterChip('My status', () => USER_STATUS.find((u) => u.value === state.userStatus)?.label || 'My status',
-      () => [{ value: '', label: 'Any', checked: !state.userStatus }, ...USER_STATUS.map((u) => ({ value: u.value, label: u.label, icon: u.icon, checked: state.userStatus === u.value }))],
+    const userStatusChip = filterChip(t('My status'), () => USER_STATUS.find((u) => u.value === state.userStatus)?.label || t('My status'),
+      () => [{ value: '', label: t('Any'), checked: !state.userStatus }, ...USER_STATUS.map((u) => ({ value: u.value, label: u.label, icon: u.icon, checked: state.userStatus === u.value }))],
       (v) => (state.userStatus = v));
     let genreList = [];
     api.genres().then((g) => (genreList = g)).catch(() => {});
-    const genreChip = h('button.chip.state.has-menu', { type: 'button' }, h('span', 'Genres'), icon('arrow_drop_down'));
+    const genreChip = h('button.chip.state.has-menu', { type: 'button' }, h('span', t('Genres')), icon('arrow_drop_down'));
     genreChip.addEventListener('click', () => {
       menu(genreChip, [
-        { label: 'Clear genres', icon: 'filter_alt_off', disabled: !state.genres.length, onClick: () => { state.genres = []; updateGenreChip(); load(); } },
+        { label: t('Clear genres'), icon: 'filter_alt_off', disabled: !state.genres.length, onClick: () => { state.genres = []; updateGenreChip(); load(); } },
         '-',
         ...genreList.map((g) => ({
           label: g.name,
@@ -208,7 +209,7 @@ function browse(kind) {
       ]);
     });
     const updateGenreChip = () => {
-      genreChip.firstChild.textContent = state.genres.length ? `Genres · ${state.genres.length}` : 'Genres';
+      genreChip.firstChild.textContent = state.genres.length ? t('Genres · {length}', { length: state.genres.length }) : t('Genres');
       genreChip.setAttribute('aria-pressed', String(state.genres.length > 0));
     };
     updateGenreChip();
@@ -222,13 +223,13 @@ function browse(kind) {
       sort: state.sort,
     });
     const saveShelf = shelf
-      ? iconButton('save', 'Save these filters to the shelf', async () => {
+      ? iconButton('save', t('Save these filters to the shelf'), async () => {
         await api.updateSmartFilter(shelf.id, { filter: { ...currentFilter(), genre: state.genres } });
-        snackbar('Shelf updated');
+        snackbar(t('Shelf updated'));
       })
-      : iconButton('bookmark_add', 'Save as a shelf on Home', () => newShelf(currentFilter(), title));
+      : iconButton('bookmark_add', t('Save as a shelf on Home'), () => newShelf(currentFilter(), title));
     // The label is its own node: clicks append a ripple, so lastChild isn't the text.
-    const sortLabel = h('span', (sorts.find((s) => s.value === state.sort) || { label: 'Date added' }).label);
+    const sortLabel = h('span', (sorts.find((s) => s.value === state.sort) || { label: t('Date added') }).label);
     const sortBtn = button(sortLabel, { variant: 'text', icon: 'sort' });
     sortBtn.addEventListener('click', () =>
       menu(sortBtn, sorts.map((s) => ({
@@ -247,8 +248,8 @@ function browse(kind) {
     page.append(h('div.toolbar.enter', readRow, statusChip, userStatusChip, kind !== 'genre' && genreChip, h('div.spacer'), count, sortBtn, saveShelf));
 
     // A–Z jump bar, shown while sorted by title.
-    const letterBar = h('nav.letter-bar.enter', { 'aria-label': 'Jump to letter' },
-      h('button.letter.state', { type: 'button', 'aria-pressed': 'true', title: 'All', onclick: () => pickLetter('') }, 'All'),
+    const letterBar = h('nav.letter-bar.enter', { 'aria-label': t('Jump to letter') },
+      h('button.letter.state', { type: 'button', 'aria-pressed': 'true', title: t('All'), onclick: () => pickLetter('') }, t('All')),
       LETTERS.map((l) => h('button.letter.state', { type: 'button', 'aria-pressed': 'false', 'data-letter': l, onclick: () => pickLetter(l) }, l)));
     const pickLetter = (l) => {
       state.letter = state.letter === l ? '' : l;
@@ -295,11 +296,11 @@ function browse(kind) {
       const data = await api.seriesList(query());
       if (id !== reqId || stale()) return;
       results.replaceChildren();
-      count.textContent = data.items.length ? `${data.items.length}${data.hasMore ? '+' : ''} series` : '';
+      count.textContent = data.items.length ? t('{length}{value} series', { length: data.items.length, value: data.hasMore ? '+' : '' }) : '';
       if (!state.offset && !banner.dataset.art) {
         banner.dataset.art = '1';
         banner.setArt(data.items.filter((s) => !s.blur).map((s) => s.coverUrl));
-        if (['genre', 'person', 'tag', 'search'].includes(kind) || (kind === 'library' && !params.id)) banner.setSub(data.items.length ? `${data.items.length}${data.hasMore ? '+' : ''} series` : kind === 'search' ? null : 'Nothing yet');
+        if (['genre', 'person', 'tag', 'search'].includes(kind) || (kind === 'library' && !params.id)) banner.setSub(data.items.length ? t('{length}{value} series', { length: data.items.length, value: data.hasMore ? '+' : '' }) : kind === 'search' ? null : t('Nothing yet'));
       }
       if (!data.items.length) return results.append(noResults());
       results.append(stagger(h('div.grid', data.items.map((s) => seriesCard(s, { onChange: () => load(true) })))));
@@ -316,21 +317,21 @@ function browse(kind) {
       results.querySelector('.grid')?.append(...data.items.map((s) => seriesCard(s, { onChange: () => load(true) })));
       hasMore = data.hasMore;
       state.offset += data.items.length;
-      count.textContent = `${state.offset}${hasMore ? '+' : ''} series`;
+      count.textContent = t('{offset}{value} series', { offset: state.offset, value: hasMore ? '+' : '' });
     }
 
     const noResults = () => {
-      if (state.letter) return emptyState('sort_by_alpha', `Nothing under “${state.letter}”`, 'Pick another letter, or All.');
-      if (state.read || state.status || state.userStatus || state.genres.length) return emptyState('filter_alt_off', 'No matches', 'Try removing some filters.');
+      if (state.letter) return emptyState('sort_by_alpha', t('Nothing under “{letter}”', { letter: state.letter }), t('Pick another letter, or All.'));
+      if (state.read || state.status || state.userStatus || state.genres.length) return emptyState('filter_alt_off', t('No matches'), t('Try removing some filters.'));
       switch (kind) {
         case 'want':
-          return emptyState('bookmark_heart', 'Nothing saved yet', 'Use “Want to read” on any series to save it here.');
+          return emptyState('bookmark_heart', t('Nothing saved yet'), t('Use “Want to read” on any series to save it here.'));
         case 'collection':
-          return emptyState('collections_bookmark', 'This collection is empty', 'Add series from their ⋮ menu → “Add to category”.');
+          return emptyState('collections_bookmark', t('This collection is empty'), t('Add series from their ⋮ menu → “Add to category”.'));
         case 'search':
-          return emptyState('search_off', 'No series match', 'Try another title, author or genre.');
+          return emptyState('search_off', t('No series match'), t('Try another title, author or genre.'));
         default:
-          return emptyState('folder_open', 'Nothing here yet', isAdmin() ? 'Files are picked up when the library is scanned.' : 'Check back later.');
+          return emptyState('folder_open', t('Nothing here yet'), isAdmin() ? t('Files are picked up when the library is scanned.') : t('Check back later.'));
       }
     };
 
@@ -350,7 +351,7 @@ function insideBooks(term) {
   const section = h('section.section.ft-results', { hidden: true });
   api.fulltext(term, 20).then(({ results, status }) => {
     if (!section.isConnected) return;
-    const note = status.pending > 0 ? h('p.body-small.muted', `Still indexing ${status.pending} ${status.pending === 1 ? 'book' : 'books'} – more matches may turn up.`) : null;
+    const note = status.pending > 0 ? h('p.body-small.muted', plural(status.pending, 'Still indexing {pending} book – more matches may turn up.', 'Still indexing {pending} books – more matches may turn up.', { pending: status.pending })) : null;
     if (!results.length) {
       if (note) {
         section.append(note);
@@ -362,7 +363,7 @@ function insideBooks(term) {
     section.classList.add('has-results');
     const total = results.reduce((a, r) => a + r.total, 0);
     section.append(...[
-      h('div.section-head', h('h2.with-icon', h('span.sec-icon', icon('manage_search')), 'Inside books', h('span.sec-count', `${total}${total >= 600 ? '+' : ''}`))),
+      h('div.section-head', h('h2.with-icon', h('span.sec-icon', icon('manage_search')), t('Inside books'), h('span.sec-count', `${total}${total >= 600 ? '+' : ''}`))),
       note,
       stagger(h('div.ft-list', results.map(({ book, hits, total: n }) => {
         const open = (hit) => `#/read/${book.id}?loc=${encodeURIComponent(hit.section)}&q=${encodeURIComponent(term)}`;
@@ -382,53 +383,53 @@ function insideBooks(term) {
 // ---------------------------------------------------------------------------
 // Smart filters ("shelves"): a saved list query, shown on Home and in the drawer.
 
-const READ_LABEL = { unread: 'Unread', reading: 'In progress', completed: 'Completed' };
+const READ_LABEL = { get unread() { return t('Unread'); }, get reading() { return t('In progress'); }, get completed() { return t('Completed'); } };
 
 /** "Unread · Ongoing · Action, Comedy" */
 function describeFilter(f) {
   return [
     f.q && `“${f.q}”`,
-    f.want && 'Want to read',
+    f.want && t('Want to read'),
     f.person,
     f.userTag && `#${f.userTag}`,
     READ_LABEL[f.read],
     STATUS_LABEL[f.status],
     USER_STATUS.find((u) => u.value === f.userStatus)?.label,
     f.genre?.length && f.genre.join(', '),
-  ].filter(Boolean).join(' · ') || 'Everything';
+  ].filter(Boolean).join(' · ') || t('Everything');
 }
 
 async function shelfFields(s) {
-  const name = field('Shelf name', { value: s.name, required: true });
+  const name = field(t('Shelf name'), { value: s.name, required: true });
   const home = h('input', { type: 'checkbox', checked: s.onHome });
   const drawer = h('input', { type: 'checkbox', checked: s.inDrawer });
-  return { name, home, drawer, fields: [name, h('label.check', home, 'Show on Home'), h('label.check', drawer, 'Show in the side menu')] };
+  return { name, home, drawer, fields: [name, h('label.check', home, t('Show on Home')), h('label.check', drawer, t('Show in the side menu'))] };
 }
 
 async function newShelf(filter, title) {
   const hasFilter = Object.entries(filter).some(([k, v]) => k !== 'sort' && v != null && v !== '' && !(Array.isArray(v) && !v.length));
-  if (!hasFilter) return snackbar('Pick some filters first – unread, a status or genres – then save them as a shelf.', { duration: 5000 });
+  if (!hasFilter) return snackbar(t('Pick some filters first – unread, a status or genres – then save them as a shelf.'), { duration: 5000 });
   const suggested = [title !== 'All series' ? title : null, READ_LABEL[filter.read], STATUS_LABEL[filter.status], filter.genre?.length ? filter.genre.slice(0, 2).join(' & ') : null].filter(Boolean).join(' · ');
   const f = await shelfFields({ name: suggested.slice(0, 80), onHome: true, inDrawer: true });
   let created = null;
   await formDialog({
-    title: 'Save as a shelf',
+    title: t('Save as a shelf'),
     icon: 'bookmark_add',
-    fields: [h('p.body-medium.muted', `Keeps this list – ${describeFilter(filter)} – up to date as your library changes.`), ...f.fields],
-    submit: 'Save',
+    fields: [h('p.body-medium.muted', t('Keeps this list – {value} – up to date as your library changes.', { value: describeFilter(filter) })), ...f.fields],
+    submit: t('Save'),
     onSubmit: async () => {
       created = await api.createSmartFilter({ name: f.name.input.value, filter, onHome: f.home.checked, inDrawer: f.drawer.checked });
     },
   });
   if (!created) return;
   refreshShell();
-  snackbar('Shelf saved', { action: 'Open', onAction: () => navigate(`/shelf/${created.id}`) });
+  snackbar(t('Shelf saved'), { action: t('Open'), onAction: () => navigate(`/shelf/${created.id}`) });
 }
 
 async function editShelf(s) {
   const f = await shelfFields(s);
   await formDialog({
-    title: 'Edit shelf',
+    title: t('Edit shelf'),
     icon: 'edit',
     fields: f.fields,
     onSubmit: () => api.updateSmartFilter(s.id, { name: f.name.input.value, onHome: f.home.checked, inDrawer: f.drawer.checked }),

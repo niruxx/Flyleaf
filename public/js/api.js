@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 // Thin fetch wrapper for the Flyleaf API.
 
 export class ApiError extends Error {
@@ -26,13 +27,13 @@ export async function request(method, url, body, { raw = false, keepalive = fals
   try {
     res = await fetch(url, { method, headers, body: payload, credentials: 'same-origin', keepalive });
   } catch {
-    throw new ApiError("Can't reach the Flyleaf server.", 0);
+    throw new ApiError(t("Can't reach the Flyleaf server."), 0);
   }
   if (raw) return res;
   const data = res.headers.get('content-type')?.includes('json') ? await res.json() : null;
   if (!res.ok) {
     if (res.status === 401 && !url.startsWith('/api/login')) onUnauthorized();
-    throw new ApiError(data?.error || `Request failed (${res.status})`, res.status);
+    throw new ApiError(data?.error || t('Request failed ({status})', { status: res.status }), res.status);
   }
   return data;
 }
@@ -59,6 +60,12 @@ const PATCH = (u, b = {}) => request('PATCH', u, b);
 const DEL = (u) => request('DELETE', u);
 
 export const api = {
+  trackingAccounts: () => GET('/api/tracking'),
+  connectTracking: (provider) => POST(`/api/tracking/${provider}/connect`),
+  loginTracking: (provider, credentials) => POST(`/api/tracking/${provider}/login`, credentials),
+  disconnectTracking: (provider) => DEL(`/api/tracking/${provider}`),
+  updateTracking: (provider, values) => PATCH(`/api/tracking/${provider}`, values),
+  pullTracking: (provider) => POST(`/api/tracking/${provider}/pull`),
   status: () => GET('/api/status'),
   setup: (b) => POST('/api/setup', b),
   login: (b) => POST('/api/login', b),
@@ -171,7 +178,7 @@ export const api = {
   importCbl: async (file, name) => {
     const res = await fetch(`/api/reading-lists/import${qs({ name })}`, { method: 'POST', headers: { 'X-Flyleaf': '1', 'Content-Type': 'application/xml' }, body: await file.text(), credentials: 'same-origin' });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new ApiError(data.error || 'Import failed.', res.status);
+    if (!res.ok) throw new ApiError(data.error || t('Import failed.'), res.status);
     return data;
   },
 
@@ -236,9 +243,9 @@ export const api = {
         data = JSON.parse(xhr.responseText);
       } catch {}
       if (xhr.status >= 200 && xhr.status < 300) resolve(data);
-      else reject(new ApiError(data?.error || `Upload failed (${xhr.status})`, xhr.status));
+      else reject(new ApiError(data?.error || t('Upload failed ({status})', { status: xhr.status }), xhr.status));
     };
-    xhr.onerror = () => reject(new ApiError("Can't reach the Flyleaf server.", 0));
+    xhr.onerror = () => reject(new ApiError(t("Can't reach the Flyleaf server."), 0));
     xhr.send(file);
   }),
   restoreBackup: (id, books, { setup = false } = {}) => POST(`${setup ? '/api/setup/restore' : '/api/admin/restore'}/${id}`, { books }),

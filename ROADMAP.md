@@ -12,13 +12,15 @@ Items are grouped by how much they'd matter to readers, not by how easy they are
 
 ## 🔥 High impact
 
-### Sync with tracking sites (0 of 3 done)
+### ✅ Sync with tracking sites (3 of 3 done)
 Mihon, Kavita and Komga (via plugins) can push reading progress to **AniList**, **MyAnimeList**,
 **MangaUpdates** and **Kitsu**. Flyleaf already matches series to AniList, MAL and MangaUpdates
 for metadata, so the series IDs are already there.
-- ⬜ Per-user OAuth connection in *Settings → Account*
-- ⬜ Update the chapter/volume count and status (Reading / Completed) when a book is finished
-- ⬜ Optionally pull the score and status back in
+- ✅ Per-user tracking connections in *Settings → Account*: OAuth for AniList/MAL,
+  Kitsu OAuth password grant and MangaUpdates session login ([setup](docs/tracking.md))
+- ✅ Update chapter/volume progress and Reading / Completed status when a matched book finishes
+  (Kitsu supports chapter progress; volumes owned are preserved)
+- ✅ Optionally import score and status, on demand or after sync
 
 ### Follow series for new chapters (4 of 5 done)
 - ✅ **Follow** button in Content Finder, scheduled checks (`FOLLOW_CHECK_HOURS`), auto-download
@@ -59,8 +61,8 @@ for metadata, so the series IDs are already there.
 - ✅ **Auto-crop page borders** for scanned comics and PDFs (KOReader, Mihon)
 - ✅ **Image filters** for manga: brightness, contrast, greyscale and invert, plus colour
   correction for yellowed scans (Mihon's custom filter)
-- ⬜ **Proper pinch and double-tap zoom** inside the page reader, not just the browser's own
-  zoom, with pan and reset (Mihon, Panels)
+- ✅ **Proper pinch and double-tap zoom** inside the paged reader, not just the browser's own
+  zoom, with pan and reset (Mihon, Panels). Continuous webtoon zoom remains planned.
 - ✅ **Book look**: paper pages with edges, a spine and grain, or an E-ink look, for ebooks, comics
   and PDFs (Apple Books, Kindle)
 - ✅ **Book page turns**: pages swing over on the spine in 3D, with the next page on the back of
@@ -131,6 +133,7 @@ for metadata, so the series IDs are already there.
   to extract strings, a [translator's guide](docs/translating.md) and a Spanish translation
 - ✅ **Scheduled backups**: daily or weekly, keeping the newest N, optionally on another disk;
   stored backups can be downloaded, restored or deleted from the UI
-- ⬜ **Translate the rest of the interface**: the main screens (navigation, Home, sign-in,
-  settings navigation, reader controls) use `t()`; the other views still need wrapping
+- ✅ **Translate the rest of the interface**: library views, Content Finder, uploads, statistics,
+  onboarding, metadata editors, settings/admin panels and reader settings use `t()`; locale
+  templates include the remaining interface text, with English fallback until translated
 - ⬜ **Publish the Docker image** to a registry (GitHub Container Registry) from CI, for `docker pull`

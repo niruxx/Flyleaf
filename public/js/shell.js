@@ -428,8 +428,8 @@ export async function refreshDownloadsBadge() {
   }
   for (const a of document.querySelectorAll('.nav-item[data-to="/finder/downloads"]')) {
     a.querySelector('.count')?.remove();
-    if (s.failed) a.append(h('span.count.alert', { title: `${s.failed} failed` }, String(s.failed)));
-    a.setAttribute('aria-label', s.failed ? `Downloads, ${s.failed} failed` : 'Downloads');
+    if (s.failed) a.append(h('span.count.alert', { title: t('{failed} failed', { failed: s.failed }) }, String(s.failed)));
+    a.setAttribute('aria-label', s.failed ? t('Downloads, {failed} failed', { failed: s.failed }) : t('Downloads'));
   }
   if (s.active) badgeTimer = setTimeout(refreshDownloadsBadge, 15_000);
 }

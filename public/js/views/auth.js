@@ -221,7 +221,7 @@ export function loginView(view) {
 export async function registerView(view) {
   const st = await api.status().catch(() => null);
   if (!st?.registration) {
-    view.append(shell(t('Flyleaf'), t('Sign-up is closed. Ask the admin for an account.'), h('div', button(t('Back to sign in'), { variant: 'tonal', icon: 'arrow_back', onclick: () => navigate('/login', { replace: true }) }))));
+    view.append(shell('Flyleaf', t('Sign-up is closed. Ask the admin for an account.'), h('div', button(t('Back to sign in'), { variant: 'tonal', icon: 'arrow_back', onclick: () => navigate('/login', { replace: true }) }))));
     return;
   }
   const name = field(t('Your name'), { autocomplete: 'name', support: t('Shown in the app. Optional.') });

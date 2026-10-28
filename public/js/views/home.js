@@ -117,7 +117,7 @@ export async function homeView(view, params, stale) {
       sectionHead(t('Browse by genre'), 'category', `${list.length}`),
       h('div.genre-cloud', top.map((g, i) => h('a.genre-pill.state', {
         href: `#/genre/${encodeURIComponent(g.name)}`,
-        title: `${g.name} · ${g.count} series`,
+        title: t('{name} · {count} series', { name: g.name, count: g.count }),
         style: { '--h': String(hashHue(g.name)), '--w': String(0.9 + (g.count / max) * 0.3), '--i': String(i) },
       }, h('span.g', g.name), h('span.n', String(g.count))))),
     );
@@ -290,41 +290,41 @@ export function finderRecCard(r) {
 export async function recommendedView(view, params, stale) {
   const page = h('div.page');
   view.append(page);
-  page.append(pageHeader('Recommended for you'), h('p.muted.enter', { style: { marginTop: '-14px', marginBottom: '16px' } },
-    'Picked from what you read, finish, rate and save. Series you’ve started or saved aren’t repeated here.'));
+  page.append(pageHeader(t('Recommended for you')), h('p.muted.enter', { style: { marginTop: '-14px', marginBottom: '16px' } },
+    t('Picked from what you read, finish, rate and save. Series you’ve started or saved aren’t repeated here.')));
   const body = h('div', skeleton('grid'));
   page.append(body);
   const list = await api.recommendations(60);
   if (stale()) return;
   body.replaceChildren(list.length
     ? stagger(h('div.grid', list.map((s) => recCard(s, () => render()))))
-    : emptyState('recommend', 'Nothing to recommend yet', 'Read a few books, or mark series as completed or Want to read, and suggestions will show up here.'));
+    : emptyState('recommend', t('Nothing to recommend yet'), t('Read a few books, or mark series as completed or Want to read, and suggestions will show up here.')));
 
   if (!finderRecsOn()) return;
   // From Content Finder: can take a while the first time, since it searches the sources.
   const status = h('p.muted');
   const grid = h('div', skeleton('grid'));
-  const refresh = h('a.btn.text.state', { href: '#/settings/preferences' }, icon('tune'), 'Choose sources');
-  page.append(h('section.section', h('div.section-head', h('h2', 'Discover in Content Finder'), refresh), status, grid));
+  const refresh = h('a.btn.text.state', { href: '#/settings/preferences' }, icon('tune'), t('Choose sources'));
+  page.append(h('section.section', h('div.section-head', h('h2', t('Discover in Content Finder')), refresh), status, grid));
   const show = async (force) => {
     grid.replaceChildren(skeleton('grid'));
-    status.textContent = force ? 'Searching your sources again…' : '';
+    status.textContent = force ? t('Searching your sources again…') : '';
     try {
       const r = await api.finderRecommendations(force);
       if (stale()) return;
       status.textContent = r.items.length
-        ? `From ${r.sources.join(', ')} · updated ${new Date(r.generatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+        ? t('From {value} · updated {value2}', { value: r.sources.join(', '), value2: new Date(r.generatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) })
         : '';
-      const again = h('button.btn.text.state', { type: 'button', onclick: () => show(true) }, icon('refresh'), 'Search again');
+      const again = h('button.btn.text.state', { type: 'button', onclick: () => show(true) }, icon('refresh'), t('Search again'));
       status.append(' ', again);
       grid.replaceChildren(r.items.length
         ? stagger(h('div.grid', r.items.map(finderRecCard)))
-        : emptyState('travel_explore', 'No suggestions from Content Finder', {
-            'no-history': 'Read a few books first, so there’s something to go on.',
-            'no-sources': 'None of your chosen sources are ready. Pick sources in Settings → Preferences.',
-          }[r.reason] || 'Your sources didn’t return anything new. Try other sources in Settings → Preferences.'));
+        : emptyState('travel_explore', t('No suggestions from Content Finder'), {
+            'no-history': t('Read a few books first, so there’s something to go on.'),
+            'no-sources': t('None of your chosen sources are ready. Pick sources in Settings → Preferences.'),
+          }[r.reason] || t('Your sources didn’t return anything new. Try other sources in Settings → Preferences.')));
     } catch (e) {
-      grid.replaceChildren(emptyState('cloud_off', 'Couldn’t reach your sources', e.message));
+      grid.replaceChildren(emptyState('cloud_off', t('Couldn’t reach your sources'), e.message));
     }
   };
   show(false);

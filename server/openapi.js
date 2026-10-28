@@ -12,6 +12,14 @@
 const pkg = require('../package.json');
 
 const R = [
+  // Tracking connections require an interactive session, rather than an API key.
+  ['get', '/tracking', 'Tracking', 'Your tracking account connections (session only; no tokens returned)'],
+  ['post', '/tracking/{provider}/connect', 'Tracking', 'Start AniList or MyAnimeList OAuth (session only)'],
+  ['get', '/tracking/{provider}/callback', 'Tracking', 'Complete a state-validated OAuth connection (session only)', { query: { code: 'string', state: 'string' } }],
+  ['post', '/tracking/{provider}/login', 'Tracking', 'Connect Kitsu or MangaUpdates over HTTPS (session only)', { body: { username: 'string', password: 'string' } }],
+  ['patch', '/tracking/{provider}', 'Tracking', 'Choose optional score and status import (session only)', { body: { pullEnabled: 'boolean' } }],
+  ['delete', '/tracking/{provider}', 'Tracking', 'Disconnect and cancel pending delivery (session only)'],
+  ['post', '/tracking/{provider}/pull', 'Tracking', 'Queue score and status imports for matched accessible series (session only)'],
   // Session & account
   ['get', '/status', 'Account', 'Server status and the signed-in user (no auth needed)', { public: true, returns: '{ needsSetup, user }' }],
   ['post', '/login', 'Account', 'Sign in with a password (sets a session cookie)', { public: true, body: { username: 'string – username or email', password: 'string' } }],
