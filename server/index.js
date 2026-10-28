@@ -94,6 +94,11 @@ app.use('/api', api);
 // Static front-end and vendored client libraries
 
 const nm = (p) => path.join(config.root, 'node_modules', p);
+const paginatorSource = require('./foliate-patch').patchPaginator(
+  require('node:fs').readFileSync(nm('foliate-js/paginator.js'), 'utf8'));
+app.get('/vendor/foliate/paginator.js', (req, res) => {
+  res.set('Cache-Control', 'no-cache').type('application/javascript').send(paginatorSource);
+});
 const vendor = {
   '/vendor/pdfjs': nm('pdfjs-dist/legacy/build'),
   '/vendor/foliate': nm('foliate-js'),

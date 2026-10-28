@@ -96,6 +96,14 @@ export class TextEngine {
     this.view = view;
     this.shell.stage.replaceChildren(h('div.text-stage', view));
     await view.open(file);
+    view.renderer.addEventListener('navigation-error', (event) => this.navigationError(event.detail));
+    const onStageClick = (event) => {
+      if (event.target !== view && event.target !== view.parentElement && event.target !== this.shell.stage) return;
+      if (this.scrollMode()) this.shell.toggleChrome();
+      else this.shell.handleTap((event.clientX - this.shell.stage.getBoundingClientRect().left) / this.shell.stage.clientWidth);
+    };
+    this.shell.stage.addEventListener('click', onStageClick);
+    this.cleanups.push(() => this.shell.stage.removeEventListener('click', onStageClick));
     this.applyLayout();
     await this.applyStyles();
 
@@ -149,6 +157,9 @@ export class TextEngine {
   }
 
   destroy() {
+    this.destroyed = true;
+    clearTimeout(this.navigationTimer);
+    this.turnLift?.cancel();
     this.closeFootnote();
     import('./lookup.js').then((m) => m.closeLookup()).catch(() => {});
     this.cleanups.forEach((fn) => fn());
@@ -233,14 +244,50 @@ export class TextEngine {
   // ----- navigation -----
 
   next() {
+    if (this.navigating || this.recovering || this.destroyed) return;
     if (this.view.renderer.atEnd && !this.scrollMode()) return this.shell.showEnd();
-    if (this.bookTurns()) return this.turnBook('next');
-    this.view.next();
+    return this.navigatePage('next');
   }
   prev() {
+    if (this.navigating || this.recovering || this.destroyed) return;
     if (this.view.renderer.atStart && !this.scrollMode()) return this.shell.toast(t('Start of book'));
-    if (this.bookTurns()) return this.turnBook('prev');
-    this.view.prev();
+    return this.navigatePage('prev');
+  }
+
+  async navigatePage(dir) {
+    this.navigating = true;
+    // Keep the controls reachable during a slow section load without unlocking the renderer.
+    this.navigationTimer = setTimeout(() => {
+      this.turnLift?.cancel();
+      if (!this.destroyed) this.shell.showChrome(true);
+    }, 1500);
+    try {
+      if (this.bookTurns()) await this.turnBook(dir);
+      else await this.view[dir]();
+    } catch (error) {
+      await this.navigationError(error);
+    } finally {
+      clearTimeout(this.navigationTimer);
+      this.navigating = false;
+    }
+  }
+
+  async navigationError(error) {
+    if (this.destroyed || this.recovering) return;
+    this.recovering = true;
+    this.turnLift?.cancel();
+    this.shell.showChrome(true);
+    this.shell.toast(t('Could not turn the page. Try again or choose a chapter from Contents.'));
+    console.warn('Ebook page navigation failed:', error);
+    try {
+      const location = this.view.lastLocation?.cfi;
+      if (location) await this.view.goTo(location);
+    } catch (recoveryError) {
+      console.warn('Could not restore the ebook location:', recoveryError);
+    } finally {
+      this.recovering = false;
+      if (!this.destroyed) this.shell.showChrome(true);
+    }
   }
 
   bookTurns() {
@@ -254,12 +301,13 @@ export class TextEngine {
    */
   async turnBook(dir) {
     const view = this.view;
-    if (this.turning) return dir === 'next' ? view.next() : view.prev();
+    if (this.turning || this.destroyed) return;
     this.turning = true;
     const toLeft = (dir === 'next') !== (view.book.dir === 'rtl');
     const stage = this.shell.stage;
     const host = view.parentElement;
     const rect = { left: 0, top: 0, width: host.clientWidth, height: host.clientHeight };
+    let lift;
     try {
       // Two pages side by side: the book moves on, and a leaf peels off the page on the
       // turning side and lands on the other, hinged at the spine.
@@ -271,15 +319,19 @@ export class TextEngine {
         return;
       }
       view.style.transformOrigin = `${toLeft ? rect.left : rect.left + rect.width}px 50%`;
-      const lift = view.animate([
+      lift = this.turnLift = view.animate([
         { transform: 'perspective(2400px) rotateY(0deg)' },
         { transform: `perspective(2400px) rotateY(${toLeft ? -90 : 90}deg)` },
       ], { duration: 300, easing: 'cubic-bezier(0.5, 0, 0.75, 0.4)', fill: 'forwards' });
       await lift.finished;
-      await (dir === 'next' ? view.next() : view.prev());
+      // Foliate measures getBoundingClientRect() while navigating. At 90 degrees the live
+      // iframe has effectively zero width, so cancel the lift before it measures a page.
       lift.cancel();
+      await (dir === 'next' ? view.next() : view.prev());
       fallingLeaf({ stage, rect, toLeft, paper: this.colors().bg, grain: this.s.look === 'book' });
     } finally {
+      lift?.cancel();
+      if (this.turnLift === lift) this.turnLift = null;
       view.style.transformOrigin = '';
       this.turning = false;
     }
