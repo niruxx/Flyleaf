@@ -3932,6 +3932,22 @@ span.plugin-icon {
 .download-book-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .download-book-heading > h3 { flex: 1; min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .download-book-heading > .icon-btn { flex: none; }
+.download-book-heading > .icon-btn .icon {
+  transition: transform 280ms var(--ease-emphasized-decel);
+}
+.download-book-heading > .icon-btn[aria-expanded='true'] .icon { transform: rotate(180deg); }
+.download-book-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 280ms var(--ease-emphasized-decel), opacity 200ms ease;
+}
+.download-book-reveal.expanded { grid-template-rows: 1fr; opacity: 1; }
+.download-book-reveal-inner { min-height: 0; overflow: hidden; }
+@media (prefers-reduced-motion: reduce) {
+  .download-book-reveal,
+  .download-book-heading > .icon-btn .icon { transition: none; }
+}
 @media (max-width: 599px) {
   .download-book-group { gap: 8px; }
   .download-book-art { flex-basis: 44px; }

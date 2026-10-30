@@ -518,27 +518,29 @@ export async function downloadsView(view, params, stale) {
 
   function bookGroup(group) {
     const key = `${group.rows[0].status}:${group.rows[0].error === 'Cancelled'}:${group.key}`;
-    const entries = h('div.downloads-list', { id: `download-entries-${++downloadGroupId}`, hidden: collapsedBooks.has(key) }, group.rows.map(row));
-    const toggle = iconButton('expand_less', '', () => {
+    const entries = h('div.downloads-list', group.rows.map(row));
+    const reveal = h('div.download-book-reveal', { id: `download-entries-${++downloadGroupId}` }, h('div.download-book-reveal-inner', entries));
+    const toggle = iconButton('expand_more', '', () => {
       if (collapsedBooks.has(key)) collapsedBooks.delete(key);
       else collapsedBooks.add(key);
       update();
     });
-    toggle.setAttribute('aria-controls', entries.id);
+    toggle.setAttribute('aria-controls', reveal.id);
     function update() {
       const collapsed = collapsedBooks.has(key);
       const label = collapsed ? t('Expand downloads for {title}', { title: group.title }) : t('Collapse downloads for {title}', { title: group.title });
-      entries.hidden = collapsed;
+      reveal.classList.toggle('expanded', !collapsed);
+      reveal.inert = collapsed;
+      reveal.setAttribute('aria-hidden', String(collapsed));
       toggle.setAttribute('aria-expanded', String(!collapsed));
       toggle.setAttribute('aria-label', label);
       toggle.title = label;
-      toggle.querySelector('.icon').textContent = collapsed ? 'expand_more' : 'expand_less';
     }
     update();
     return h('section.download-book-group',
       h('div.download-book-art', cover({ title: group.title, coverUrl: group.cover }, { showProgress: false })),
       h('div.download-book-content',
-        h('div.download-book-heading', h('h3.title-medium', group.title, h('span.muted', ` (${group.rows.length})`)), toggle), entries));
+        h('div.download-book-heading', h('h3.title-medium', group.title, h('span.muted', ` (${group.rows.length})`)), toggle), reveal));
   }
 
   function section(label, rows, { actions = [], empty } = {}) {
