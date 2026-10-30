@@ -413,12 +413,54 @@ export async function downloadsView(view, params, stale) {
   // The admin sees everyone's downloads, one tab per person. Everyone else only gets their own
   // from the server, so they get no tabs.
   const tabs = h('div.download-tabs', { role: 'tablist', hidden: true });
+  const statusTabs = h('div.download-tabs', { role: 'tablist', 'aria-label': t('Download status') });
+  let statusTab = 'pending';
+  const statusLabels = () => [
+    ['pending', t('Pending')], ['downloading', t('Downloading')], ['failed', t('Failed')],
+    ['completed', t('Completed')], ['cancelled', t('Cancelled')],
+  ];
+  function selectStatus(key) {
+    statusTab = key;
+    for (const button of statusTabs.children) {
+      const selected = button.dataset.status === key;
+      button.setAttribute('aria-selected', String(selected));
+      button.tabIndex = selected ? 0 : -1;
+    }
+    for (const panel of body.querySelectorAll('[data-download-status]')) panel.hidden = panel.dataset.downloadStatus !== key;
+  }
+  function drawStatusTabs(rows) {
+    const counts = {
+      pending: rows.filter(d => d.status === 'queued').length,
+      downloading: rows.filter(d => d.status === 'downloading').length,
+      failed: rows.filter(failed).length,
+      completed: rows.filter(d => d.status === 'done').length,
+      cancelled: rows.filter(d => d.status === 'failed' && d.error === 'Cancelled').length,
+    };
+    statusTabs.replaceChildren(...statusLabels().map(([key, label], index, list) => h('button.download-tab.state', {
+      type: 'button', role: 'tab', id: `download-tab-${key}`, 'aria-controls': `download-panel-${key}`,
+      dataset: { status: key }, onclick: () => selectStatus(key),
+      onkeydown: (e) => {
+        let next;
+        if (e.key === 'ArrowRight') next = (index + 1) % list.length;
+        else if (e.key === 'ArrowLeft') next = (index + list.length - 1) % list.length;
+        else if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = list.length - 1;
+        else return;
+        e.preventDefault();
+        selectStatus(list[next][0]);
+        statusTabs.children[next].focus();
+      },
+    }, label, h('span.count', String(counts[key])))));
+    selectStatus(statusTab);
+  }
   let sort = 'asc';
+  const collapsedBooks = new Set();
+  let downloadGroupId = 0;
   const sorting = h('label.download-sort', t('Sort by title'), h('select', { 'aria-label': t('Sort by title'), onchange: (e) => {
     sort = e.target.value;
     refresh();
   } }, h('option', { value: 'asc' }, t('Title A–Z')), h('option', { value: 'desc' }, t('Title Z–A'))));
-  view.append(h('div.page', h('div.page-head.downloads-head.enter', iconButton('arrow_back', t('Back'), () => navigate('/finder')), h('h1', t('Downloads')), sorting), tabs, body));
+  view.append(h('div.page', h('div.page-head.downloads-head.enter', iconButton('arrow_back', t('Back'), () => navigate('/finder')), h('h1', t('Downloads')), sorting), tabs, statusTabs, body));
   let tab = isAdmin() ? params.query.get('user') || 'all' : 'all';
 
   let timer;
@@ -474,13 +516,35 @@ export async function downloadsView(view, params, stale) {
     );
   }
 
+  function bookGroup(group) {
+    const key = `${group.rows[0].status}:${group.rows[0].error === 'Cancelled'}:${group.key}`;
+    const entries = h('div.downloads-list', { id: `download-entries-${++downloadGroupId}`, hidden: collapsedBooks.has(key) }, group.rows.map(row));
+    const toggle = iconButton('expand_less', '', () => {
+      if (collapsedBooks.has(key)) collapsedBooks.delete(key);
+      else collapsedBooks.add(key);
+      update();
+    });
+    toggle.setAttribute('aria-controls', entries.id);
+    function update() {
+      const collapsed = collapsedBooks.has(key);
+      const label = collapsed ? t('Expand downloads for {title}', { title: group.title }) : t('Collapse downloads for {title}', { title: group.title });
+      entries.hidden = collapsed;
+      toggle.setAttribute('aria-expanded', String(!collapsed));
+      toggle.setAttribute('aria-label', label);
+      toggle.title = label;
+      toggle.querySelector('.icon').textContent = collapsed ? 'expand_more' : 'expand_less';
+    }
+    update();
+    return h('section.download-book-group',
+      h('div.download-book-art', cover({ title: group.title, coverUrl: group.cover }, { showProgress: false })),
+      h('div.download-book-content',
+        h('div.download-book-heading', h('h3.title-medium', group.title, h('span.muted', ` (${group.rows.length})`)), toggle), entries));
+  }
+
   function section(label, rows, { actions = [], empty } = {}) {
     return h('section.downloads-section',
       h('div.downloads-section-head', h('h2', label, rows.length ? h('span.muted', ` (${rows.length})`) : null), ...actions),
-      rows.length ? h('div.download-book-groups', groupDownloads(rows, sort).map((group) =>
-        h('section.download-book-group',
-          h('div.download-book-art', cover({ title: group.title, coverUrl: group.cover }, { showProgress: false })),
-          h('div.download-book-content', h('h3.title-medium', group.title, h('span.muted', ` (${group.rows.length})`)), h('div.downloads-list', group.rows.map(row)))))) : empty && h('p.note', empty));
+      rows.length ? h('div.download-book-groups', groupDownloads(rows, sort).map(bookGroup)) : empty && h('p.note', empty));
   }
 
   /** One tab per person who has downloads, named after them, plus “All users”. */
@@ -531,6 +595,7 @@ export async function downloadsView(view, params, stale) {
     }
     // Retry all / Clear act on the open tab only.
     const who = isAdmin() && tab !== 'all' && tab !== 'none' ? tab : undefined;
+    drawStatusTabs(rows);
     if (!rows.length) {
       body.replaceChildren(emptyState('download_done', t('No downloads'), t('Books you download from Content Finder appear here.'), button(t('Find books'), { icon: 'travel_explore', onclick: () => navigate('/finder') })));
       return;
@@ -539,8 +604,8 @@ export async function downloadsView(view, params, stale) {
     const failures = rows.filter(failed);
     const history = rows.filter((d) => !active(d) && !failed(d));
     body.replaceChildren(...[
-      rows.some((d) => d.status === 'downloading') && section(t('Downloading'), rows.filter((d) => d.status === 'downloading')),
-      rows.some((d) => d.status === 'queued') && section(t('Pending'), rows.filter((d) => d.status === 'queued')),
+      section(t('Downloading'), rows.filter((d) => d.status === 'downloading'), { empty: t('No downloads are running.') }),
+      section(t('Pending'), rows.filter((d) => d.status === 'queued'), { empty: t('No pending downloads.') }),
       section(t('Failed'), failures, {
         empty: t('Nothing has failed.'),
         actions: failures.length ? [
@@ -558,8 +623,17 @@ export async function downloadsView(view, params, stale) {
         empty: t('Finished downloads appear here.'),
         actions: history.length ? [button(t('Clear history'), { variant: 'text', icon: 'clear_all', onclick: run(() => api.clearDownloads('history', who)) })] : [],
       }),
-      history.some((d) => d.error === 'Cancelled') && section(t('Cancelled'), history.filter((d) => d.error === 'Cancelled')),
-    ].filter(Boolean));
+      section(t('Cancelled'), history.filter((d) => d.error === 'Cancelled'), { empty: t('No cancelled downloads.') }),
+    ].map((panel, index) => {
+      const key = ['downloading', 'pending', 'failed', 'completed', 'cancelled'][index];
+      panel.dataset.downloadStatus = key;
+      panel.id = `download-panel-${key}`;
+      panel.setAttribute('role', 'tabpanel');
+      panel.setAttribute('aria-labelledby', `download-tab-${key}`);
+      panel.tabIndex = 0;
+      panel.hidden = statusTab !== key;
+      return panel;
+    }));
     if (inProgress.length) timer = setTimeout(refresh, 1500);
   }
   refresh();
