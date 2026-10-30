@@ -122,6 +122,18 @@ export async function finderView(view, params, stale) {
         refreshHealth(); renderChips();
         if (!health.allows(current)) pick(ALL); else run(true);
       } }), t('Hide failing sources')),
+      h('label.finder-health-toggle', h('input', { type: 'checkbox', checked: health.disableFailing, onchange: (e) => {
+        health.setDisableFailing(e.target.checked);
+        refreshHealth();
+      } }), t('Disable failing extensions')),
+      h('p.body-small.muted', t('Automatically disable sources for you when they fail. Existing failures can be disabled with the button below. You can retry or enable each source later.')),
+      button(t('Disable all failed extensions'), { variant: 'tonal',
+        disabled: !sources.some((src) => health.failures.has(src.id) && !health.disabled.has(src.id)),
+        onclick: () => {
+          health.disableFailed(sources.map((src) => src.id));
+          refreshHealth(); renderChips();
+          if (!health.allows(current)) pick(ALL); else run(true);
+        } }),
       ...affected.map((src) => h('div.finder-health-row',
         h('div', h('div.title-small', src.name), h('div.body-small.muted', health.failures.get(src.id) || t('Disabled for you'))),
         button(health.disabled.has(src.id) ? t('Enable for me') : t('Disable for me'), { variant: 'tonal', onclick: () => {
@@ -151,7 +163,7 @@ export async function finderView(view, params, stale) {
   }
   function markFailure(src, error) {
     health.fail(src.id, error.message);
-    if (health.hideFailed) {
+    if (!health.allows(src.id)) {
       for (const tile of results.querySelectorAll('.finder-tile')) {
         if (tile.dataset.source === src.id) tile.remove();
       }
@@ -384,7 +396,7 @@ export async function finderView(view, params, stale) {
             } catch (e) {
               if (my !== token || stale()) return;
               markFailure(src, e);
-              if (!health.hideFailed) notices.append(h('p.body-small.error-text', `${src.name}: ${e.message}`));
+              if (health.allows(src.id)) notices.append(h('p.body-small.error-text', `${src.name}: ${e.message}`));
             }
           }
         }));
