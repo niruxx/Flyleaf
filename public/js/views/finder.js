@@ -99,8 +99,8 @@ export async function finderView(view, params, stale) {
   function renderChips() {
     const shownSources = sources.filter((s) => matchesFilter(s) || s.id === current);
     chips.replaceChildren(...[
-      ready.length > 1 && h('button.chip.state', { type: 'button', role: 'tab', 'aria-pressed': String(current === ALL), onclick: () => pick(ALL) }, icon('travel_explore'),
-        sourceFilter ? t('All matching ({length})', { length: searchable().length }) : t('All sources')),
+      h('button.chip.state', { type: 'button', role: 'tab', 'aria-pressed': String(current === ALL), onclick: () => pick(ALL) }, icon('travel_explore'),
+        t('ALL')),
       !shownSources.length && h('span.body-small.muted', t('No source matches.')),
       ...shownSources.map((s) => h('button.chip.state', { type: 'button', role: 'tab', 'aria-pressed': String(current === s.id), title: s.description || s.name, onclick: () => pick(s.id) },
         sourceIcon(s), [s.name, languageName(s.language)].filter(Boolean).join(' · '), (s.needsSetup || s.error) && icon('warning'))),
@@ -218,18 +218,24 @@ export async function finderView(view, params, stale) {
   renderGenres();
 
   function tile(src, item) {
-    const el = h('button.tile.finder-tile', { type: 'button', title: item.title, onclick: () => (item.folder ? openFolder(item) : openDetails(src, item)) },
+    const el = h('button.tile.finder-tile', { type: 'button', title: item.title, onclick: () => (item.folder ? openFolder(item, src) : openDetails(src, item)) },
       item.folder
         ? h('div.cover.folder-cover', icon('folder', 'filled'), h('div.ph-title', item.title))
         : cover({ title: item.title, coverUrl: item.cover, format: src.kinds?.[0] === 'books' ? 'epub' : 'cbz' }, { showProgress: false }),
       h('div.t-title', item.title),
       !item.folder && h('div.card-badges', languageBadge(item.language || src.language, { source: !item.language }), contentRatingBadge(item, src)),
-      h('div.t-sub', item.author || (current === ALL ? src.name : '')),
+      h('div.t-sub', [item.author, current === ALL ? src.name : ''].filter(Boolean).join(' ? ')),
     );
     return el;
   }
 
-  function openFolder(item) {
+  function openFolder(item, src) {
+    if (current === ALL) {
+      current = src.id;
+      saveLast(current);
+      renderChips();
+      renderGenres();
+    }
     stack.push({ id: item.id, title: item.title });
     run(true);
   }
@@ -267,42 +273,51 @@ export async function finderView(view, params, stale) {
         results.replaceChildren(emptyState('search_off', t('No source matches'), t('Clear the source filter to search everything.')));
         return;
       }
-      if (!query) {
-        results.replaceChildren(h('div.source-cards', pool.map((s) => h('button.source-card.state', { type: 'button', onclick: () => pick(s.id) },
-          h('div.source-card-head', sourceIcon(s, 32), h('div', h('div.title-medium', s.name), h('div.body-small.muted', (s.kinds || []).map((k) => KIND_LABEL[k]).join(' · ')))),
-          s.description && h('p.body-medium.muted', s.description)))));
+      const poolToLoad = query ? pool : pool.filter((s) => s.canBrowse);
+      if (!poolToLoad.length) {
+        results.replaceChildren(emptyState('search', t('Search every source'), t('Type a title or author above.')));
         return;
       }
-      // Search every ready source in parallel; each gets its own row.
-      results.replaceChildren();
-      for (const s of pool) {
-        const section = h('section.finder-section', h('div.finder-section-head', sourceIcon(s), h('h2.title-medium', s.name),
-          h('button.btn.text.state', { type: 'button', onclick: () => pick(s.id) }, t('See all'), icon('chevron_right'))), loading());
-        results.append(section);
-        const shelf = h('div.shelf');
-        const status = h('div.finder-more');
-        let sourcePage = 0;
-        const sourceQuery = query;
-        async function loadSourcePage() {
-          sourcePage++;
-          status.replaceChildren(loading());
-          try {
-            const r = await filterPage(s, await api.finderSearch(s.id, sourceQuery, sourcePage));
-            if (my !== token) return;
-            shelf.append(...r.items.map((it) => tile(s, it)));
-            status.replaceChildren(...[
-              !shelf.children.length && h('p.body-medium.muted.finder-none', t('No matches on the loaded pages.')),
-              r.hasMore && button(t('Load more'), { variant: 'tonal', onclick: () => loadSourcePage() }),
-            ].filter(Boolean));
-          } catch (e) {
-            if (my === token) status.replaceChildren(h('p.body-medium.finder-none.error-text', e.message),
-              button(t('Try again'), { onclick: () => { sourcePage--; loadSourcePage(); } }));
+      const grid = stagger(h('div.grid'));
+      const notices = h('div', { role: 'status' });
+      results.replaceChildren(h('h2.title-medium.finder-label', query ? t('Results from all sources') : t('Popular from all sources')), grid, notices);
+      const sourceQuery = query;
+      const states = poolToLoad.map((src) => ({ src, page: 0, hasMore: true }));
+      const seen = new Set();
+      async function loadAllPages() {
+        more.replaceChildren(loading());
+        notices.replaceChildren();
+        const pending = states.filter((state) => state.hasMore);
+        let next = 0;
+        await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => {
+          while (next < pending.length && my === token && !stale()) {
+            const state = pending[next++];
+            const { src } = state;
+            try {
+              const r = await filterPage(src, await (sourceQuery
+                ? api.finderSearch(src.id, sourceQuery, state.page + 1)
+                : api.finderLatest(src.id, state.page + 1)));
+              if (my !== token || stale()) return;
+              state.page++;
+              state.hasMore = r.hasMore;
+              for (const item of r.items) {
+                const key = JSON.stringify([src.id, item.id]);
+                if (seen.has(key)) continue;
+                seen.add(key);
+                grid.append(tile(src, item));
+              }
+            } catch (e) {
+              if (my !== token || stale()) return;
+              notices.append(h('p.body-small.error-text', `${src.name}: ${e.message}`));
+            }
           }
-        }
-        section.lastChild.replaceWith(shelf);
-        section.append(status);
-        loadSourcePage();
+        }));
+        if (my !== token || stale()) return;
+        if (!grid.children.length) notices.prepend(h('p.body-medium.muted', t('No matches on the loaded pages.')));
+        more.replaceChildren(...(states.some((state) => state.hasMore)
+          ? [button(t('Load more'), { variant: 'tonal', icon: 'expand_more', onclick: () => loadAllPages() })] : []));
       }
+      await loadAllPages();
       return;
     }
 
