@@ -6,7 +6,7 @@ import { api, can } from '../api.js';
 import { session, isAdmin, navigate, onLeave } from '../router.js';
 import { languageName } from '../languages.js';
 import { languageBadge } from '../components/language-badge.js';
-import { contentRatingBadge } from '../components/content-rating-badge.js';
+import { contentRating, contentRatingBadge } from '../components/content-rating-badge.js';
 import { groupDownloads } from '../download-groups.js';
 import { h, icon, iconButton, button, setButtonLabel, cover, dialog, snackbar, loading, skeleton, emptyState, stagger, field, formatBytes, timeAgo, libraryOptions, confirmDialog, toggleSwitch, pageBanner, formDialog } from '../ui.js';
 
@@ -149,6 +149,60 @@ export async function finderView(view, params, stale) {
     query = '';
     run(true);
   }));
+  let tagFilter = '';
+  let ratingFilter = '';
+  const tagField = field(t('Genres and book tags'), {
+    placeholder: t('Space, Yuri'),
+    support: t('Separate tags with commas. All tags must match. Filters check each loaded page; load more to check more books.'),
+  });
+  const ratingField = field(t('Content rating'), { options: [
+    { value: '', label: t('Any rating') }, { value: 'safe', label: t('SFW') },
+    { value: 'nsfw', label: t('NSFW') }, { value: 'unknown', label: t('Unrated') },
+  ] });
+  const filters = h('form.finder-filters', { onsubmit: (e) => {
+    e.preventDefault();
+    tagFilter = tagField.input.value.trim();
+    ratingFilter = ratingField.input.value;
+    run(true);
+  } }, tagField, ratingField, button(t('Apply filters'), { type: 'submit', icon: 'filter_list' }),
+  button(t('Clear filters'), { variant: 'text', onclick: () => {
+    tagField.input.value = tagFilter = '';
+    ratingField.input.value = ratingFilter = '';
+    run(true);
+  } }));
+  const detailCache = new Map();
+  async function filterPage(src, r) {
+    if (!tagFilter && !ratingFilter) return r;
+    const tags = tagFilter.split(',').map((v) => v.trim().toLowerCase()).filter(Boolean);
+    const rating = ratingFilter;
+    const items = [];
+    let next = 0;
+    // Limit detail lookups to four at a time, including on large source pages.
+    await Promise.all(Array.from({ length: Math.min(4, r.items.length) }, async () => {
+      while (next < r.items.length) {
+        const index = next++;
+        const item = r.items[index];
+        if (item.folder) { items[index] = item; continue; }
+        let metadata = item;
+        if (tags.length || (rating && contentRating(item) === 'unknown')) {
+          const key = JSON.stringify([src.id, item.id]);
+          if (!detailCache.has(key)) {
+            if (detailCache.size >= 500) detailCache.delete(detailCache.keys().next().value);
+            detailCache.set(key, api.finderDetails(src.id, item.id).catch(() => null));
+          }
+          const details = await detailCache.get(key);
+          if (details) metadata = { ...item,
+            genres: [...(item.genres || []), ...(details.genres || [])],
+            tags: [...(item.tags || []), ...(details.tags || [])],
+            ageRating: details.ageRating ?? item.ageRating, nsfw: details.nsfw ?? item.nsfw,
+          };
+        }
+        const labels = [...(metadata.genres || []), ...(metadata.tags || [])].map((v) => v.toLowerCase());
+        if (tags.every((tag) => labels.includes(tag)) && (!rating || contentRating(metadata, src) === rating)) items[index] = { ...item, ...metadata };
+      }
+    }));
+    return { ...r, items: items.filter(Boolean) };
+  }
   const crumbs = h('div.finder-crumbs');
   const results = h('div.finder-results');
   const more = h('div.finder-more');
@@ -156,7 +210,7 @@ export async function finderView(view, params, stale) {
   view.append(h('div.page.finder', head,
     h('p.body-medium.muted.enter', { style: { margin: '-8px 0 16px' } }, t('Search the sources your admin has installed and download straight into a library. Only download books you’re allowed to.')),
     sources.length > 6 && h('div.source-find-wrap', icon('filter_list'), sourceFind),
-    kindChips, chips, searchBar, genreRow, crumbs, results, more));
+    kindChips, chips, searchBar, genreRow, filters, crumbs, results, more));
   renderKinds();
   renderChips();
 
@@ -225,12 +279,29 @@ export async function finderView(view, params, stale) {
         const section = h('section.finder-section', h('div.finder-section-head', sourceIcon(s), h('h2.title-medium', s.name),
           h('button.btn.text.state', { type: 'button', onclick: () => pick(s.id) }, t('See all'), icon('chevron_right'))), loading());
         results.append(section);
-        api.finderSearch(s.id, query, 1).then((r) => {
-          if (my !== token) return;
-          section.lastChild.replaceWith(r.items.length
-            ? h('div.shelf', r.items.slice(0, 20).map((it) => tile(s, it)))
-            : h('p.body-medium.muted.finder-none', t('No matches.')));
-        }).catch((e) => my === token && section.lastChild.replaceWith(h('p.body-medium.finder-none.error-text', e.message)));
+        const shelf = h('div.shelf');
+        const status = h('div.finder-more');
+        let sourcePage = 0;
+        const sourceQuery = query;
+        async function loadSourcePage() {
+          sourcePage++;
+          status.replaceChildren(loading());
+          try {
+            const r = await filterPage(s, await api.finderSearch(s.id, sourceQuery, sourcePage));
+            if (my !== token) return;
+            shelf.append(...r.items.map((it) => tile(s, it)));
+            status.replaceChildren(...[
+              !shelf.children.length && h('p.body-medium.muted.finder-none', t('No matches on the loaded pages.')),
+              r.hasMore && button(t('Load more'), { variant: 'tonal', onclick: () => loadSourcePage() }),
+            ].filter(Boolean));
+          } catch (e) {
+            if (my === token) status.replaceChildren(h('p.body-medium.finder-none.error-text', e.message),
+              button(t('Try again'), { onclick: () => { sourcePage--; loadSourcePage(); } }));
+          }
+        }
+        section.lastChild.replaceWith(shelf);
+        section.append(status);
+        loadSourcePage();
       }
       return;
     }
@@ -247,14 +318,14 @@ export async function finderView(view, params, stale) {
       return;
     }
     try {
-      const r = await fetchPage(src, pageNo);
+      const r = await filterPage(src, await fetchPage(src, pageNo));
       if (my !== token) return;
       if (reset) results.replaceChildren();
       if (r.needsQuery) {
         results.replaceChildren(emptyState('search', t('Search {name}', { name: src.name }), t('Type a title or author above.')));
         return;
       }
-      if (!r.items.length && pageNo === 1) {
+      if (!r.items.length && pageNo === 1 && !r.hasMore) {
         results.replaceChildren(emptyState('search_off', t('Nothing found'), query ? t('No results for “{query}” on {name}.', { query: query, name: src.name }) : t('This source has nothing to show.')));
         return;
       }
@@ -264,7 +335,9 @@ export async function finderView(view, params, stale) {
         grid = stagger(h('div.grid'));
         results.append(grid);
       }
+      grid.querySelector('p')?.remove();
       grid.append(...r.items.map((it) => tile(src, it)));
+      if (!grid.children.length) grid.replaceChildren(h('p.body-medium.muted', t('No matches on this page. Load more to check the next page.')));
       // No more pages: leave it empty (replaceChildren would print a null as the text "null").
       more.replaceChildren(...(r.hasMore ? [button(t('Load more'), { variant: 'tonal', icon: 'expand_more', onclick: (e) => {
         e.currentTarget.disabled = true;
@@ -381,7 +454,7 @@ export async function finderView(view, params, stale) {
           d.status && h('span.mini-chip', d.status),
           h('p.body-small.muted', t('Available languages: {languages}', { languages: languageName(d.files.flatMap((f) => [].concat(f.language || []))) || t('Unknown language') })),
           src.language && h('p.body-small.muted', t('Source language: {language}', { language: languageName(src.language) })),
-          d.genres.length > 0 && h('div.chip-set', d.genres.slice(0, 10).map((g) => h('span.chip.static', g))),
+          (d.genres.length > 0 || d.tags?.length > 0) && h('div.chip-set', [...new Set([...d.genres, ...(d.tags || [])])].slice(0, 20).map((g) => h('span.chip.static', g))),
           d.url && h('a.btn.text.state', { href: d.url, target: '_blank', rel: 'noopener noreferrer' }, icon('open_in_new'), t('View on site')),
         ),
       ),

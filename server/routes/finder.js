@@ -18,6 +18,10 @@ const str = (v, max = 500) => (v == null || v === '' ? null : String(v).slice(0,
 const httpUrl = (v) => (typeof v === 'string' && /^(https?:\/\/|data:image\/)/i.test(v) ? v.slice(0, 4000) : null);
 const num = (v) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : null);
 
+const cleanLabels = (values) => [...new Map((Array.isArray(values) ? values : [])
+  .filter((v) => typeof v === 'string').map((v) => v.trim().slice(0, 80)).filter(Boolean)
+  .map((v) => [v.toLowerCase(), v])).values()].slice(0, 100);
+
 /** Plugins return free-form tables; keep only well-formed fields. `img` rewrites image URLs. */
 function cleanItem(i, img = (u) => u) {
   if (!i || i.id == null) return null;
@@ -30,6 +34,8 @@ function cleanItem(i, img = (u) => u) {
     language: str(i.language, 40),
     ageRating: [0, 1, 2, 3].includes(i.ageRating) ? i.ageRating : null,
     nsfw: typeof i.nsfw === 'boolean' ? i.nsfw : null,
+    genres: cleanLabels(i.genres),
+    tags: cleanLabels(i.tags),
     folder: Boolean(i.folder),
   };
 }
@@ -58,6 +64,8 @@ function cleanDetails(d, id, img = (u) => u) {
     cover: img(httpUrl(d?.cover)),
     summary: str(d?.summary, 5000),
     genres: [...new Map((Array.isArray(d?.genres) ? d.genres : []).map((g) => str(g, 60)).filter(Boolean).map((g) => [g.toLowerCase(), g])).values()].slice(0, 20),
+    tags: cleanLabels(d?.tags),
+    nsfw: typeof d?.nsfw === 'boolean' ? d.nsfw : null,
     status: str(d?.status, 120),
     // 0 Everyone · 1 Teen (13+) · 2 Mature (17+) · 3 Adults (18+); applied to the series after download.
     ageRating: [0, 1, 2, 3].includes(d?.ageRating) ? d.ageRating : null,
