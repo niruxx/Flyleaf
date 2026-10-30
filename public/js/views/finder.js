@@ -4,7 +4,7 @@ import { t, plural } from '../i18n.js';
 
 import { api, can } from '../api.js';
 import { session, isAdmin, navigate, onLeave } from '../router.js';
-import { languageName } from '../languages.js';
+import { languageCodes, languageName } from '../languages.js';
 import { languageBadge } from '../components/language-badge.js';
 import { contentRating, contentRatingBadge } from '../components/content-rating-badge.js';
 import { groupDownloads } from '../download-groups.js';
@@ -151,6 +151,7 @@ export async function finderView(view, params, stale) {
   }));
   let tagFilter = '';
   let ratingFilter = '';
+  let languageFilter = '';
   const tagField = field(t('Genres and book tags'), {
     placeholder: t('Space, Yuri'),
     support: t('Separate tags with commas. All tags must match. Filters check each loaded page; load more to check more books.'),
@@ -159,22 +160,35 @@ export async function finderView(view, params, stale) {
     { value: '', label: t('Any rating') }, { value: 'safe', label: t('SFW') },
     { value: 'nsfw', label: t('NSFW') }, { value: 'unknown', label: t('Unrated') },
   ] });
+  const languages = [...new Set([
+    'en', 'ja', 'zh', 'ko', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ar', 'hi', 'id', 'th', 'vi',
+    ...sources.flatMap((src) => languageCodes(src.language)),
+  ])].filter((code) => !['all', 'multi', 'und'].includes(code));
+  const languageField = field(t('Language'), { options: [
+    { value: '', label: t('Any language') },
+    ...languages.map((code) => ({ value: code, label: languageName(code) }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    { value: 'und', label: t('Unknown language') },
+  ] });
   const filters = h('form.finder-filters', { onsubmit: (e) => {
     e.preventDefault();
     tagFilter = tagField.input.value.trim();
     ratingFilter = ratingField.input.value;
+    languageFilter = languageField.input.value;
     run(true);
-  } }, tagField, ratingField, button(t('Apply filters'), { type: 'submit', icon: 'filter_list' }),
+  } }, tagField, ratingField, languageField, button(t('Apply filters'), { type: 'submit', icon: 'filter_list' }),
   button(t('Clear filters'), { variant: 'text', onclick: () => {
     tagField.input.value = tagFilter = '';
     ratingField.input.value = ratingFilter = '';
+    languageField.input.value = languageFilter = '';
     run(true);
   } }));
   const detailCache = new Map();
   async function filterPage(src, r) {
-    if (!tagFilter && !ratingFilter) return r;
+    if (!tagFilter && !ratingFilter && !languageFilter) return r;
     const tags = tagFilter.split(',').map((v) => v.trim().toLowerCase()).filter(Boolean);
     const rating = ratingFilter;
+    const language = languageFilter;
     const items = [];
     let next = 0;
     // Limit detail lookups to four at a time, including on large source pages.
@@ -184,7 +198,7 @@ export async function finderView(view, params, stale) {
         const item = r.items[index];
         if (item.folder) { items[index] = item; continue; }
         let metadata = item;
-        if (tags.length || (rating && contentRating(item) === 'unknown')) {
+        if (tags.length || (rating && contentRating(item) === 'unknown') || (language && !item.language)) {
           const key = JSON.stringify([src.id, item.id]);
           if (!detailCache.has(key)) {
             if (detailCache.size >= 500) detailCache.delete(detailCache.keys().next().value);
@@ -194,11 +208,16 @@ export async function finderView(view, params, stale) {
           if (details) metadata = { ...item,
             genres: [...(item.genres || []), ...(details.genres || [])],
             tags: [...(item.tags || []), ...(details.tags || [])],
+            language: item.language || details.language,
             ageRating: details.ageRating ?? item.ageRating, nsfw: details.nsfw ?? item.nsfw,
           };
         }
         const labels = [...(metadata.genres || []), ...(metadata.tags || [])].map((v) => v.toLowerCase());
-        if (tags.every((tag) => labels.includes(tag)) && (!rating || contentRating(metadata, src) === rating)) items[index] = { ...item, ...metadata };
+        const codes = languageCodes(metadata.language || src.language);
+        const matchesLanguage = !language || (language === 'und'
+          ? !codes.length || codes.every((code) => code === 'und')
+          : codes.some((code) => code === language || code.startsWith(`${language}-`)));
+        if (matchesLanguage && tags.every((tag) => labels.includes(tag)) && (!rating || contentRating(metadata, src) === rating)) items[index] = { ...item, ...metadata };
       }
     }));
     return { ...r, items: items.filter(Boolean) };
@@ -223,8 +242,9 @@ export async function finderView(view, params, stale) {
         ? h('div.cover.folder-cover', icon('folder', 'filled'), h('div.ph-title', item.title))
         : cover({ title: item.title, coverUrl: item.cover, format: src.kinds?.[0] === 'books' ? 'epub' : 'cbz' }, { showProgress: false }),
       h('div.t-title', item.title),
+      current === ALL && h('div.t-sub.finder-source', { title: src.name }, t('Source: {name}', { name: src.name })),
       !item.folder && h('div.card-badges', languageBadge(item.language || src.language, { source: !item.language }), contentRatingBadge(item, src)),
-      h('div.t-sub', [item.author, current === ALL ? src.name : ''].filter(Boolean).join(' ? ')),
+      item.author && h('div.t-sub', item.author),
     );
     return el;
   }

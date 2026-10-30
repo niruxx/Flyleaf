@@ -64,6 +64,7 @@ function cleanDetails(d, id, img = (u) => u) {
     cover: img(httpUrl(d?.cover)),
     summary: str(d?.summary, 5000),
     genres: [...new Map((Array.isArray(d?.genres) ? d.genres : []).map((g) => str(g, 60)).filter(Boolean).map((g) => [g.toLowerCase(), g])).values()].slice(0, 20),
+    language: str(d?.language, 40),
     tags: cleanLabels(d?.tags),
     nsfw: typeof d?.nsfw === 'boolean' ? d.nsfw : null,
     status: str(d?.status, 120),
