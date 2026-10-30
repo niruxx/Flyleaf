@@ -331,6 +331,7 @@ function enqueue({ userId, pluginId, libraryId, book, files }) {
       title: book.title, bookTitle: book.title, author: book.author || null, series: book.series || null, ageRating: book.ageRating ?? null, layout: book.layout || null,
       // The item id at the source, so the series can be followed for new chapters later.
       sourceId: book.sourceId || null,
+      cover: book.cover || null,
     }),
     now,
   ).lastInsertRowid));

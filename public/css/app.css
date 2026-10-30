@@ -3923,6 +3923,20 @@ span.plugin-icon {
   display: grid;
   gap: 8px;
 }
+.download-sort { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px; }
+.download-book-groups { display: grid; gap: 18px; }
+.download-book-group { display: flex; align-items: flex-start; gap: 14px; min-width: 0; }
+.download-book-art { flex: 0 0 72px; }
+.download-book-art .cover { width: 100%; }
+.download-book-content { flex: 1; min-width: 0; }
+.download-book-content > h3 { margin: 0 0 8px; overflow-wrap: anywhere; }
+@media (max-width: 599px) {
+  .download-book-group { gap: 8px; }
+  .download-book-art { flex-basis: 44px; }
+  .download-book-group .download-row { padding: 10px 8px; gap: 8px; flex-wrap: wrap; }
+  .download-book-group .download-row > .text { flex-basis: calc(100% - 32px); }
+  .download-book-group .download-row > button:first-of-type { margin-left: 32px; }
+}
 .download-row {
   display: flex;
   align-items: center;

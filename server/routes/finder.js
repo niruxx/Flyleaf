@@ -383,6 +383,7 @@ router.post('/:plugin/download', async (req, res) => {
       ageRating: [0, 1, 2, 3].includes(book?.ageRating) ? book.ageRating : null,
       layout: ['single', 'double', 'webtoon'].includes(book?.layout) ? book.layout : null,
       sourceId: str(book?.sourceId, 2000),
+      cover: httpUrl(book?.cover),
     },
     files: clean,
   });
@@ -417,10 +418,13 @@ router.get('/downloads/list', (req, res) => {
   res.json([...current, ...history].map((d) => {
     // Which chapter/volume this was, so a failed one can be told apart from its siblings.
     const item = json(d.item, {});
+    const local = d.file && q('SELECT id, cover FROM books WHERE path = ? AND missing = 0').get(d.file);
     return {
       id: d.id, plugin: d.plugin_id, title: d.title, status: d.status, received: d.received, total: d.total,
       error: d.error, library: d.library_name, userId: d.user_id, username: d.username, userName: d.user_name, createdAt: d.created_at, finishedAt: d.finished_at,
       fileTitle: item.fileTitle || null, volume: item.volume ?? null, chapter: item.chapter ?? null,
+      bookTitle: item.bookTitle || item.title || d.title, sourceId: item.sourceId || null, libraryId: d.library_id,
+      cover: local?.cover ? `/api/books/${local.id}/cover?v=${encodeURIComponent(local.cover)}` : httpUrl(item.cover),
     };
   }));
 });

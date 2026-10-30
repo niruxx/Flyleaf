@@ -7,6 +7,7 @@ import { session, isAdmin, navigate, onLeave } from '../router.js';
 import { languageName } from '../languages.js';
 import { languageBadge } from '../components/language-badge.js';
 import { contentRatingBadge } from '../components/content-rating-badge.js';
+import { groupDownloads } from '../download-groups.js';
 import { h, icon, iconButton, button, setButtonLabel, cover, dialog, snackbar, loading, skeleton, emptyState, stagger, field, formatBytes, timeAgo, libraryOptions, confirmDialog, toggleSwitch, pageBanner, formDialog } from '../ui.js';
 
 const KIND_LABEL = { get books() { return t('Books'); }, get manga() { return t('Manga'); }, get comics() { return t('Comics'); } };
@@ -322,7 +323,7 @@ export async function finderView(view, params, stale) {
       if (!lib.input.value) return snackbar(t('Choose a library first.'));
       go.disabled = true;
       try {
-        await api.finderDownload(src.id, { libraryId: Number(lib.input.value), book: { title: d.title, author: d.author, series: d.series, ageRating: d.ageRating, layout: d.layout, sourceId: d.id }, files: picked });
+        await api.finderDownload(src.id, { libraryId: Number(lib.input.value), book: { title: d.title, author: d.author, series: d.series, cover: d.cover, ageRating: d.ageRating, layout: d.layout, sourceId: d.id }, files: picked });
         close();
         snackbar(t('Downloading {value}…', { value: picked.length === 1 ? t('“{title}”', { title: d.title }) : t('{length} files', { length: picked.length }) }), { action: t('View'), onAction: () => navigate('/finder/downloads') });
         import('../shell.js').then((m) => m.refreshDownloadsBadge());
@@ -412,7 +413,12 @@ export async function downloadsView(view, params, stale) {
   // The admin sees everyone's downloads, one tab per person. Everyone else only gets their own
   // from the server, so they get no tabs.
   const tabs = h('div.download-tabs', { role: 'tablist', hidden: true });
-  view.append(h('div.page', h('div.page-head.downloads-head.enter', iconButton('arrow_back', t('Back'), () => navigate('/finder')), h('h1', t('Downloads'))), tabs, body));
+  let sort = 'asc';
+  const sorting = h('label.download-sort', t('Sort by title'), h('select', { 'aria-label': t('Sort by title'), onchange: (e) => {
+    sort = e.target.value;
+    refresh();
+  } }, h('option', { value: 'asc' }, t('Title A–Z')), h('option', { value: 'desc' }, t('Title Z–A'))));
+  view.append(h('div.page', h('div.page-head.downloads-head.enter', iconButton('arrow_back', t('Back'), () => navigate('/finder')), h('h1', t('Downloads')), sorting), tabs, body));
   let tab = isAdmin() ? params.query.get('user') || 'all' : 'all';
 
   let timer;
@@ -471,7 +477,10 @@ export async function downloadsView(view, params, stale) {
   function section(label, rows, { actions = [], empty } = {}) {
     return h('section.downloads-section',
       h('div.downloads-section-head', h('h2', label, rows.length ? h('span.muted', ` (${rows.length})`) : null), ...actions),
-      rows.length ? h('div.downloads-list', rows.map(row)) : empty && h('p.note', empty));
+      rows.length ? h('div.download-book-groups', groupDownloads(rows, sort).map((group) =>
+        h('section.download-book-group',
+          h('div.download-book-art', cover({ title: group.title, coverUrl: group.cover }, { showProgress: false })),
+          h('div.download-book-content', h('h3.title-medium', group.title, h('span.muted', ` (${group.rows.length})`)), h('div.downloads-list', group.rows.map(row)))))) : empty && h('p.note', empty));
   }
 
   /** One tab per person who has downloads, named after them, plus “All users”. */
@@ -530,7 +539,8 @@ export async function downloadsView(view, params, stale) {
     const failures = rows.filter(failed);
     const history = rows.filter((d) => !active(d) && !failed(d));
     body.replaceChildren(...[
-      inProgress.length > 0 && section(t('In progress'), inProgress),
+      rows.some((d) => d.status === 'downloading') && section(t('Downloading'), rows.filter((d) => d.status === 'downloading')),
+      rows.some((d) => d.status === 'queued') && section(t('Pending'), rows.filter((d) => d.status === 'queued')),
       section(t('Failed'), failures, {
         empty: t('Nothing has failed.'),
         actions: failures.length ? [
@@ -544,10 +554,11 @@ export async function downloadsView(view, params, stale) {
           }) }),
         ] : [],
       }),
-      section(t('History'), history, {
+      section(t('Completed'), history.filter((d) => d.status === 'done'), {
         empty: t('Finished downloads appear here.'),
         actions: history.length ? [button(t('Clear history'), { variant: 'text', icon: 'clear_all', onclick: run(() => api.clearDownloads('history', who)) })] : [],
       }),
+      history.some((d) => d.error === 'Cancelled') && section(t('Cancelled'), history.filter((d) => d.error === 'Cancelled')),
     ].filter(Boolean));
     if (inProgress.length) timer = setTimeout(refresh, 1500);
   }
