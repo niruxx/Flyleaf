@@ -9,6 +9,7 @@ import { h, icon, iconButton, button, cover, menu, snackbar, stagger, emptyState
 import { volumeCard, seriesCard } from '../components/cards.js';
 import { seriesActions, bookActions, addToCollection, sendTo, download, canDownload } from '../components/actions.js';
 import { RELATION_LABEL } from '../components/editors.js';
+import { languageCodes, languageName } from '../languages.js';
 
 const LINK_ICON = { MyAnimeList: 'tv', AniList: 'stacks', MangaDex: 'auto_stories', MangaUpdates: 'update', ComicVine: 'local_library', Goodreads: 'reviews', 'Open Library': 'local_library', 'Google Books': 'book_2', Kitsu: 'pets', Amazon: 'shopping_bag', BookWalker: 'storefront', Wikipedia: 'public' };
 
@@ -144,7 +145,8 @@ export async function seriesView(view, params, stale) {
       return g && [kind === 'volume' ? t('Volumes') : t('Chapters'), t('{ranges}{value}', { ranges: g.ranges, value: g.missing.length ? t(' · missing {missingText}', { missingText: g.missingText }) : '' })];
     }),
     [t('Your progress'), s.readCount ? t('{readCount} of {count} read', { readCount: s.readCount, count: s.count }) : started ? t('Started') : t('Not started')],
-    s.language && [t('Language'), s.language],
+    s.language && [t('Language'), languageName(s.language)],
+    [t('Languages available in this series'), [...new Set(s.books.flatMap((b) => languageCodes(b.language)))].map(languageName).join(', ') || t('Unknown language')],
     s.lastRead && [t('Last read'), timeAgo(s.lastRead)],
     st.secondsRead > 0 && [t('Time spent reading'), plural(st.daysRead, '{value} over {daysRead} day', '{value} over {daysRead} days', { value: formatDuration(st.secondsRead), daysRead: st.daysRead })],
     st.highlights + st.bookmarks > 0 && [t('Your notes'), t('{highlights} highlights · {bookmarks} bookmarks', { highlights: st.highlights, bookmarks: st.bookmarks })],
@@ -243,6 +245,13 @@ export async function seriesView(view, params, stale) {
   const single = groups.length === 1;
   // Grid of covers, or a detailed list with format, pages, size and progress.
   let layout = readVolLayout();
+  let selectedLanguage = '';
+  const availableLanguages = [...new Set(s.books.flatMap((b) => languageCodes(b.language)))];
+  const languageFilter = h('select', { 'aria-label': t('Filter by language'), onchange: (e) => {
+    selectedLanguage = e.target.value;
+    drawVolumes();
+  } }, h('option', { value: '' }, t('All languages')), availableLanguages.map((code) => h('option', { value: code }, languageName(code))),
+  s.books.some((b) => !languageCodes(b.language).length) && h('option', { value: '?' }, t('Unknown language')));
   const volumes = h('div');
   // A note above volumes or chapters with gaps ("Missing: 5, 7–9").
   const gapNote = (label, list) => {
@@ -251,7 +260,8 @@ export async function seriesView(view, params, stale) {
     return g?.missing.length > 0 && h('div.gap-note', icon('report'),
       t('Missing {value} {missingText} (you have {ranges})', { value: kind === 'volume' ? (g.missing.length === 1 ? t('volume') : t('volumes')) : (g.missing.length === 1 ? t('chapter') : t('chapters')), missingText: g.missingText, ranges: g.ranges }));
   };
-  const drawVolumes = () => volumes.replaceChildren(...groups.map(([label, list]) =>
+  const drawVolumes = () => volumes.replaceChildren(...groups.map(([label, list]) => [label, list.filter((b) => !selectedLanguage || (selectedLanguage === '?' ? !languageCodes(b.language).length : languageCodes(b.language).includes(selectedLanguage)))])
+    .filter(([, list]) => list.length).map(([label, list]) =>
     h('div.vol-group', !single && h('h3.title-medium', { style: { margin: '0 0 12px' } }, label), gapNote(label, list),
       layout === 'list'
         ? stagger(h('div.vol-list', list.map((b) => volumeRow(b, s, reload))))
@@ -269,6 +279,7 @@ export async function seriesView(view, params, stale) {
   page.append(
     h('section.section',
       h('div.section-head', h('h2', single && groups[0][0] !== 'Other' ? `${groups[0][0]} (${s.books.length})` : t('In this series ({length})', { length: s.books.length })), layoutToggle),
+      availableLanguages.length > 0 && h('div.toolbar', languageFilter),
       volumes,
     ),
   );
@@ -414,6 +425,7 @@ function volumeRow(b, s, onChange) {
   const pct = p?.finished ? 100 : Math.round((p?.percent || 0) * 100);
   const meta = [
     b.format.toUpperCase(),
+    languageName(b.language),
     b.pageCount ? t('{pageCount} pages', { pageCount: b.pageCount }) : null,
     b.size ? formatBytes(b.size) : null,
     t('added {value}', { value: timeAgo(b.addedAt) }),

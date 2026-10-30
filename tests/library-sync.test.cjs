@@ -55,6 +55,28 @@ function setup(t) {
   return { ...db, load, user, request, events };
 }
 
+test('book languages come from each file, including mixed-language series', (t) => {
+  const { q, load, user } = setup(t);
+  q('UPDATE series SET language = ? WHERE id = 1').run('ja');
+  q('UPDATE books SET embedded = ? WHERE id = 1').run(JSON.stringify({ language: 'en' }));
+  q('UPDATE books SET series_id = 1, embedded = ? WHERE id = 2').run(JSON.stringify({ language: ['es', 'fr'] }));
+  const { seriesBooks, getBook, toBook, listSeries, getSeries } = load('server/serialize.js');
+  const books = seriesBooks(1, user);
+  assert.equal(books[0].language, 'en');
+  assert.deepEqual(Array.from(books[1].language), ['es', 'fr']);
+  assert.deepEqual(Array.from(listSeries(user).items[0].languages).sort(), ['en', 'es', 'fr']);
+  assert.deepEqual(Array.from(getSeries(1, user).languages).sort(), ['en', 'es', 'fr']);
+  q('UPDATE books SET missing = 1 WHERE id = 2').run();
+  assert.deepEqual(Array.from(listSeries(user).items[0].languages), ['en'], 'missing translations are excluded from badges');
+  q('UPDATE books SET embedded = ? WHERE id = 1').run('{}');
+  assert.equal(toBook(getBook(1, user), false, user).language, null, 'series language must not mislabel a translation');
+  assert.equal(toBook(getBook(1, user), false, user).ageRating, null);
+  q('UPDATE series SET age_rating = 1 WHERE id = 1').run();
+  assert.equal(toBook(getBook(1, user), false, user).ageRating, 1);
+  q('UPDATE books SET embedded = ? WHERE id = 1').run(JSON.stringify({ ageRating: 3 }));
+  assert.equal(toBook(getBook(1, user), false, user).ageRating, 3, 'adult file metadata takes precedence over a teen series rating');
+});
+
 test('bulk metadata edits validate atomically, lock fields, and enforce ownership', async (t) => {
   const { load, request, q, user } = setup(t);
   const router = load('server/routes/series.js').router;

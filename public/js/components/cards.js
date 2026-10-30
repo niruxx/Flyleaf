@@ -3,6 +3,8 @@ import { t, plural } from '../i18n.js';
 
 import { h, icon, cover, markHero, onContext, timeAgo } from '../ui.js';
 import { seriesActions, bookActions } from './actions.js';
+import { languageBadge } from './language-badge.js';
+import { contentRatingBadge } from './content-rating-badge.js';
 
 function moreButton(onOpen) {
   return h('button.more', {
@@ -26,6 +28,7 @@ export function seriesCard(s, { onChange } = {}) {
     coverEl,
     moreButton((btn) => seriesActions(btn, s, { onChange })),
     h('div.t-title', s.name),
+    h('div.card-badges', languageBadge(s.languages), contentRatingBadge(s)),
     h('div.t-sub', sub || s.libraryName || ''),
   );
   onContext(el, (at) => seriesActions(el, s, { onChange, at }));
@@ -44,6 +47,7 @@ export function volumeCard(b, { series, onChange } = {}) {
     cover({ ...b, title: b.label }),
     moreButton((btn) => bookActions(btn, b, { series, onChange })),
     h('div.t-title', b.label),
+    h('div.card-badges', languageBadge(b.language), contentRatingBadge(b)),
     h('div.t-sub', sub),
   );
   onContext(el, (at) => bookActions(el, b, { series, onChange, at }));

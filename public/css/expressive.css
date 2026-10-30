@@ -240,8 +240,13 @@ body :focus-visible { outline: 3px solid var(--md-primary); outline-offset: 4px;
   .reading-invitation > .icon { height: 110px; width: 110px; font-size: 64px; }
 }
 @media (max-width: 599px) {
-  body:not(.bare) { --bar-h: calc(68px + var(--safe-top)); }
-  .app-bar { padding-inline: 8px 12px; gap: 8px; }
+  body:not(.bare) { --bar-h: calc(116px + var(--safe-top)); }
+  .app-bar { padding-inline: max(8px, var(--safe-left)) max(12px, var(--safe-right)); gap: 0 8px; flex-wrap: wrap; align-content: center; }
+  .app-bar .start { flex: 1 1 auto; }
+  .app-search { order: 1; flex: 0 0 100%; margin-top: 4px; }
+  .app-search .search-bar > .icon,
+  .app-search .search-bar > .icon-btn { flex-shrink: 0; }
+  .app-search .search-bar input { width: 0; }
   .brand { gap: 0; padding: 0; }
   .brand .logo { box-shadow: none; width: 34px; height: 34px; border-radius: 12px; }
   .brand .word { display: none; }

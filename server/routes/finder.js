@@ -27,6 +27,9 @@ function cleanItem(i, img = (u) => u) {
     author: str(i.author, 200),
     cover: img(httpUrl(i.cover)),
     summary: str(i.summary, 1000),
+    language: str(i.language, 40),
+    ageRating: [0, 1, 2, 3].includes(i.ageRating) ? i.ageRating : null,
+    nsfw: typeof i.nsfw === 'boolean' ? i.nsfw : null,
     folder: Boolean(i.folder),
   };
 }

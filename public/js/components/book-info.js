@@ -5,25 +5,11 @@ import { api, can, downloadUrl } from '../api.js';
 import { session, navigate, isAdmin } from '../router.js';
 import { h, icon, button, cover, dialog, formatBytes, formatDuration, timeAgo, copyText, loading, stagger } from '../ui.js';
 import { seriesCard } from './cards.js';
+import { languageName } from '../languages.js';
 
 const FORMAT_LABEL = {
   epub: 'EPUB', mobi: 'MOBI', azw3: 'AZW3', fb2: 'FB2', get txt() { return t('Plain text'); }, get docx() { return t('Word (DOCX)'); }, get rtf() { return t('Rich text (RTF)'); }, pdf: 'PDF',
   get cbz() { return t('Comic archive (CBZ)'); }, get cbr() { return t('Comic archive (CBR)'); }, get cb7() { return t('Comic archive (CB7)'); }, get cbt() { return t('Comic archive (CBT)'); }, get folder() { return t('Image folder'); },
-};
-const LANGS = (() => {
-  try {
-    return new Intl.DisplayNames(undefined, { type: 'language' });
-  } catch {
-    return null;
-  }
-})();
-const language = (code) => {
-  if (!code) return null;
-  try {
-    return LANGS?.of(code) || code;
-  } catch {
-    return code;
-  }
 };
 const date = (ts) => (ts ? new Date(ts).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—');
 const day = (d) => (d ? new Date(`${d}T12:00:00`).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—');
@@ -84,7 +70,7 @@ function render(b, close) {
     h('span.mini-chip', icon('description'), FORMAT_LABEL[b.format] || b.format.toUpperCase()),
     b.pageCount ? h('span.mini-chip', icon('auto_stories'), t('{pageCount} pages', { pageCount: b.pageCount })) : null,
     b.size ? h('span.mini-chip', icon('hard_drive'), formatBytes(b.size)) : null,
-    language(m.language) && h('span.mini-chip', icon('translate'), language(m.language)),
+    h('span.mini-chip', icon('translate'), languageName(m.language) || t('Unknown language')),
   ];
 
   const readingFacts = facts([

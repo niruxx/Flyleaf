@@ -580,6 +580,28 @@ body.bare #view {
   margin-top: -6px;
 }
 /* Overflow (⋮) button on cards */
+.language-badge {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 4px;
+  max-width: 100%;
+  padding: 3px 8px;
+  border-radius: var(--shape-full);
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+}
+.language-badge > .icon { font-size: 14px; flex: none; }
+.language-badge > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.tile .language-badge + .t-sub { margin-top: 0; }
+.card-badges { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px; min-width: 0; }
+.tile .card-badges + .t-sub { margin-top: 0; }
+.content-rating-badge.nsfw { background: var(--md-error-container); color: var(--md-on-error-container); }
+.content-rating-badge.unknown { background: var(--md-surface-container-high); color: var(--md-on-surface-variant); }
+
 .tile .more {
   position: absolute;
   top: 6px;

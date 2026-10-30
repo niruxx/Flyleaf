@@ -4,6 +4,9 @@ import { t, plural } from '../i18n.js';
 
 import { api, can } from '../api.js';
 import { session, isAdmin, navigate, onLeave } from '../router.js';
+import { languageName } from '../languages.js';
+import { languageBadge } from '../components/language-badge.js';
+import { contentRatingBadge } from '../components/content-rating-badge.js';
 import { h, icon, iconButton, button, setButtonLabel, cover, dialog, snackbar, loading, skeleton, emptyState, stagger, field, formatBytes, timeAgo, libraryOptions, confirmDialog, toggleSwitch, pageBanner, formDialog } from '../ui.js';
 
 const KIND_LABEL = { get books() { return t('Books'); }, get manga() { return t('Manga'); }, get comics() { return t('Comics'); } };
@@ -65,7 +68,7 @@ export async function finderView(view, params, stale) {
   let sourceFilter = '';
   // Books / Manga / Comics: which kind of source to list and search.
   let kindFilter = '';
-  const matchesFilter = (s) => (!kindFilter || (s.kinds || []).includes(kindFilter)) && (!sourceFilter || `${s.name} ${s.description || ''} ${s.language || ''}`.toLowerCase().includes(sourceFilter));
+  const matchesFilter = (s) => (!kindFilter || (s.kinds || []).includes(kindFilter)) && (!sourceFilter || `${s.name} ${s.description || ''} ${s.language || ''} ${languageName(s.language)}`.toLowerCase().includes(sourceFilter));
   const kindsAvailable = [...new Set(sources.flatMap((s) => s.kinds || []))].filter((k) => KIND_LABEL[k]);
   const kindChips = h('div.chip-row.kind-chips');
   function renderKinds() {
@@ -99,7 +102,7 @@ export async function finderView(view, params, stale) {
         sourceFilter ? t('All matching ({length})', { length: searchable().length }) : t('All sources')),
       !shownSources.length && h('span.body-small.muted', t('No source matches.')),
       ...shownSources.map((s) => h('button.chip.state', { type: 'button', role: 'tab', 'aria-pressed': String(current === s.id), title: s.description || s.name, onclick: () => pick(s.id) },
-        sourceIcon(s), s.name, (s.needsSetup || s.error) && icon('warning'))),
+        sourceIcon(s), [s.name, languageName(s.language)].filter(Boolean).join(' · '), (s.needsSetup || s.error) && icon('warning'))),
     ].filter(Boolean));
   }
   // Genres of the current source (sources with genres()); '' = none picked.
@@ -165,6 +168,7 @@ export async function finderView(view, params, stale) {
         ? h('div.cover.folder-cover', icon('folder', 'filled'), h('div.ph-title', item.title))
         : cover({ title: item.title, coverUrl: item.cover, format: src.kinds?.[0] === 'books' ? 'epub' : 'cbz' }, { showProgress: false }),
       h('div.t-title', item.title),
+      !item.folder && h('div.card-badges', languageBadge(item.language || src.language, { source: !item.language }), contentRatingBadge(item, src)),
       h('div.t-sub', item.author || (current === ALL ? src.name : '')),
     );
     return el;
@@ -308,7 +312,7 @@ export async function finderView(view, params, stale) {
       input.dataset.index = i;
       return h('label.file-row', input,
         h('div', h('div.body-large', f.title || f.format?.toUpperCase() || t('File {value}', { value: i + 1 })),
-          h('div.body-small.muted', [f.format?.toUpperCase(), f.size ? formatBytes(f.size) : null, f.volume != null ? t('Vol. {volume}', { volume: f.volume }) : null, f.chapter != null ? t('Ch. {chapter}', { chapter: f.chapter }) : null, f.language, f.date].filter(Boolean).join(' · '))));
+          h('div.body-small.muted', [f.format?.toUpperCase(), f.size ? formatBytes(f.size) : null, f.volume != null ? t('Vol. {volume}', { volume: f.volume }) : null, f.chapter != null ? t('Ch. {chapter}', { chapter: f.chapter }) : null, languageName(f.language), f.date].filter(Boolean).join(' · '))));
     });
     const selectAll = !singleChoice && many && h('label.check', h('input', { type: 'checkbox', onchange: (e) => rows.forEach((r) => (r.querySelector('input').checked = e.target.checked)) }), t('Select all {length}', { length: d.files.length }));
 
@@ -374,6 +378,8 @@ export async function finderView(view, params, stale) {
           h('h2.headline-small', d.title),
           d.author && h('p.title-small.muted', d.author),
           d.status && h('span.mini-chip', d.status),
+          h('p.body-small.muted', t('Available languages: {languages}', { languages: languageName(d.files.flatMap((f) => [].concat(f.language || []))) || t('Unknown language') })),
+          src.language && h('p.body-small.muted', t('Source language: {language}', { language: languageName(src.language) })),
           d.genres.length > 0 && h('div.chip-set', d.genres.slice(0, 10).map((g) => h('span.chip.static', g))),
           d.url && h('a.btn.text.state', { href: d.url, target: '_blank', rel: 'noopener noreferrer' }, icon('open_in_new'), t('View on site')),
         ),

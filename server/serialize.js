@@ -29,6 +29,8 @@ const BOOK_SELECT = `
   LEFT JOIN progress p ON p.book_id = b.id AND p.user_id = ?`;
 
 function toBook(row, detail = false, user = null) {
+  const embeddedRating = json(row.embedded, {}).ageRating;
+  const ratings = [row.s_age_rating, embeddedRating].filter((value) => [0, 1, 2, 3].includes(value));
   const b = {
     id: row.id,
     libraryId: row.library_id,
@@ -39,6 +41,8 @@ function toBook(row, detail = false, user = null) {
     title: row.title,
     label: volumeLabel(row),
     author: row.author,
+    ageRating: ratings.length ? Math.max(...ratings) : null,
+    language: json(row.embedded, {}).language || null,
     series: row.series_name || row.series,
     seriesIndex: row.series_index,
     volume: row.volume,
@@ -200,6 +204,9 @@ function listSeries(user, opts = {}) {
   const rows = q(`
     SELECT s.*, l.kind, l.name AS library_name,
       COUNT(b.id) AS book_count,
+      (SELECT json_group_array(DISTINCT lang.value)
+       FROM books lb, json_each(lb.embedded, '$.language') lang
+       WHERE lb.series_id = s.id AND lb.missing = 0 AND lang.type = 'text') AS languages,
       SUM(CASE WHEN p.finished = 1 THEN 1 ELSE 0 END) AS read_count,
       SUM(COALESCE(p.percent, 0)) AS pct_sum,
       MAX(p.updated_at) AS last_read,
@@ -238,6 +245,7 @@ function toSeries(row, user, detail = false) {
     kind: row.kind,
     name: row.name,
     localizedName: row.localized_name,
+    languages: json(row.languages, []),
     year: row.year,
     status: row.status,
     ageRating: row.age_rating,
@@ -286,7 +294,7 @@ function getSeries(id, user) {
                  FROM series s JOIN libraries l ON l.id = s.library_id
                  LEFT JOIN user_series us ON us.series_id = s.id AND us.user_id = ?
                  WHERE s.id = ?`).get(user.id, Number(id));
-  return { ...toSeries(row, user, true), ...pick(items[0], ['count', 'readCount', 'progress', 'lastRead', 'lastAdded', 'coverUrl']) };
+  return { ...toSeries(row, user, true), ...pick(items[0], ['count', 'readCount', 'progress', 'lastRead', 'lastAdded', 'coverUrl', 'languages']) };
 }
 
 const pick = (o, keys) => Object.fromEntries(keys.map((k) => [k, o[k]]));
