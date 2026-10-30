@@ -12,6 +12,27 @@ test('compatibility patch validates the pinned source and includes load cancella
   assert.throws(() => patchPaginator(upstream.replace('snap(vx, vy)', 'snapChanged(vx, vy)')), /compatibility patch/);
 });
 
+test('page strides use iframe viewport pixels despite transforms and fractional bounds', () => {
+  const patched = patchPaginator(upstream);
+  const getters = patched.slice(patched.indexOf('    get size() {'), patched.indexOf('    scrollBy(dx, dy) {'));
+  const Metrics = vm.runInNewContext(`(class {
+    #container; #view;
+    constructor(container, element, sideProp) {
+      this.#container = container; this.#view = { element }; this.sideProp = sideProp;
+    }
+    ${getters}
+  })`);
+  for (const side of ['width', 'height']) {
+    const container = { clientWidth: 366, clientHeight: 750,
+      getBoundingClientRect() { throw new Error('Transformed bounds must not set page strides'); } };
+    const element = { clientWidth: 366 * 42, clientHeight: 750 * 42 };
+    const metrics = new Metrics(container, element, side);
+    assert.equal(metrics.size, side === 'width' ? 366 : 750);
+    assert.equal(metrics.pages, 42);
+  }
+  assert.match(patched, /clientWidth: width, clientHeight: height/);
+});
+
 function engine() {
   const source = fs.readFileSync('public/js/reader/text.js', 'utf8').replace(/^import .*;\r?$/gm, '').replace('export class TextEngine', 'class TextEngine');
   const m = { exports: {} };

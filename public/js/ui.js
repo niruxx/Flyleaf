@@ -436,7 +436,8 @@ export function sheet(build) {
     if (startY != null && e.changedTouches[0].clientY - startY > 90) close();
     startY = null;
   });
-  document.body.append(dlg);
+  // Fullscreen browsers only display descendants of the fullscreen element.
+  (document.fullscreenElement || document.body).append(dlg);
   dlg.showModal();
   return close;
 }

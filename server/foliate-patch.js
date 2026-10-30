@@ -10,6 +10,17 @@ function patchPaginator(input) {
     if (index < 0 || source.indexOf(before, index + before.length) >= 0) throw new Error('The foliate-js paginator changed; review the Flyleaf navigation compatibility patch.');
     source = source.slice(0, index) + after + source.slice(index + before.length);
   };
+  // DOMRects include the reader's entrance/page-turn transforms. Iframe layout
+  // uses integer CSS viewport pixels; use those same dimensions for page strides.
+  replace('        const { width, height } = this.#container.getBoundingClientRect()',
+    '        const { clientWidth: width, clientHeight: height } = this.#container');
+  replace('        return this.#container.getBoundingClientRect()[this.sideProp]',
+    "        return this.#container[this.sideProp === 'width' ? 'clientWidth' : 'clientHeight']");
+  replace('        return this.#view.element.getBoundingClientRect()[this.sideProp]',
+    "        return this.#view.element[this.sideProp === 'width' ? 'clientWidth' : 'clientHeight']");
+  // Whole-pixel half-gaps avoid accumulating WebKit column rounding errors.
+  replace('        const gap = -g / (g - 1) * size',
+    '        const gap = Math.round((-g / (g - 1) * size) / 2) * 2');
   replace('    snap(vx, vy) {', `    snap(vx, vy) {
         // touchend fires for taps too. Never race an in-flight programmatic turn.
         if (this.#locked) return`);
