@@ -4926,8 +4926,15 @@ html.has-bg body.scrolled .app-bar {
 .finder-filters {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   margin: 16px 0;
 }
-.finder-filters > .field { flex: 1 1 220px; min-width: 0; }
+.finder-filters > .field {
+  flex: 1 1 220px;
+  min-width: 0;
+  margin: 0;
+}
+.finder-filters > .btn {
+  margin-top: 8px;
+}
