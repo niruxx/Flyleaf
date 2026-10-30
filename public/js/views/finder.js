@@ -69,6 +69,8 @@ export async function finderView(view, params, stale) {
   let query = params.query.get('q') || '';
   let pageNo = 1;
   let token = 0;
+  let searchController;
+  onLeave(() => searchController?.abort());
 
   // Find a source by name (handy with dozens of Mihon extensions). "All sources" then searches
   // just the matching ones.
@@ -248,8 +250,13 @@ export async function finderView(view, params, stale) {
     run(true);
   } }));
   const detailCache = new Map();
-  async function filterPage(src, r) {
-    if (!tagFilter && !ratingFilter && !languageFilter) return r;
+  async function filterPage(src, r, { signal, onItem } = {}) {
+    if (!tagFilter && !ratingFilter && !languageFilter) {
+      r.items.forEach((item) => onItem?.(item));
+      return r;
+    }
+    const detailSignal = AbortSignal.any([AbortSignal.timeout(8000), signal].filter(Boolean));
+    let incomplete = false;
     const tags = tagFilter.split(',').map((v) => v.trim().toLowerCase()).filter(Boolean);
     const rating = ratingFilter;
     const language = languageFilter;
@@ -257,18 +264,22 @@ export async function finderView(view, params, stale) {
     let next = 0;
     // Limit detail lookups to four at a time, including on large source pages.
     await Promise.all(Array.from({ length: Math.min(4, r.items.length) }, async () => {
-      while (next < r.items.length) {
+      while (next < r.items.length && !signal?.aborted) {
         const index = next++;
         const item = r.items[index];
-        if (item.folder) { items[index] = item; continue; }
+        if (item.folder) { items[index] = item; onItem?.(item); continue; }
         let metadata = item;
-        if (tags.length || (rating && contentRating(item) === 'unknown') || (language && !item.language)) {
+        const knownLabels = [...(item.genres || []), ...(item.tags || [])].map((v) => v.toLowerCase());
+        if (tags.some((tag) => !knownLabels.includes(tag)) || (rating && contentRating(item, src) === 'unknown') || (language && !item.language && !src.language)) {
           const key = JSON.stringify([src.id, item.id]);
-          if (!detailCache.has(key)) {
-            if (detailCache.size >= 500) detailCache.delete(detailCache.keys().next().value);
-            detailCache.set(key, api.finderDetails(src.id, item.id).catch(() => null));
-          }
-          const details = await detailCache.get(key);
+          let details = detailCache.get(key);
+          if (!details && !detailSignal.aborted) {
+            try {
+              details = await api.finderDetails(src.id, item.id, { signal: detailSignal });
+              if (detailCache.size >= 500) detailCache.delete(detailCache.keys().next().value);
+              detailCache.set(key, details);
+            } catch { incomplete = true; }
+          } else if (!details) incomplete = true;
           if (details) metadata = { ...item,
             genres: [...(item.genres || []), ...(details.genres || [])],
             tags: [...(item.tags || []), ...(details.tags || [])],
@@ -281,10 +292,13 @@ export async function finderView(view, params, stale) {
         const matchesLanguage = !language || (language === 'und'
           ? !codes.length || codes.every((code) => code === 'und')
           : codes.some((code) => code === language || code.startsWith(`${language}-`)));
-        if (matchesLanguage && tags.every((tag) => labels.includes(tag)) && (!rating || contentRating(metadata, src) === rating)) items[index] = { ...item, ...metadata };
+        if (matchesLanguage && tags.every((tag) => labels.includes(tag)) && (!rating || contentRating(metadata, src) === rating) && !signal?.aborted) {
+          items[index] = { ...item, ...metadata };
+          onItem?.(items[index]);
+        }
       }
     }));
-    return { ...r, items: items.filter(Boolean) };
+    return { ...r, items: items.filter(Boolean), filterIncomplete: incomplete };
   }
   const crumbs = h('div.finder-crumbs');
   const results = h('div.finder-results');
@@ -334,16 +348,19 @@ export async function finderView(view, params, stale) {
     );
   }
 
-  async function fetchPage(src, page) {
-    if (stack.length) return api.finderBrowse(src.id, stack[stack.length - 1].id, page);
-    if (genre && src.hasGenres) return api.finderGenre(src.id, genre, query, page);
-    if (query) return api.finderSearch(src.id, query, page);
-    if (src.canBrowse) return api.finderLatest(src.id, page);
+  async function fetchPage(src, page, options) {
+    if (stack.length) return api.finderBrowse(src.id, stack[stack.length - 1].id, page, options);
+    if (genre && src.hasGenres) return api.finderGenre(src.id, genre, query, page, options);
+    if (query) return api.finderSearch(src.id, query, page, options);
+    if (src.canBrowse) return api.finderLatest(src.id, page, options);
     return { items: [], hasMore: false, needsQuery: true };
   }
 
   async function run(reset) {
     const my = ++token;
+    searchController?.abort();
+    searchController = new AbortController();
+    const signal = AbortSignal.any([searchController.signal, AbortSignal.timeout(30000)]);
     if (reset) {
       pageNo = 1;
       results.replaceChildren(skeleton('grid', 12));
@@ -370,21 +387,28 @@ export async function finderView(view, params, stale) {
       const states = poolToLoad.map((src) => ({ src, page: 0, hasMore: true }));
       const seen = new Set();
       async function loadAllPages() {
+        const signal = AbortSignal.any([searchController.signal, AbortSignal.timeout(30000)]);
         more.replaceChildren(loading());
         notices.replaceChildren();
         const pending = states.filter((state) => state.hasMore && health.allows(state.src.id));
         let next = 0;
         await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => {
-          while (next < pending.length && my === token && !stale()) {
+          while (next < pending.length && my === token && !stale() && !signal.aborted) {
             const state = pending[next++];
             const { src } = state;
             if (!health.allows(src.id)) continue;
             try {
               const r = await filterPage(src, await (sourceQuery
-                ? api.finderSearch(src.id, sourceQuery, state.page + 1)
-                : api.finderLatest(src.id, state.page + 1)));
+                ? api.finderSearch(src.id, sourceQuery, state.page + 1, { signal })
+                : api.finderLatest(src.id, state.page + 1, { signal })), { signal, onItem: (item) => {
+                  if (my !== token || stale() || !health.allows(src.id)) return;
+                  const key = JSON.stringify([src.id, item.id]);
+                  if (!seen.has(key)) { seen.add(key); grid.append(tile(src, item)); }
+                } });
               if (my !== token || stale()) return;
+              if (signal.aborted) continue;
               health.clear(src.id); refreshHealth(); renderChips();
+              if (r.filterIncomplete) notices.append(h('p.body-small.muted', t('Some book details were unavailable. Only verified matches are shown.')));
               state.page++;
               state.hasMore = r.hasMore;
               for (const item of r.items) {
@@ -395,12 +419,14 @@ export async function finderView(view, params, stale) {
               }
             } catch (e) {
               if (my !== token || stale()) return;
+              if (signal.aborted) continue;
               markFailure(src, e);
               if (health.allows(src.id)) notices.append(h('p.body-small.error-text', `${src.name}: ${e.message}`));
             }
           }
         }));
         if (my !== token || stale()) return;
+        if (signal.aborted) notices.append(h('p.body-small.muted', t('Search time limit reached. Load more to continue checking sources.')));
         if (!grid.children.length) notices.prepend(h('p.body-medium.muted', t('No matches on the loaded pages.')));
         more.replaceChildren(...(states.some((state) => state.hasMore && health.allows(state.src.id))
           ? [button(t('Load more'), { variant: 'tonal', icon: 'expand_more', onclick: () => loadAllPages() })] : []));
@@ -421,7 +447,7 @@ export async function finderView(view, params, stale) {
       return;
     }
     try {
-      const r = await filterPage(src, await fetchPage(src, pageNo));
+      const r = await filterPage(src, await fetchPage(src, pageNo, { signal }), { signal });
       if (my !== token) return;
       health.clear(src.id); refreshHealth(); renderChips();
       if (reset) results.replaceChildren();
@@ -441,6 +467,7 @@ export async function finderView(view, params, stale) {
       }
       grid.querySelector('p')?.remove();
       grid.append(...r.items.map((it) => tile(src, it)));
+      if (r.filterIncomplete) results.append(h('p.body-small.muted', t('Some book details were unavailable. Only verified matches are shown.')));
       if (!grid.children.length) grid.replaceChildren(h('p.body-medium.muted', t('No matches on this page. Load more to check the next page.')));
       // No more pages: leave it empty (replaceChildren would print a null as the text "null").
       more.replaceChildren(...(r.hasMore ? [button(t('Load more'), { variant: 'tonal', icon: 'expand_more', onclick: (e) => {

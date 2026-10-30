@@ -13,7 +13,7 @@ export function setUnauthorizedHandler(fn) {
   onUnauthorized = fn;
 }
 
-export async function request(method, url, body, { raw = false, keepalive = false, headers: extra = {} } = {}) {
+export async function request(method, url, body, { raw = false, keepalive = false, headers: extra = {}, signal } = {}) {
   const headers = { 'X-Flyleaf': '1', ...extra };
   let payload;
   if (body instanceof Blob || body instanceof ArrayBuffer) {
@@ -25,8 +25,9 @@ export async function request(method, url, body, { raw = false, keepalive = fals
   }
   let res;
   try {
-    res = await fetch(url, { method, headers, body: payload, credentials: 'same-origin', keepalive });
+    res = await fetch(url, { method, headers, body: payload, credentials: 'same-origin', keepalive, signal });
   } catch {
+    if (signal?.aborted) throw new ApiError(t('Source request timed out or was cancelled.'), 0);
     throw new ApiError(t("Can't reach the Flyleaf server."), 0);
   }
   if (raw) return res;
@@ -53,7 +54,7 @@ export function localDay(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-const GET = (u) => request('GET', u);
+const GET = (u, options) => request('GET', u, undefined, options);
 const POST = (u, b = {}) => request('POST', u, b);
 const PUT = (u, b = {}) => request('PUT', u, b);
 const PATCH = (u, b = {}) => request('PATCH', u, b);
@@ -281,12 +282,12 @@ export const api = {
 
   finderSources: () => GET('/api/finder/sources'),
   finderRecommendations: (refresh) => GET(`/api/finder/recommendations${qs({ refresh: refresh ? 1 : undefined })}`),
-  finderSearch: (plugin, q, page) => GET(`/api/finder/${encodeURIComponent(plugin)}/search${qs({ q, page })}`),
-  finderLatest: (plugin, page) => GET(`/api/finder/${encodeURIComponent(plugin)}/latest${qs({ page })}`),
+  finderSearch: (plugin, q, page, options) => GET(`/api/finder/${encodeURIComponent(plugin)}/search${qs({ q, page })}`, options),
+  finderLatest: (plugin, page, options) => GET(`/api/finder/${encodeURIComponent(plugin)}/latest${qs({ page })}`, options),
   finderGenres: (plugin) => GET(`/api/finder/${encodeURIComponent(plugin)}/genres`),
-  finderGenre: (plugin, id, q, page) => GET(`/api/finder/${encodeURIComponent(plugin)}/genre${qs({ id, q, page })}`),
-  finderBrowse: (plugin, id, page) => GET(`/api/finder/${encodeURIComponent(plugin)}/browse${qs({ id, page })}`),
-  finderDetails: (plugin, id) => GET(`/api/finder/${encodeURIComponent(plugin)}/details${qs({ id })}`),
+  finderGenre: (plugin, id, q, page, options) => GET(`/api/finder/${encodeURIComponent(plugin)}/genre${qs({ id, q, page })}`, options),
+  finderBrowse: (plugin, id, page, options) => GET(`/api/finder/${encodeURIComponent(plugin)}/browse${qs({ id, page })}`, options),
+  finderDetails: (plugin, id, options) => GET(`/api/finder/${encodeURIComponent(plugin)}/details${qs({ id })}`, options),
   finderDownload: (plugin, b) => POST(`/api/finder/${encodeURIComponent(plugin)}/download`, b),
   downloads: () => GET('/api/finder/downloads/list'),
   cancelDownload: (id) => DEL(`/api/finder/downloads/${id}`),

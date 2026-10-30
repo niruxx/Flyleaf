@@ -13,6 +13,7 @@ test('ALL combines sources, preserves source identities, and paginates independe
   let fail = true;
   const requests = [];
   const load = vm.runInNewContext(body + '; loadAllPages', {
+    AbortSignal, searchController: new AbortController(),
     health: { allows: () => true, clear() {}, hideFailed: false }, refreshHealth() {}, renderChips() {}, markFailure() {},
     grid, notices, more, states, seen: new Set(), my: 1, token: 1, stale: () => false,
     sourceQuery: 'Space', loading: () => 'loading', t: s => s,

@@ -3,16 +3,17 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-function setup(tags, rating, details, language = '') {
+function setup(tags, rating, details, language = '', signals = AbortSignal) {
   const source = fs.readFileSync('public/js/views/finder.js', 'utf8');
   const body = source.slice(source.indexOf('  async function filterPage('), source.indexOf("  const crumbs ="));
   const badges = fs.readFileSync('public/js/components/content-rating-badge.js', 'utf8');
   const contentRating = vm.runInNewContext('(' + badges.slice(badges.indexOf('export function contentRating(') + 7, badges.indexOf('export function contentRatingBadge')).trim() + ')');
   let calls = 0;
   const filter = vm.runInNewContext(body + '; filterPage', {
+    AbortSignal: signals,
     tagFilter: tags, ratingFilter: rating, languageFilter: language,
     languageCodes: (value) => String(value || '').toLowerCase().replaceAll('_', '-').split(/[,;]+/).map(v => v.trim()).filter(Boolean), detailCache: new Map(), contentRating,
-    api: { finderDetails: async (_, id) => { calls++; if (details[id] instanceof Error) throw details[id]; return details[id]; } },
+    api: { finderDetails: async (_, id, options) => { calls++; if (typeof details[id] === 'function') return details[id](options); if (details[id] instanceof Error) throw details[id]; return details[id]; } },
   });
   return { filter, calls: () => calls };
 }
@@ -49,7 +50,7 @@ test('adult source fallback and failed details do not classify unknown books as 
 
 test('language filtering checks book details, regional codes, and source fallback', async () => {
   const { filter } = setup('', '', { detail: { language: 'en-US' }, fallback: {}, unknown: {} }, 'en');
-  const r = await filter({ language: 'ja' }, { items: [
+  const r = await filter({}, { items: [
     { id: 'english', language: 'EN' }, { id: 'japanese', language: 'ja' },
     { id: 'detail' }, { id: 'fallback' },
   ], hasMore: true });
@@ -59,4 +60,42 @@ test('language filtering checks book details, regional codes, and source fallbac
   assert.equal(fallback.items.length, 1);
   const unknown = await setup('', '', { unknown: {} }, 'und').filter({}, { items: [{ id: 'unknown' }, { id: 'known', language: 'en' }], hasMore: false });
   assert.equal(unknown.items.map(i => i.id).join(','), 'unknown');
+});
+
+test('known metadata streams matches without fetching book details', async () => {
+  const { filter, calls } = setup('Space', 'safe', {}, 'en');
+  const received = [];
+  const r = await filter({ language: 'en' }, { items: [{ id: 'a', genres: ['Space'], ageRating: 0 }], hasMore: false }, { onItem: item => received.push(item.id) });
+  assert.equal(calls(), 0);
+  assert.equal(received.join(','), 'a');
+  assert.equal(r.items.length, 1);
+});
+
+test('stalled metadata lookups time out once per page and preserve immediate matches', async () => {
+  const signals = { any: AbortSignal.any, timeout: () => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 10);
+    return controller.signal;
+  } };
+  const details = {};
+  for (let i = 0; i < 20; i++) details[i] = ({ signal }) => new Promise((resolve, reject) => {
+    signal.addEventListener('abort', () => reject(new Error('Timed out')), { once: true });
+  });
+  const { filter, calls } = setup('Space', '', details, '', signals);
+  const received = [];
+  const pending = filter({}, { items: [{ id: 'known', tags: ['Space'] }, ...Object.keys(details).map(id => ({ id }))], hasMore: true }, { onItem: item => received.push(item.id) });
+  assert.equal(received.join(','), 'known');
+  const r = await pending;
+  assert.equal(r.items.length, 1);
+  assert.equal(r.hasMore, true);
+  assert.equal(r.filterIncomplete, true);
+  assert.equal(calls(), 4);
+});
+
+test('cancelled filtering stops starting metadata requests', async () => {
+  const { filter, calls } = setup('Space', '', {});
+  const controller = new AbortController(); controller.abort();
+  const r = await filter({}, { items: [{ id: 'a' }], hasMore: false }, { signal: controller.signal });
+  assert.equal(calls(), 0);
+  assert.equal(r.items.length, 0);
 });
