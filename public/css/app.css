@@ -4938,3 +4938,9 @@ html.has-bg body.scrolled .app-bar {
 .finder-filters > .btn {
   margin-top: 8px;
 }
+
+.finder-health { margin: 16px 0; }
+.finder-health summary { cursor: pointer; padding: 8px 0; }
+.finder-health-toggle { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
+.finder-health-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--md-outline-variant); }
+.finder-health-row > div { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }

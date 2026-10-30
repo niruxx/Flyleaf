@@ -7,6 +7,7 @@ import { session, isAdmin, navigate, onLeave } from '../router.js';
 import { languageCodes, languageName } from '../languages.js';
 import { languageBadge } from '../components/language-badge.js';
 import { contentRating, contentRatingBadge } from '../components/content-rating-badge.js';
+import { sourceHealth } from '../finder-source-health.js';
 import { groupDownloads } from '../download-groups.js';
 import { h, icon, iconButton, button, setButtonLabel, cover, dialog, snackbar, loading, skeleton, emptyState, stagger, field, formatBytes, timeAgo, libraryOptions, confirmDialog, toggleSwitch, pageBanner, formDialog } from '../ui.js';
 
@@ -56,9 +57,14 @@ export async function finderView(view, params, stale) {
     return;
   }
 
+  let healthStorage;
+  try { healthStorage = localStorage; } catch {}
+  const health = sourceHealth(healthStorage, session.user.id);
+  for (const src of sources) if (src.error) health.fail(src.id, src.error);
   const ready = sources.filter((s) => !s.needsSetup && !s.error);
   let current = params.query.get('source') || readLast();
   if (current !== ALL && !sources.some((s) => s.id === current)) current = ready.length > 1 ? ALL : (ready[0] || sources[0]).id;
+  if (current !== ALL && !health.allows(current)) current = ALL;
   const stack = []; // folder navigation: [{ id, title }]
   let query = params.query.get('q') || '';
   let pageNo = 1;
@@ -69,7 +75,7 @@ export async function finderView(view, params, stale) {
   let sourceFilter = '';
   // Books / Manga / Comics: which kind of source to list and search.
   let kindFilter = '';
-  const matchesFilter = (s) => (!kindFilter || (s.kinds || []).includes(kindFilter)) && (!sourceFilter || `${s.name} ${s.description || ''} ${s.language || ''} ${languageName(s.language)}`.toLowerCase().includes(sourceFilter));
+  const matchesFilter = (s) => health.allows(s.id) && (!kindFilter || (s.kinds || []).includes(kindFilter)) && (!sourceFilter || `${s.name} ${s.description || ''} ${s.language || ''} ${languageName(s.language)}`.toLowerCase().includes(sourceFilter));
   const kindsAvailable = [...new Set(sources.flatMap((s) => s.kinds || []))].filter((k) => KIND_LABEL[k]);
   const kindChips = h('div.chip-row.kind-chips');
   function renderKinds() {
@@ -97,14 +103,60 @@ export async function finderView(view, params, stale) {
     } });
   const chips = h('div.source-chips', { role: 'tablist' });
   function renderChips() {
-    const shownSources = sources.filter((s) => matchesFilter(s) || s.id === current);
+    const shownSources = sources.filter((s) => matchesFilter(s) || (s.id === current && health.allows(s.id)));
     chips.replaceChildren(...[
       h('button.chip.state', { type: 'button', role: 'tab', 'aria-pressed': String(current === ALL), onclick: () => pick(ALL) }, icon('travel_explore'),
         t('ALL')),
       !shownSources.length && h('span.body-small.muted', t('No source matches.')),
       ...shownSources.map((s) => h('button.chip.state', { type: 'button', role: 'tab', 'aria-pressed': String(current === s.id), title: s.description || s.name, onclick: () => pick(s.id) },
-        sourceIcon(s), [s.name, languageName(s.language)].filter(Boolean).join(' · '), (s.needsSetup || s.error) && icon('warning'))),
+        sourceIcon(s), [s.name, languageName(s.language)].filter(Boolean).join(' · '), (s.needsSetup || s.error || health.failures.has(s.id)) && icon('warning'))),
     ].filter(Boolean));
+  }
+  const healthPanel = h('details.finder-health');
+  function refreshHealth() {
+    const affected = sources.filter((src) => health.failures.has(src.id) || health.disabled.has(src.id));
+    healthPanel.replaceChildren(h('summary', t('Source health ({count})', { count: affected.length })),
+      h('p.body-small.muted', t('These choices are saved for your account in this browser. Disabled sources are excluded from Content Finder.')),
+      h('label.finder-health-toggle', h('input', { type: 'checkbox', checked: health.hideFailed, onchange: (e) => {
+        health.setHide(e.target.checked);
+        refreshHealth(); renderChips();
+        if (!health.allows(current)) pick(ALL); else run(true);
+      } }), t('Hide failing sources')),
+      ...affected.map((src) => h('div.finder-health-row',
+        h('div', h('div.title-small', src.name), h('div.body-small.muted', health.failures.get(src.id) || t('Disabled for you'))),
+        button(health.disabled.has(src.id) ? t('Enable for me') : t('Disable for me'), { variant: 'tonal', onclick: () => {
+          health.setDisabled(src.id, !health.disabled.has(src.id));
+          refreshHealth(); renderChips();
+          if (!health.allows(current)) pick(ALL); else run(true);
+        } }),
+        health.failures.has(src.id) && button(t('Retry source'), { variant: 'text', onclick: () => {
+          health.clear(src.id); health.setDisabled(src.id, false);
+          refreshHealth(); pick(src.id);
+        } }),
+        isAdmin() && button(t('Disable plugin for everyone'), { variant: 'text', onclick: async () => {
+          const pluginId = src.parent || src.id;
+          if (!await confirmDialog({ title: t('Disable plugin for everyone?'),
+            message: t('Turn off {name} and all sources it provides for every user? You can enable it again in plugin settings.', { name: src.parentName || src.name }),
+            confirm: t('Disable plugin'), danger: true })) return;
+          try {
+            await api.configurePlugin(pluginId, { enabled: false });
+            for (const list of [sources, ready]) {
+              for (let i = list.length - 1; i >= 0; i--) if ((list[i].parent || list[i].id) === pluginId) list.splice(i, 1);
+            }
+            refreshHealth(); renderChips(); pick(ALL);
+            snackbar(t('Plugin disabled. Manage it in plugin settings.'));
+          } catch (e) { snackbar(e.message); }
+        } }))),
+      !affected.length && h('p.body-small.muted', t('No failing or disabled sources.')));
+  }
+  function markFailure(src, error) {
+    health.fail(src.id, error.message);
+    if (health.hideFailed) {
+      for (const tile of results.querySelectorAll('.finder-tile')) {
+        if (tile.dataset.source === src.id) tile.remove();
+      }
+    }
+    refreshHealth(); renderChips();
   }
   // Genres of the current source (sources with genres()); '' = none picked.
   let genre = '';
@@ -229,15 +281,16 @@ export async function finderView(view, params, stale) {
   view.append(h('div.page.finder', head,
     h('p.body-medium.muted.enter', { style: { margin: '-8px 0 16px' } }, t('Search the sources your admin has installed and download straight into a library. Only download books you’re allowed to.')),
     sources.length > 6 && h('div.source-find-wrap', icon('filter_list'), sourceFind),
-    kindChips, chips, searchBar, genreRow, filters, crumbs, results, more));
+    kindChips, chips, healthPanel, searchBar, genreRow, filters, crumbs, results, more));
   renderKinds();
   renderChips();
+  refreshHealth();
 
   const sourceById = (id) => sources.find((s) => s.id === id);
   renderGenres();
 
   function tile(src, item) {
-    const el = h('button.tile.finder-tile', { type: 'button', title: item.title, onclick: () => (item.folder ? openFolder(item, src) : openDetails(src, item)) },
+    const el = h('button.tile.finder-tile', { type: 'button', title: item.title, dataset: { source: src.id }, onclick: () => (item.folder ? openFolder(item, src) : openDetails(src, item)) },
       item.folder
         ? h('div.cover.folder-cover', icon('folder', 'filled'), h('div.ph-title', item.title))
         : cover({ title: item.title, coverUrl: item.cover, format: src.kinds?.[0] === 'books' ? 'epub' : 'cbz' }, { showProgress: false }),
@@ -307,17 +360,19 @@ export async function finderView(view, params, stale) {
       async function loadAllPages() {
         more.replaceChildren(loading());
         notices.replaceChildren();
-        const pending = states.filter((state) => state.hasMore);
+        const pending = states.filter((state) => state.hasMore && health.allows(state.src.id));
         let next = 0;
         await Promise.all(Array.from({ length: Math.min(4, pending.length) }, async () => {
           while (next < pending.length && my === token && !stale()) {
             const state = pending[next++];
             const { src } = state;
+            if (!health.allows(src.id)) continue;
             try {
               const r = await filterPage(src, await (sourceQuery
                 ? api.finderSearch(src.id, sourceQuery, state.page + 1)
                 : api.finderLatest(src.id, state.page + 1)));
               if (my !== token || stale()) return;
+              health.clear(src.id); refreshHealth(); renderChips();
               state.page++;
               state.hasMore = r.hasMore;
               for (const item of r.items) {
@@ -328,13 +383,14 @@ export async function finderView(view, params, stale) {
               }
             } catch (e) {
               if (my !== token || stale()) return;
-              notices.append(h('p.body-small.error-text', `${src.name}: ${e.message}`));
+              markFailure(src, e);
+              if (!health.hideFailed) notices.append(h('p.body-small.error-text', `${src.name}: ${e.message}`));
             }
           }
         }));
         if (my !== token || stale()) return;
         if (!grid.children.length) notices.prepend(h('p.body-medium.muted', t('No matches on the loaded pages.')));
-        more.replaceChildren(...(states.some((state) => state.hasMore)
+        more.replaceChildren(...(states.some((state) => state.hasMore && health.allows(state.src.id))
           ? [button(t('Load more'), { variant: 'tonal', icon: 'expand_more', onclick: () => loadAllPages() })] : []));
       }
       await loadAllPages();
@@ -355,6 +411,7 @@ export async function finderView(view, params, stale) {
     try {
       const r = await filterPage(src, await fetchPage(src, pageNo));
       if (my !== token) return;
+      health.clear(src.id); refreshHealth(); renderChips();
       if (reset) results.replaceChildren();
       if (r.needsQuery) {
         results.replaceChildren(emptyState('search', t('Search {name}', { name: src.name }), t('Type a title or author above.')));
@@ -381,6 +438,7 @@ export async function finderView(view, params, stale) {
       } })] : []));
     } catch (e) {
       if (my !== token) return;
+      markFailure(src, e);
       results.replaceChildren(emptyState('cloud_off', t('{name} didn’t respond', { name: src.name }), e.message, button(t('Try again'), { variant: 'tonal', icon: 'refresh', onclick: () => run(true) })));
     }
   }
@@ -397,6 +455,7 @@ export async function finderView(view, params, stale) {
         try {
           d = await api.finderDetails(src.id, item.id);
         } catch (e) {
+          markFailure(src, e);
           body.replaceChildren(emptyState('error', t('Couldn’t load this item'), e.message), h('div.dialog-actions', button(t('Close'), { variant: 'text', onclick: () => close() })));
           return;
         }
