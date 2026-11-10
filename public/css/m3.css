@@ -503,10 +503,10 @@ h1, h2, h3, h4, p { margin: 0; }
 .field input:focus,
 .field textarea:focus,
 .field select:focus {
-  border: 2px solid var(--md-primary);
-  padding: 15px;
+  /* Paint the extra focus stroke inside the existing border without relayout. */
+  border-color: var(--md-primary);
+  box-shadow: inset 0 0 0 1px var(--md-primary);
 }
-.field select:focus { padding-right: 43px; }
 .field input:focus + label,
 .field textarea:focus + label,
 .field select:focus + label { color: var(--md-primary); }

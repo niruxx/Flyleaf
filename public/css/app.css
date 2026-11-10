@@ -2428,8 +2428,8 @@ dialog .tabs button {
   justify-self: center;
   padding: 32px 24px 24px;
   border-radius: var(--shape-xl);
-  background: color-mix(in srgb, var(--md-surface-container-low) 82%, transparent);
-  backdrop-filter: blur(24px) saturate(1.4);
+  /* Keep editable controls off the live backdrop-filter compositing layer. */
+  background: var(--md-surface-container-low);
   border: 1px solid color-mix(in srgb, var(--md-outline-variant) 60%, transparent);
   box-shadow: 0 24px 60px -20px rgb(0 0 0 / 0.35), var(--elev-1);
   --field-bg: var(--md-surface-container-low);
@@ -2485,7 +2485,7 @@ dialog .tabs button {
   gap: 8px;
   margin-top: 24px;
 }
-.auth-card form > * {
+.auth-card form > :not(.field) {
   animation: fade-up 500ms var(--ease-emphasized-decel) backwards;
 }
 .auth-card form > :nth-child(2) { animation-delay: 260ms; }
