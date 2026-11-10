@@ -40,25 +40,27 @@ for metadata, so the series IDs are already there.
 - ✅ **Auto-save the next unread chapter** when opening a book, skipping read and already-saved
   chapters; a device-local switch on *Saved offline*, with data-saver support
 
-### KOReader and Kobo sync (0 of 2 fully verified; compatibility validation pending)
-- 🟨 A **kosync-compatible endpoint** at `/api/kosync`: revocable API-key login, checksum matching,
-  and two-way page progress. EPUB positions convert between web CFIs and native XPointers in
-  both directions. Other ebook formats and unresolvable positions retain native-anchor fallback.
-  FB2 positions now use the pinned Foliate converter, including notes and flattened poem verses.
-  Legacy MOBI6 text maps in both directions, including PalmDOC compression and section breaks.
-  Remaining: filepos/NCX-anchored or structurally complex MOBI, native KF8/AZW3 support,
-  CREngine CSS/DOM parity and real-client validation.
-- 🟨 **Kobo sync** at `/api/kobo/<key>`: an owned collection as an EPUB shelf, initialization,
-  downloads, covers, incremental entitlements and shared reading progress. Experimental until
-  validated on physical Kobo firmware. Cached KEPUB downloads now provide sentence-span maps
-  to original EPUB positions; device edits preserve individual book membership. Resumable
-  100-record pages, atomic batch progress writes, revision checks and statistics-only updates are implemented.
-  XML/structure coverage now includes RTL/CJK, ruby, footnotes, tables, SVG/MathML and legacy
-  encodings; fixed-layout and image-only chapters are preserved unchanged. Remaining: real-device
-  visual validation and advanced publisher CSS coverage. Body-child/descendant rules now retain
-  their specificity across Kobo wrappers. Chapter-specific derivatives also handle body classes,
-  IDs and attributes when they uniquely identify the body; generated CSS is declared in the package.
-  [Compatibility checks](docs/device-sync.md#compatibility-validation)
+### 🟨 KOReader and Kobo sync
+
+Both integrations are implemented and covered by automated tests; full device compatibility
+is still being verified. [Setup, supported formats and limitations](docs/device-sync.md)
+
+- 🟨 **KOReader** (`/api/kosync`): revocable API-key login, checksum matching and two-way
+  progress for pages, EPUB, FB2 and supported legacy MOBI6 layouts, with native-anchor fallback.
+- 🟨 **Kobo sync** (`/api/kobo/<key>`): collection delivery, covers, cached KEPUB downloads,
+  two-way reading progress, individual-book shelf edits, resumable pagination and batch updates.
+
+**Remaining work**
+
+- 🟨 **Complex MOBI positions**: extend precise mapping to filepos/NCX anchors and complex
+  layouts; retain fallback where the client's DOM cannot be reconstructed safely.
+- ⬜ **KF8/AZW3 interoperability**: provide a supported EPUB conversion workflow for clients
+  whose native engine cannot read KF8, while preserving reading-position mappings.
+- 🟨 **Publisher CSS compatibility**: handle ambiguous/dynamic selectors and verify position
+  conversion across CREngine whitespace rules and DOM versions.
+- 🟨 **Device validation**: test actual KOReader and Kobo versions for rendering, fixed-layout
+  books, bookmarks, interrupted sync and shelf edits, then document supported versions.
+  [Validation checklist](docs/device-sync.md#compatibility-validation)
 
 ### ✅ Search inside a book (2 of 2 done)
 - ✅ Search in the reader (`/` or Ctrl+F) for EPUB, MOBI/AZW3, FB2, TXT/DOCX/RTF and text PDFs,
