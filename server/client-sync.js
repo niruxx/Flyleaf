@@ -4,13 +4,13 @@
 const { q } = require('./db');
 const events = require('./events');
 
-function saveProgress(user, book, { percent, page = null, finished = percent >= 0.999 }) {
+function saveProgress(user, book, { percent, page = null, position = null, finished = percent >= 0.999 }) {
   const before = q('SELECT * FROM progress WHERE user_id = ? AND book_id = ?').get(user.id, book.id);
   const now = Math.max(Date.now(), (before?.updated_at || 0) + 1);
-  q(`INSERT INTO progress (user_id, book_id, percent, page, finished, started_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (user_id, book_id) DO UPDATE SET
-    percent = excluded.percent, page = excluded.page, position = NULL, finished = excluded.finished, updated_at = excluded.updated_at`)
-    .run(user.id, book.id, percent, page, finished ? 1 : 0, now, now);
+  q(`INSERT INTO progress (user_id, book_id, percent, page, position, finished, started_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (user_id, book_id) DO UPDATE SET
+    percent = excluded.percent, page = excluded.page, position = excluded.position, finished = excluded.finished, updated_at = excluded.updated_at`)
+    .run(user.id, book.id, percent, page, position, finished ? 1 : 0, now, now);
   events.emit('progress.updated', { userId: user.id, username: user.username, bookId: book.id, percent, page, finished });
   if (finished && !before?.finished) events.emit('book.finished', { userId: user.id, username: user.username, bookId: book.id });
   return now;

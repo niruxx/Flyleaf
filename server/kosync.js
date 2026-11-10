@@ -9,6 +9,7 @@ const auth = require('./auth');
 const { getBook, BOOK_SELECT } = require('./serialize');
 const { accessFilter } = require('./util');
 const sync = require('./client-sync');
+const { epubXPointer, epubFromXPointer } = require('./kosync-position');
 const router = express.Router();
 const md5 = (value) => crypto.createHash('md5').update(value).digest('hex');
 
@@ -66,9 +67,12 @@ router.put('/syncs/progress', async (req, res) => {
   const document = b.document.toLowerCase();
   const book = await findBook(req.user, document);
   if (!book || book.missing) return res.status(404).json({ message: 'Document not found in your library' });
-  const page = /^\d+$/.test(b.progress) ? Math.max(0, Number(b.progress) - 1) : null;
+  const paged = ['pdf', 'cbz', 'cbr', 'cb7', 'cbt'].includes(book.format);
+  if ((paged && !/^[1-9]\d*$/.test(b.progress)) || (!paged && !b.progress.startsWith('/'))) return res.status(400).json({ message: 'Invalid position for this format' });
+  const page = paged ? Number(b.progress) - 1 : null;
   if (page !== null && (!Number.isSafeInteger(page) || (book.page_count && page >= book.page_count))) return res.status(400).json({ message: 'Invalid page' });
-  const now = sync.saveProgress(req.user, book, { percent: b.percentage, page });
+  const position = page === null ? await epubFromXPointer(book, b.progress) : null;
+  const now = sync.saveProgress(req.user, book, { percent: b.percentage, page, position });
   const old = sync.load(req.user, 'kosync', document);
   const anchors = old ? JSON.parse(old.data).anchors || [] : [];
   anchors.push({ percentage: b.percentage, progress: b.progress });
@@ -87,15 +91,18 @@ router.get('/syncs/progress/:document', async (req, res) => {
   if (!p) return res.status(404).json({ message: 'No progress' });
   const data = stored ? JSON.parse(stored.data) : null;
   if (data && stored.updated_at >= p.updated_at) return res.json({ ...data, anchors: undefined, document, timestamp: Math.floor(stored.updated_at / 1000) });
-  // Page-based formats have a portable position. Reflowable text needs a native
-  // XPointer: return the closest position previously sent by KOReader.
+  // Prefer the exact EPUB text location; native anchors remain a fallback for
+  // other reflowable formats and unresolvable CFIs.
   let progress;
   let percentage = p.percent;
   if (['pdf', 'cbz', 'cbr', 'cb7', 'cbt'].includes(book.format)) progress = String((p.page ?? Math.round(p.percent * Math.max(0, (book.page_count || 1) - 1))) + 1);
   else {
-    const anchor = data?.anchors?.reduce((best, a) => !best || Math.abs(a.percentage - p.percent) < Math.abs(best.percentage - p.percent) ? a : best, null);
-    if (!anchor) return res.status(409).json({ message: 'Push once from KOReader to establish native text positions.' });
-    progress = anchor.progress; percentage = anchor.percentage;
+    progress = await epubXPointer(book, p.position);
+    if (!progress) {
+      const anchor = data?.anchors?.reduce((best, a) => !best || Math.abs(a.percentage - p.percent) < Math.abs(best.percentage - p.percent) ? a : best, null);
+      if (!anchor) return res.status(409).json({ message: 'No convertible EPUB position. Read in the web reader or push once from KOReader to establish native text positions.' });
+      progress = anchor.progress; percentage = anchor.percentage;
+    }
   }
   res.json({ document, progress, percentage, device: 'Flyleaf', device_id: 'flyleaf-web', timestamp: Math.floor(p.updated_at / 1000) });
 });

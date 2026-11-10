@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
 
-function setup(t) {
+function setup(t, dataDir) {
   const cache = new Map();
   const events = [];
   const user = { id: 1, username: 'reader', role: 'admin', visibleLibraryIds: [1], permissions: { download: true, apiAccess: true }, prefs: { koboCollectionId: 1 }, apiKey: { id: 1, scope: 'full' } };
@@ -22,7 +22,7 @@ function setup(t) {
       require: (name) => {
         if (name === 'node:sqlite') return { DatabaseSync: function () { return new DatabaseSync(':memory:'); } };
         if (file.endsWith(`${path.sep}db.js`) && name === 'node:fs') return { mkdirSync() {} };
-        if (name.endsWith('/config')) return { dataDir: '<memory>' };
+        if (name.endsWith('/config')) return { dataDir: dataDir || '<memory>', cacheDir: dataDir && path.join(dataDir, 'cache') };
         if (name.endsWith('/auth')) return auth;
         if (name.endsWith('/events')) return { emit: (...args) => events.push(args) };
         if (['./plugins/manager', './plugins/downloads', '../covers', '../providers', '../metadata-service', '../scanner'].includes(name)) return {};
@@ -45,10 +45,11 @@ function setup(t) {
   q("INSERT INTO api_keys (id,user_id,name,key,scope,created_at) VALUES (1,1,'Device','full-access-key-123456789','full',1)").run();
   function request(router, method, url, body = {}, headers = {}, acting = user) {
     return new Promise((resolve, reject) => {
-      const req = { method, url, originalUrl: url, headers, body, user: acting, query: {}, protocol: 'https',
+      const req = { method, url, originalUrl: url, headers, body, user: acting, query: Object.fromEntries(new URL(url, 'https://flyleaf.test').searchParams), protocol: 'https',
         get(name) { return headers[name.toLowerCase()] || (name.toLowerCase() === 'host' ? 'flyleaf.test' : undefined); } };
       const res = { statusCode: 200, headers: {}, status(n) { this.statusCode = n; return this; }, set(k, v) { if (typeof k === 'object') Object.assign(this.headers, k); else this.headers[k] = v; return this; },
-        json(value) { resolve({ status: this.statusCode, body: value, headers: this.headers }); }, end() { resolve({ status: this.statusCode }); } };
+        json(value) { resolve({ status: this.statusCode, body: value, headers: this.headers }); }, end() { resolve({ status: this.statusCode }); },
+        download(file, filename, options, callback) { const body = fs.readFileSync(file); callback?.(); resolve({ status: this.statusCode, body, filename, headers: this.headers }); } };
       router.handle(req, res, (err) => err ? reject(err) : resolve({ status: 404 }));
     });
   }
@@ -153,11 +154,81 @@ test('kosync authenticates revocable key digests and exchanges page progress wit
   const result = await request(router, 'GET', '/syncs/progress/'+document, {}, headers);
   assert.equal(result.body.progress, '41'); assert.equal(result.body.percentage, 0.4);
   assert.equal((await request(router, 'PUT', '/syncs/progress', { document, progress: '21', percentage: -1 }, headers)).status, 400);
+  assert.equal((await request(router, 'PUT', '/syncs/progress', { document, progress: '0', percentage: 0 }, headers)).status, 400);
+  assert.equal((await request(router, 'PUT', '/syncs/progress', { document, progress: '/body/p/text().0', percentage: 0.5 }, headers)).status, 400);
   user.role = 'guest'; user.visibleLibraryIds = [];
   assert.equal((await request(router, 'GET', '/syncs/progress/'+document, {}, headers)).status, 404);
   user.role = 'admin'; user.visibleLibraryIds = [1];
   q('DELETE FROM api_keys').run();
   assert.equal((await request(router, 'GET', '/users/auth', {}, headers)).status, 401);
+});
+
+test('Kobo pages large libraries, supports token retries and rechecks access between pages', async t => {
+  const { load, q, request, user } = setup(t);
+  const { router, uuid } = load('server/kobo.js');
+  const base = '/full-access-key-123456789/v1/library/sync';
+  for (let id = 3; id <= 207; id++) {
+    q("INSERT INTO books (id, library_id, path, rel_path, format, title, series_id, added_at, updated_at) VALUES (?,1,?,?,'epub',?,1,1,1)")
+      .run(id, '/books/' + id + '.epub', id + '.epub', 'Book ' + id);
+  }
+  const first = await request(router, 'GET', base);
+  assert.equal(first.body.length, 100);
+  assert.equal(first.headers['x-kobo-sync'], 'continue');
+  const headers = { 'x-kobo-synctoken': first.headers['x-kobo-synctoken'] };
+  const second = await request(router, 'GET', base, {}, headers);
+  const retry = await request(router, 'GET', base, {}, headers);
+  assert.deepEqual(JSON.parse(JSON.stringify(retry.body)), JSON.parse(JSON.stringify(second.body)), 'retry never resets to the first page');
+  assert.equal(second.body.length, 100);
+  const last = await request(router, 'GET', base, {}, { 'x-kobo-synctoken': second.headers['x-kobo-synctoken'] });
+  assert.equal(last.headers['x-kobo-sync'], 'complete');
+  const ids = [...first.body, ...second.body, ...last.body].filter(r => r.NewEntitlement).map(r => r.NewEntitlement.BookEntitlement.Id);
+  assert.equal(ids.length, 206);
+  assert.equal(new Set(ids).size, 206);
+  assert.equal((await request(router, 'GET', base, {}, { 'x-kobo-synctoken': last.headers['x-kobo-synctoken'] })).body.length, 0);
+  user.role = 'guest'; user.visibleLibraryIds = [];
+  const revoked = await request(router, 'GET', base, {}, headers);
+  assert.ok(revoked.body.every(r => !r.NewEntitlement));
+  assert.ok(revoked.body.filter(r => r.ChangedEntitlement).every(r => r.ChangedEntitlement.BookEntitlement.IsRemoved));
+  assert.equal(revoked.body[0].ChangedEntitlement.BookEntitlement.Id, uuid(1));
+});
+
+test('Kobo shelf edits enforce ownership, validate atomically and preserve individual book membership', async t => {
+  const { load, q, request, user } = setup(t);
+  const { router, uuid } = load('server/kobo.js');
+  const base = '/full-access-key-123456789/v1/library/tags';
+  const item = id => ({ RevisionId: uuid(id), Type: 'ProductRevisionTagItem' });
+  const initial = await request(router, 'GET', '/full-access-key-123456789/v1/library/sync');
+  const created = await request(router, 'POST', base, { Name: 'Device shelf', Items: [item(1)] });
+  assert.equal(created.status, 201);
+  const id = Number(created.body.slice(-12));
+  const members = () => JSON.parse(load('server/client-sync.js').load(user, 'kobo-shelf', `collection:${id}`).data).include;
+  assert.deepEqual(members(), [1]);
+  assert.equal((await request(router, 'PUT', base + '/' + created.body, { Name: 'Renamed' })).status, 200);
+  assert.equal(q('SELECT name FROM collections WHERE id = ?').get(id).name, 'Renamed');
+  assert.equal((await request(router, 'POST', base + '/' + created.body + '/items', { Items: [item(2), item(999)] })).status, 400);
+  assert.deepEqual(members(), [1], 'invalid batch makes no partial changes');
+  assert.equal((await request(router, 'POST', base + '/' + created.body + '/items', { Items: [item(2)] })).status, 201);
+  assert.equal((await request(router, 'POST', base + '/' + created.body + '/items/delete', { Items: [item(1)] })).status, 200);
+  assert.deepEqual(members(), [2]);
+  const updated = await request(router, 'GET', '/full-access-key-123456789/v1/library/sync', {}, { 'x-kobo-synctoken': initial.headers['x-kobo-synctoken'] });
+  assert.ok(updated.body.some(r => r.NewTag?.Tag.Name === 'Renamed'));
+  q("INSERT INTO users (id, username, password_hash, role, created_at) VALUES (2, 'other', 'unused', 'guest', 1)").run();
+  q("INSERT INTO collections (id,user_id,name,created_at,updated_at) VALUES (99,2,'Private',1,1)").run();
+  assert.equal((await request(router, 'PUT', base + '/' + uuid(99), { Name: 'Stolen' })).status, 404);
+  assert.equal((await request(router, 'DELETE', base + '/' + uuid(99))).status, 404);
+  assert.ok(!(await request(router, 'GET', base)).body.some(tag => tag.Name === 'Private'));
+  assert.equal((await request(router, 'DELETE', base + '/' + created.body)).status, 200);
+  const deleted = await request(router, 'GET', '/full-access-key-123456789/v1/library/sync', {}, { 'x-kobo-synctoken': updated.headers['x-kobo-synctoken'] });
+  assert.ok(deleted.body.some(r => r.DeletedTag?.Tag.Id === created.body));
+  q("INSERT INTO books (id,library_id,path,rel_path,format,title,series_id,added_at,updated_at) VALUES (3,1,'/books/3.epub','3.epub','epub','Sibling',1,1,1)").run();
+  await request(router, 'POST', base + '/' + uuid(1) + '/items/delete', { Items: [item(1)] });
+  assert.equal((await request(router, 'GET', '/full-access-key-123456789/v1/library/' + uuid(1) + '/state')).status, 404);
+  assert.equal((await request(router, 'GET', '/full-access-key-123456789/v1/library/' + uuid(3) + '/state')).status, 200, 'removing one book leaves its sibling available');
+  await request(router, 'POST', base + '/' + uuid(1) + '/items', { Items: [item(2)] });
+  assert.equal((await request(router, 'GET', '/full-access-key-123456789/v1/library/' + uuid(2) + ',' + uuid(3) + '/state')).body.length, 2);
+  assert.equal((await request(router, 'GET', '/full-access-key-123456789/v1/library/' + uuid(2) + ',' + uuid(99) + '/state')).status, 404);
+  user.permissions.download = false;
+  assert.equal((await request(router, 'POST', base, { Name: 'Blocked', Items: [] })).status, 403);
 });
 
 test('kosync ebook return uses an observed native anchor and leaves web locators clear', async (t) => {
@@ -174,4 +245,85 @@ test('kosync ebook return uses an observed native anchor and leaves web locators
   const result = await request(router, 'GET', '/syncs/progress/'+document, {}, headers);
   assert.equal(result.body.progress, native);
   assert.equal(result.body.percentage, 0.4);
+});
+
+test('Kobo downloads generated KEPUB and maps device progress only for the downloaded revision', async t => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'flyleaf-kobo-rendition-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const { load, q, request, user } = setup(t, dir);
+  const zip = new (require('jszip'))();
+  zip.file('META-INF/container.xml', '<container><rootfiles><rootfile full-path="package.opf"/></rootfiles></container>');
+  zip.file('package.opf', '<package><metadata/><manifest><item id="c" href="c.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c"/></spine></package>');
+  zip.file('c.xhtml', '<html><head><title>Chapter</title></head><body><p>First sentence. Second sentence.</p></body></html>');
+  const file = path.join(dir, 'book.epub');
+  fs.writeFileSync(file, await zip.generateAsync({ type: 'nodebuffer' }));
+  q('UPDATE books SET path = ? WHERE id = 1').run(file);
+  const { router, uuid } = load('server/kobo.js');
+  const base = '/full-access-key-123456789';
+  const metadata = await request(router, 'GET', base + '/v1/library/' + uuid(1) + '/metadata');
+  const offer = metadata.body[0].DownloadUrls[0];
+  assert.equal(offer.Format, 'KEPUB');
+  const downloadPath = new URL(offer.Url).pathname.replace('/api/kobo', '') + new URL(offer.Url).search;
+  const downloaded = await request(router, 'GET', downloadPath);
+  assert.ok(downloaded.filename.endsWith('.kepub.epub'));
+  const converted = await require('jszip').loadAsync(downloaded.body);
+  assert.match(await converted.file('c.xhtml').async('string'), /koboSpan/);
+  const data = { ReadingStates: [{ CurrentBookmark: { ProgressPercent: 60, ContentSourceProgressPercent: 50, Location: { Source: 'c.xhtml', Type: 'KoboSpan', Value: 'kobo.2.1' } } }] };
+  assert.equal((await request(router, 'PUT', base + '/v1/library/' + uuid(1) + '/state', data)).status, 200);
+  assert.equal(q('SELECT position FROM progress WHERE book_id = 1').get().position, 'epubcfi(/6/2!/4/2/1:16)');
+  const before = q('SELECT * FROM progress WHERE book_id = 1').get();
+  assert.equal((await request(router, 'PUT', base + '/v1/library/' + uuid(1) + '/state', { ReadingStates: [{ Statistics: { SpentReadingMinutes: 12 } }] })).status, 200);
+  assert.equal(q('SELECT updated_at FROM progress WHERE book_id = 1').get().updated_at, before.updated_at, 'statistics do not overwrite reading progress');
+  assert.equal((await request(router, 'GET', base + '/v1/library/' + uuid(1) + '/state')).body[0].Statistics.SpentReadingMinutes, 12);
+  zip.file('c.xhtml', '<html><head><title>Chapter</title></head><body><p>Completely changed edition.</p></body></html>');
+  fs.writeFileSync(file, await zip.generateAsync({ type: 'nodebuffer' }));
+  assert.equal((await request(router, 'GET', downloadPath)).status, 409, 'old download URL cannot deliver a changed rendition');
+  await request(router, 'PUT', base + '/v1/library/' + uuid(1) + '/state', data);
+  assert.equal(q('SELECT position FROM progress WHERE book_id = 1').get().position, null, 'old device spans never become CFIs in the new edition');
+  assert.equal((await request(router, 'GET', base + '/v1/library/' + uuid(1) + '/state')).body[0].CurrentBookmark.Location, undefined);
+});
+
+test('kosync returns new web EPUB positions before any KOReader push and prefers them over old anchors', async (t) => {
+  const { load, q, request, user } = setup(t);
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'flyleaf-kosync-route-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, 'book.epub');
+  const zip = new (require('jszip'))();
+  zip.file('META-INF/container.xml', '<container><rootfiles><rootfile full-path="package.opf"/></rootfiles></container>');
+  zip.file('package.opf', '<package><metadata/><manifest><item id="c" href="c.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c"/></spine></package>');
+  zip.file('c.xhtml', '<html><head><title>Chapter</title></head><body><p>Arbitrary reading position.</p><p><span id="kobo.1.1">Device position</span></p></body></html>');
+  fs.writeFileSync(file, await zip.generateAsync({ type: 'nodebuffer' }));
+  q('UPDATE books SET path = ? WHERE id = 1').run(file);
+  const { router } = load('server/kosync.js');
+  const document = crypto.createHash('md5').update('book.epub').digest('hex');
+  const headers = { 'x-auth-user': 'reader', 'x-auth-key': crypto.createHash('md5').update('full-access-key-123456789').digest('hex') };
+  const webSave = () => {
+    load('server/client-sync.js').saveProgress(user, { id: 1 }, { percent: 0.6 });
+    q('UPDATE progress SET position = ? WHERE book_id = 1').run('epubcfi(/6/2!/4/2/1:12)');
+  };
+  webSave();
+  let result = await request(router, 'GET', '/syncs/progress/' + document, {}, headers);
+  assert.equal(result.status, 200);
+  assert.equal(result.body.progress, '/body/DocFragment[1]/body/p[1]/text()[1].12');
+  assert.equal(result.body.percentage, 0.6);
+  await request(router, 'PUT', '/syncs/progress', { document, progress: '/body/DocFragment[1]/body/p[1]/text().0', percentage: 0.1 }, headers);
+  webSave();
+  result = await request(router, 'GET', '/syncs/progress/' + document, {}, headers);
+  assert.equal(result.body.progress, '/body/DocFragment[1]/body/p[1]/text()[1].12');
+  assert.equal(result.body.percentage, 0.6);
+  q('UPDATE progress SET position = ? WHERE book_id = 1').run('epubcfi(/6/2!/4/4/2/1:3)');
+  const kobo = load('server/kobo.js');
+  const state = await request(kobo.router, 'GET', '/full-access-key-123456789/v1/library/' + kobo.uuid(1) + '/state');
+  assert.equal(state.body[0].CurrentBookmark.Location.Source, 'c.xhtml');
+  assert.equal(state.body[0].CurrentBookmark.Location.Value, 'kobo.1.1');
+  assert.equal(state.body[0].CurrentBookmark.ProgressPercent, 60);
+  const received = await request(kobo.router, 'PUT', '/full-access-key-123456789/v1/library/' + kobo.uuid(1) + '/state', {
+    ReadingStates: [{ CurrentBookmark: { ProgressPercent: 70, ContentSourceProgressPercent: 25, Location: { Source: 'c.xhtml', Type: 'KoboSpan', Value: 'kobo.1.1' } } }],
+  });
+  assert.equal(received.status, 200);
+  assert.equal(q('SELECT position FROM progress WHERE book_id = 1').get().position, 'epubcfi(/6/2!/4/4/2/1:0)');
+  const returned = await request(kobo.router, 'GET', '/full-access-key-123456789/v1/library/' + kobo.uuid(1) + '/state');
+  assert.equal(returned.body[0].CurrentBookmark.ContentSourceProgressPercent, 25);
+  user.visibleLibraryIds = []; user.role = 'guest';
+  assert.equal((await request(router, 'GET', '/syncs/progress/' + document, {}, headers)).status, 404);
 });

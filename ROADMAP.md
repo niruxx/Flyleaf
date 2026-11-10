@@ -40,14 +40,17 @@ for metadata, so the series IDs are already there.
 - ✅ **Auto-save the next unread chapter** when opening a book, skipping read and already-saved
   chapters; a device-local switch on *Saved offline*, with data-saver support
 
-### KOReader and Kobo sync (0 of 2 complete; both implemented with limitations)
+### KOReader and Kobo sync (0 of 2 fully verified; compatibility validation pending)
 - 🟨 A **kosync-compatible endpoint** at `/api/kosync`: revocable API-key login, checksum matching,
-  and two-way page progress. Ebook progress imports by percentage; return sync uses the nearest
-  previously received KOReader XPointer. Exact arbitrary ebook return positions remain unfinished.
+  and two-way page progress. EPUB positions convert between web CFIs and native XPointers in
+  both directions. Other ebook formats and unresolvable positions retain native-anchor fallback.
+  Remaining: MOBI/FB2 position conversion, CREngine CSS/DOM parity and real-client validation.
 - 🟨 **Kobo sync** at `/api/kobo/<key>`: an owned collection as an EPUB shelf, initialization,
   downloads, covers, incremental entitlements and shared reading progress. Experimental until
-  validated on physical Kobo firmware; device shelf editing, large-library pagination and exact
-  ebook position conversion remain unfinished. [Setup and limitations](docs/device-sync.md)
+  validated on physical Kobo firmware. Cached KEPUB downloads now provide sentence-span maps
+  to original EPUB positions; device edits preserve individual book membership. Resumable
+  100-record pages, revision checks and statistics-only updates are implemented. Remaining:
+  firmware/rendering validation and non-text/fixed-layout coverage. [Compatibility checks](docs/device-sync.md#compatibility-validation)
 
 ### ✅ Search inside a book (2 of 2 done)
 - ✅ Search in the reader (`/` or Ctrl+F) for EPUB, MOBI/AZW3, FB2, TXT/DOCX/RTF and text PDFs,
