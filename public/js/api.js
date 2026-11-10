@@ -232,7 +232,7 @@ export const api = {
 
   health: () => GET('/api/health'),
   backupEstimate: () => GET('/api/admin/backup/estimate'),
-  backupUrl: (books) => `/api/admin/backup${books ? '?books=1' : ''}`,
+  backupUrl: (books, extensions = false) => `/api/admin/backup?books=${books ? 1 : 0}&extensions=${extensions ? 1 : 0}`,
   // Upload a backup zip with progress; `setup` uses the first-run endpoint.
   uploadBackup: (file, onProgress, { setup = false } = {}) => new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -251,14 +251,14 @@ export const api = {
     xhr.onerror = () => reject(new ApiError(t("Can't reach the Flyleaf server."), 0));
     xhr.send(file);
   }),
-  restoreBackup: (id, books, { setup = false } = {}) => POST(`${setup ? '/api/setup/restore' : '/api/admin/restore'}/${id}`, { books }),
+  restoreBackup: (id, books, { setup = false, extensions = false } = {}) => POST(`${setup ? '/api/setup/restore' : '/api/admin/restore'}/${id}`, { books, extensions }),
   cancelRestore: (id) => DEL(`/api/admin/restore/${id}`),
   backups: () => GET('/api/admin/backups'),
   saveBackupSchedule: (b) => PUT('/api/admin/backups/schedule', b),
   runBackup: () => POST('/api/admin/backups/run'),
   storedBackupUrl: (name) => `/api/admin/backups/${encodeURIComponent(name)}`,
   deleteStoredBackup: (name) => DEL(`/api/admin/backups/${encodeURIComponent(name)}`),
-  restoreStoredBackup: (name, books) => POST(`/api/admin/backups/${encodeURIComponent(name)}/restore`, { books }),
+  restoreStoredBackup: (name, books, extensions = false) => POST(`/api/admin/backups/${encodeURIComponent(name)}/restore`, { books, extensions }),
 
   adminSettings: () => GET('/api/admin/settings'),
   saveAdminSettings: (b) => PUT('/api/admin/settings', b),

@@ -44,6 +44,7 @@ async function upload(req, res) {
       version: manifest.version,
       createdAt: manifest.createdAt,
       includesBooks: Boolean(manifest.includesBooks),
+      includesExtensions: Boolean(manifest.includesExtensions),
       bookFiles: manifest.bookFiles,
       libraries: (manifest.libraries || []).map((l) => ({ name: l.name, path: l.path })),
     },
@@ -56,7 +57,7 @@ async function apply(req, res) {
   pending.delete(req.params.id);
   clearTimeout(p.timer);
   try {
-    const result = await backup.restore(p.file, { includeBooks: Boolean(req.body?.books) });
+    const result = await backup.restore(p.file, { includeBooks: Boolean(req.body?.books), includeExtensions: Boolean(req.body?.extensions) });
     res.json({ ok: true, ...result });
   } finally {
     fsp.rm(p.file, { force: true }).catch(() => {});
@@ -71,7 +72,7 @@ admin.get('/backup', async (req, res) => {
   const stamp = new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-');
   res.attachment(`flyleaf-backup-${stamp}${books ? '-with-books' : ''}.zip`);
   res.set('Cache-Control', 'no-store');
-  await backup.create(res, { includeBooks: books });
+  await backup.create(res, { includeBooks: books, includeExtensions: req.query.extensions === '1' });
 });
 // Scheduled backups and the ones stored on the server.
 admin.get('/backups', async (req, res) => {
@@ -87,7 +88,7 @@ admin.delete('/backups/:name', async (req, res) => {
 });
 /** Restore a stored backup directly: { books } */
 admin.post('/backups/:name/restore', async (req, res) => {
-  const result = await backup.restore(backup.storedPath(req.params.name), { includeBooks: Boolean(req.body?.books) });
+  const result = await backup.restore(backup.storedPath(req.params.name), { includeBooks: Boolean(req.body?.books), includeExtensions: Boolean(req.body?.extensions) });
   res.json({ ok: true, ...result });
 });
 

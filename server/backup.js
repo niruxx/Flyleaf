@@ -57,11 +57,15 @@ async function estimate() {
 }
 
 /** Stream a backup zip to `out` (an HTTP response). */
-async function create(out, { includeBooks = false } = {}) {
+async function create(out, { includeBooks = false, includeExtensions = false } = {}) {
+  const host = require('./plugins/suwayomi-host');
+  if (includeExtensions && ['installing', 'starting', 'stopping'].includes(host.status().phase)) throw err('Wait for the Suwayomi runtime operation to finish before backing up extensions.', 409);
+  const resume = includeExtensions && host.status().phase === 'running';
+  if (includeExtensions) await host.stop();
   const { ZipArchive } = require('archiver');
   const tmp = path.join(config.dataDir, `backup-${crypto.randomBytes(6).toString('hex')}.db`);
-  db.db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
   try {
+    db.db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`);
     const libraries = db.q('SELECT id, name, path FROM libraries ORDER BY id').all();
     const zip = new ZipArchive({ zlib: { level: 6 } });
     // "close" (not "finish"): a backup file must be closed before it's renamed into place.
@@ -78,9 +82,13 @@ async function create(out, { includeBooks = false } = {}) {
       schema: db.SCHEMA_VERSION,
       createdAt: new Date().toISOString(),
       includesBooks: includeBooks,
+      includesExtensions: includeExtensions,
       libraries,
     }, null, 2), { name: 'manifest.json' });
     zip.file(tmp, { name: 'flyleaf.db' });
+    if (includeExtensions && fs.existsSync(path.join(config.dataDir, 'suwayomi', 'data'))) {
+      zip.directory(path.join(config.dataDir, 'suwayomi', 'data'), 'extensions/suwayomi');
+    }
     for (const d of DATA_DIRS) {
       const dir = path.join(config.dataDir, d);
       if (fs.existsSync(dir)) zip.directory(dir, `data/${d}`);
@@ -95,6 +103,7 @@ async function create(out, { includeBooks = false } = {}) {
     await done;
   } finally {
     await fsp.rm(tmp, { force: true });
+    if (resume) await host.start();
   }
 }
 
@@ -144,13 +153,15 @@ async function inspect(file) {
  * writes book files back into their library folders. Existing book files are overwritten;
  * other files in the libraries are left alone.
  */
-async function restore(file, { includeBooks = false } = {}) {
+async function restore(file, { includeBooks = false, includeExtensions = false } = {}) {
   const manifest = await inspect(file);
   const yauzl = require('yauzl');
   const staging = path.join(config.dataDir, `restore-${crypto.randomBytes(6).toString('hex')}`);
   await fsp.mkdir(staging, { recursive: true });
   const zip = await yauzl.openPromise(file, { lazyEntries: true, autoClose: false, strictFileNames: false });
   const bookEntries = [];
+  const host = require('./plugins/suwayomi-host');
+  let resume = false;
   try {
     // 1. Database and data folders go to a staging folder first, so a broken zip changes nothing.
     for await (const entry of zip.eachEntry()) {
@@ -160,7 +171,8 @@ async function restore(file, { includeBooks = false } = {}) {
         if (includeBooks) bookEntries.push(entry);
         continue;
       }
-      if (name !== 'flyleaf.db' && !DATA_DIRS.some((d) => name.startsWith(`data/${d}/`))) continue;
+      if (name !== 'flyleaf.db' && !DATA_DIRS.some((d) => name.startsWith(`data/${d}/`)) &&
+          !(includeExtensions && manifest.includesExtensions && name.startsWith('extensions/suwayomi/'))) continue;
       const rel = safeRel(name);
       if (!rel) continue;
       const target = path.join(staging, rel);
@@ -178,6 +190,16 @@ async function restore(file, { includeBooks = false } = {}) {
       throw err('The database in that backup is damaged.');
     }
 
+    const extensionData = path.join(staging, 'extensions', 'suwayomi');
+    if (includeExtensions && manifest.includesExtensions && fs.existsSync(extensionData)) {
+      if (['installing', 'starting', 'stopping'].includes(host.status().phase)) throw err('Wait for the Suwayomi runtime operation to finish before restoring extensions.', 409);
+      resume = host.status().phase === 'running';
+      await host.stop();
+      const target = path.join(config.dataDir, 'suwayomi', 'data');
+      await fsp.mkdir(path.dirname(target), { recursive: true });
+      await fsp.rm(target, { recursive: true, force: true });
+      await fsp.rename(extensionData, target);
+    }
     // 2. Swap in the database, then the data folders.
     db.reopen((live) => {
       for (const ext of ['-wal', '-shm']) fs.rmSync(live + ext, { force: true });
@@ -224,6 +246,7 @@ async function restore(file, { includeBooks = false } = {}) {
   } finally {
     zip.close();
     await fsp.rm(staging, { recursive: true, force: true }).catch(() => {});
+    if (resume) await host.start();
   }
 }
 
@@ -231,7 +254,7 @@ async function restore(file, { includeBooks = false } = {}) {
 // Scheduled backups: kept in a folder (data/backups/auto, or another disk), the newest N kept.
 
 const SCHEDULE = 'backupSchedule';
-const SCHEDULE_DEFAULTS = { enabled: false, every: 'daily', hour: 3, keep: 7, includeBooks: false, folder: '' };
+const SCHEDULE_DEFAULTS = { enabled: false, every: 'daily', hour: 3, keep: 7, includeBooks: false, includeExtensions: false, folder: '' };
 const NAME_RE = /^flyleaf-backup-[\w-]+\.zip$/;
 let backupRunning = null;
 
@@ -246,6 +269,7 @@ function setSchedule(patch) {
     hour: patch.hour === undefined ? cur.hour : Math.min(23, Math.max(0, Math.round(Number(patch.hour) || 0))),
     keep: patch.keep === undefined ? cur.keep : Math.min(100, Math.max(1, Math.round(Number(patch.keep) || 1))),
     includeBooks: patch.includeBooks === undefined ? cur.includeBooks : Boolean(patch.includeBooks),
+    includeExtensions: patch.includeExtensions === undefined ? cur.includeExtensions : Boolean(patch.includeExtensions),
     folder: patch.folder === undefined ? cur.folder : String(patch.folder || '').trim(),
   };
   if (next.folder) {
@@ -271,7 +295,10 @@ async function listStored() {
   const out = [];
   for (const name of names) {
     const st = await fsp.stat(path.join(dir, name)).catch(() => null);
-    if (st) out.push({ name, size: st.size, createdAt: st.mtimeMs, books: name.includes('-with-books') });
+    if (st) {
+      const manifest = await inspect(path.join(dir, name)).catch(() => null);
+      out.push({ name, size: st.size, createdAt: st.mtimeMs, books: name.includes('-with-books'), extensions: Boolean(manifest?.includesExtensions) });
+    }
   }
   return out.sort((a, b) => b.createdAt - a.createdAt);
 }
@@ -296,7 +323,7 @@ async function runScheduled({ manual = false } = {}) {
     const name = `flyleaf-backup-${stamp}${s.includeBooks ? '-with-books' : ''}.zip`;
     const tmp = path.join(dir, `.${name}.part`);
     try {
-      await create(fs.createWriteStream(tmp), { includeBooks: s.includeBooks });
+      await create(fs.createWriteStream(tmp), { includeBooks: s.includeBooks, includeExtensions: s.includeExtensions });
       await fsp.rename(tmp, path.join(dir, name));
     } catch (e) {
       await fsp.rm(tmp, { force: true });

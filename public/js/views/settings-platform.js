@@ -130,8 +130,9 @@ export async function backupPanel(panel, stale) {
   panel.lastChild.remove();
 
   const dbSize = est.database + est.data;
+  const extensions = h('input', { type: 'checkbox' });
   const download = (books) => {
-    const a = h('a', { href: api.backupUrl(books), download: '' });
+    const a = h('a', { href: api.backupUrl(books, extensions.checked), download: '' });
     document.body.append(a);
     a.click();
     a.remove();
@@ -140,6 +141,8 @@ export async function backupPanel(panel, stale) {
 
   panel.append(
     h('div.sub-head', t('Back up')),
+    h('label.check', extensions, t('Include Suwayomi / Mihon extensions and sources')),
+    h('p.note', t('Includes the managed Suwayomi runtime’s data, repositories and source settings. The runtime pauses during backup. External Suwayomi servers need a separate backup. Java and the server program are not included.')),
     group(
       row('database', t('Database only'),
         t('Users, reading progress, stats, collections, bookmarks, reviews, settings, plugins, covers, profile pictures and fonts · about {value}', { value: formatBytes(dbSize) }),
@@ -182,14 +185,15 @@ function scheduledGroup() {
     const hour = field(t('At'), { value: s.hour, options: Array.from({ length: 24 }, (_, i) => ({ value: i, label: new Date(2000, 0, 1, i).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) })) });
     const keep = field(t('Keep the newest'), { value: s.keep, type: 'number', min: 1, max: 100, support: t('Older backups are deleted.') });
     const books = h('input', { type: 'checkbox', checked: s.includeBooks });
-    const folder = field(t('Folder'), { value: s.folder, autocomplete: 'off', support: t('Leave empty for {folder}. Use a folder on another disk to survive a disk failure.', { folder: d.folder }) });
+    const extensions = h('input', { type: 'checkbox', checked: s.includeExtensions });
+    const folder = field(t('Folder'), { value: s.folder, autocomplete: 'off' });
     const err = h('div');
     const save = button(t('Save'), { icon: 'save', onclick: async () => {
       err.replaceChildren();
       try {
         await api.saveBackupSchedule({
           enabled: enabled.querySelector('input').checked, every: every.input.value, hour: Number(hour.input.value),
-          keep: Number(keep.input.value), includeBooks: books.checked, folder: folder.input.value,
+          keep: Number(keep.input.value), includeBooks: books.checked, includeExtensions: extensions.checked, folder: folder.input.value,
         });
         snackbar(t('Backup schedule saved'));
         load();
@@ -220,10 +224,11 @@ function scheduledGroup() {
         a.remove();
       }),
       iconButton('settings_backup_restore', t('Restore this backup'), async () => {
+        const extensions = b.extensions && await dialog({ title: t('Restore Suwayomi / Mihon data too?'), content: h('p', t('This backup includes managed extensions and source settings. Choose Include to replace the managed runtime’s data, or Skip to keep it.')), icon: 'extension', actions: [{ label: t('Skip'), value: false }, { label: t('Include'), value: true, variant: 'filled' }] });
         if (!(await confirmDialog({ title: t('Restore this backup?'), message: t('Everything in this Flyleaf’s database is replaced by the backup from {value}.{value2} Everyone signs in again afterwards.', { value: new Date(b.createdAt).toLocaleString(), value2: b.books ? t(' Book files are written back too.') : '' }), confirm: t('Restore'), danger: true, icon: 'warning' }))) return;
         snackbar(t('Restoring…'), { duration: 120_000 });
         try {
-          await api.restoreStoredBackup(b.name, b.books);
+          await api.restoreStoredBackup(b.name, b.books, extensions);
           location.hash = '#/login';
           location.reload();
         } catch (e) {
@@ -241,7 +246,9 @@ function scheduledGroup() {
         h('div.setting-row.stack', err,
           h('div.ob-grid2', every, hour),
           h('div.ob-grid2', keep, h('label.check', books, t('Include book files'))),
+          h('label.check', extensions, t('Include Suwayomi / Mihon extensions and sources')),
           folder,
+          h('p.note', t('Leave empty for {folder}. Use a folder on another disk to protect your backups.', { folder: d.folder })),
           h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, save, now))),
       rows.length > 0 && h('div.settings-group', { style: { marginTop: '12px' } }, ...rows),
     );
@@ -301,6 +308,7 @@ function chooseRestore(up, { setup, onDone, status }) {
   const m = up.manifest;
   const created = new Date(m.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   let books = false;
+  const extensions = h('input', { type: 'checkbox', disabled: !m.includesExtensions });
   const choice = (value, ic, title, sub, disabled) => {
     const radio = h('input', { type: 'radio', name: 'restore-what', checked: value === books, disabled, onchange: () => (books = value) });
     return h(`label.restore-choice${disabled ? '.disabled' : ''}`, radio, icon(ic), h('div', h('div.body-large', title), h('div.body-small.muted', sub)));
@@ -308,7 +316,7 @@ function chooseRestore(up, { setup, onDone, status }) {
   const run = async () => {
     status.textContent = books ? t('Restoring the database and book files… this can take a while.') : t('Restoring the database…');
     try {
-      const r = await api.restoreBackup(up.id, books, { setup });
+      const r = await api.restoreBackup(up.id, books, { setup, extensions: extensions.checked });
       const extra = r.bookFiles ? t(' and {value} book files', { value: r.bookFiles.toLocaleString() }) : '';
       const fails = r.failed?.length ? t(' Some files couldn’t be written ({value}).', { value: r.failed[0] }) : '';
       if (onDone) return onDone(r);
@@ -335,6 +343,8 @@ function chooseRestore(up, { setup, onDone, status }) {
         choice(true, 'library_books', t('Database and books'),
           m.includesBooks ? t('Also writes {value} book files back into the library folders, overwriting files with the same name.', { value: m.bookFiles.toLocaleString() }) : t('This backup doesn’t include book files.'),
           !m.includesBooks)),
+      h('label.check', extensions, t('Restore Suwayomi / Mihon extensions and sources')),
+      h('p.note', m.includesExtensions ? t('Replaces managed Suwayomi data and source settings. Install the managed runtime on the destination server if needed. External servers are not changed.') : t('This backup does not include Suwayomi / Mihon data.')),
       !setup && h('p.body-small', { style: { color: 'var(--md-error)', marginTop: '12px' } }, t('Everything in this Flyleaf’s database is replaced. This can’t be undone – download a backup first if you might want it.')),
     ),
     actions: [
