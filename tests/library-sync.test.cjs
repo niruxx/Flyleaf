@@ -18,7 +18,7 @@ function setup(t, dataDir) {
     if (cache.has(file)) return cache.get(file).exports;
     const mod = { exports: {} }; cache.set(file, mod);
     vm.runInNewContext(fs.readFileSync(file, 'utf8'), { module: mod, exports: mod.exports, Buffer, Date, Set, Map, Intl,
-      process: { env: {} }, setTimeout, setInterval,
+      process: { env: {} }, setTimeout, clearTimeout, setInterval,
       require: (name) => {
         if (name === 'node:sqlite') return { DatabaseSync: function () { return new DatabaseSync(':memory:'); } };
         if (file.endsWith(`${path.sep}db.js`) && name === 'node:fs') return { mkdirSync() {} };
@@ -245,6 +245,70 @@ test('kosync ebook return uses an observed native anchor and leaves web locators
   const result = await request(router, 'GET', '/syncs/progress/'+document, {}, headers);
   assert.equal(result.body.progress, native);
   assert.equal(result.body.percentage, 0.4);
+});
+
+test('Kobo batch progress writes match entitlement IDs and reject invalid batches without partial updates', async t => {
+  const { load, q, request } = setup(t);
+  q('INSERT INTO collection_items VALUES (1,2,1)').run();
+  const { router, uuid } = load('server/kobo.js');
+  const url = '/full-access-key-123456789/v1/library/' + uuid(1) + ',' + uuid(2) + '/state';
+  const progress = (id, percent) => ({ EntitlementId: uuid(id), CurrentBookmark: { ProgressPercent: percent } });
+  const result = await request(router, 'PUT', url, { ReadingStates: [progress(2, 75), progress(1, 25)] });
+  assert.equal(result.status, 200);
+  assert.equal(result.body.UpdateResults.length, 2);
+  assert.equal(q('SELECT percent FROM progress WHERE book_id = 1').get().percent, 0.25);
+  assert.equal(q('SELECT percent FROM progress WHERE book_id = 2').get().percent, 0.75);
+  for (const input of [[progress(1, 50), progress(2, 101)], [progress(1, 50), progress(1, 60)], [progress(1, 50), progress(99, 60)]]) {
+    assert.equal((await request(router, 'PUT', url, { ReadingStates: input })).status, 400);
+    assert.equal(q('SELECT percent FROM progress WHERE book_id = 1').get().percent, 0.25);
+    assert.equal(q('SELECT percent FROM progress WHERE book_id = 2').get().percent, 0.75);
+  }
+  q('DELETE FROM collection_items WHERE series_id = 2').run();
+  assert.equal((await request(router, 'PUT', url, { ReadingStates: [progress(1, 50), progress(2, 50)] })).status, 404);
+  assert.equal(q('SELECT percent FROM progress WHERE book_id = 1').get().percent, 0.25);
+});
+
+test('kosync imports and exports precise FB2 positions through the real converter', async t => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'flyleaf-fb2-route-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const { load, q, request, user } = setup(t, dir);
+  const file = path.join(dir, 'book.fb2');
+  fs.writeFileSync(file, '<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><description><title-info><book-title>Test</book-title><lang>en</lang></title-info></description><body><section><p>Round trip text.</p></section></body></FictionBook>');
+  q("UPDATE books SET path = ?, format = 'fb2' WHERE id = 1").run(file);
+  const { router } = load('server/kosync.js');
+  const document = crypto.createHash('md5').update('book.fb2').digest('hex');
+  const headers = { 'x-auth-user': 'reader', 'x-auth-key': crypto.createHash('md5').update('full-access-key-123456789').digest('hex') };
+  const native = '/FictionBook/body[1]/section[1]/p[1]/text()[1].4';
+  assert.equal((await request(router, 'PUT', '/syncs/progress', { document, progress: native, percentage: 0.2 }, headers)).status, 200);
+  const cfi = q('SELECT position FROM progress WHERE book_id = 1').get().position;
+  assert.ok(cfi?.startsWith('epubcfi('));
+  load('server/client-sync.js').saveProgress(user, { id: 1 }, { percent: 0.5, position: cfi.replace(/:\d+\)$/, ':8)') });
+  const pulled = await request(router, 'GET', '/syncs/progress/' + document, {}, headers);
+  assert.equal(pulled.body.progress, '/FictionBook/body[1]/section[1]/p[1]/text()[1].8');
+  assert.equal(pulled.body.percentage, 0.5);
+});
+
+test('kosync exchanges precise legacy MOBI positions while retaining native fallback for guarded files', async t => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'flyleaf-mobi-route-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const { load, q, request, user } = setup(t, dir);
+  const file = path.join(dir, 'book.mobi');
+  fs.writeFileSync(file, require('./mobi-fixture.cjs')('<html><head><title>Test</title></head><body><p>Legacy text.</p></body></html>', { compression: 2 }));
+  q("UPDATE books SET path = ?, format = 'mobi' WHERE id = 1").run(file);
+  const { router } = load('server/kosync.js');
+  const document = crypto.createHash('md5').update('book.mobi').digest('hex');
+  const headers = { 'x-auth-user': 'reader', 'x-auth-key': crypto.createHash('md5').update('full-access-key-123456789').digest('hex') };
+  assert.equal((await request(router, 'PUT', '/syncs/progress', { document, progress: '/body/p[1]/text()[1].3', percentage: 0.2 }, headers)).status, 200);
+  const cfi = q('SELECT position FROM progress WHERE book_id = 1').get().position;
+  assert.ok(cfi?.startsWith('epubcfi('));
+  load('server/client-sync.js').saveProgress(user, { id: 1 }, { percent: 0.6, position: cfi.replace(/:\d+\)$/, ':7)') });
+  const pulled = await request(router, 'GET', '/syncs/progress/' + document, {}, headers);
+  assert.equal(pulled.body.progress, '/body/p[1]/text()[1].7');
+  assert.equal(pulled.body.percentage, 0.6);
+  const binary = await load('server/kosync.js').partialMD5(file);
+  assert.equal((await request(router, 'PUT', '/syncs/progress', { document: binary, progress: '/body/p[1]/text()[1].3', percentage: 0.2 }, headers)).status, 200);
+  fs.writeFileSync(file, require('./mobi-fixture.cjs')('<html><head><title>New edition</title></head><body><p>Changed content.</p></body></html>'));
+  assert.equal((await request(router, 'GET', '/syncs/progress/' + binary, {}, headers)).status, 404, 'cached binary digests do not bind replaced editions');
 });
 
 test('Kobo downloads generated KEPUB and maps device progress only for the downloaded revision', async t => {

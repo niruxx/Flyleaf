@@ -11,7 +11,7 @@ function cfiPath(node, root, offset = 0) {
     if (node.nodeType === 3) {
       const before = siblings.slice(0, siblings.indexOf(node));
       const lastElement = before.findLastIndex(n => n.nodeType === 1);
-      const precedingText = before.slice(lastElement + 1).filter(n => n.nodeType === 3).reduce((n, child) => n + child.text.length, 0);
+      const precedingText = before.slice(lastElement + 1).filter(n => n.nodeType === 3).reduce((n, child) => n + (child.text ?? child.textContent).length, 0);
       steps.unshift(`/${2 * before.filter(n => n.nodeType === 1).length + 1}:${precedingText + offset}`);
     } else {
       steps.unshift(`/${2 * (siblings.filter(n => n.nodeType === 1).indexOf(node) + 1)}`);

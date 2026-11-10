@@ -269,11 +269,8 @@ router.get('/:key/v1/library/:id/state', async (req, res) => {
   const list = visibleBooks(req); if (!list) return res.status(404).end();
   res.json(await Promise.all(list.map(b => state(req.user, b))));
 });
-router.put('/:key/v1/library/:id/state', async (req, res) => {
-  const b = visibleBook(req); if (!b) return res.status(404).end();
-  const input = req.body?.ReadingStates;
-  if (!Array.isArray(input) || input.length !== 1 || !input[0] || typeof input[0] !== 'object') return res.status(400).json({ error: 'Invalid ReadingStates' });
-  const value = input[0];
+function validReadingState(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const status = value.StatusInfo?.Status;
   const percent = value.CurrentBookmark?.ProgressPercent;
   const hasStats = value.Statistics && typeof value.Statistics === 'object' && !Array.isArray(value.Statistics);
@@ -283,7 +280,14 @@ router.put('/:key/v1/library/:id/state', async (req, res) => {
       (local != null && (!Number.isFinite(local) || local < 0 || local > 100)) ||
       (location != null && (typeof location !== 'object' || ['Source', 'Type', 'Value'].some(k => typeof location[k] !== 'string' || location[k].length > 2000))) ||
       (hasStats && ['SpentReadingMinutes', 'RemainingTimeMinutes'].some(k => value.Statistics[k] !== undefined && (!Number.isFinite(value.Statistics[k]) || value.Statistics[k] < 0))) ||
-      (status !== undefined && !['ReadyToRead', 'Reading', 'Finished'].includes(status)) || (percent === undefined && status === undefined && !hasStats)) return res.status(400).json({ error: 'Invalid reading state' });
+      (status !== undefined && !['ReadyToRead', 'Reading', 'Finished'].includes(status)) || (percent === undefined && status === undefined && !hasStats)) return false;
+  return true;
+}
+
+async function prepareReadingState(req, b, value) {
+  const status = value.StatusInfo?.Status;
+  const percent = value.CurrentBookmark?.ProgressPercent;
+  const location = value.CurrentBookmark?.Location;
   const before = q('SELECT * FROM progress WHERE user_id = ? AND book_id = ?').get(req.user.id, b.id);
   const fraction = status === 'Finished' ? 1 : status === 'ReadyToRead' ? 0 : percent === undefined ? before?.percent || 0 : percent / 100;
   const generated = await rendition(b).catch(() => null);
@@ -292,16 +296,36 @@ router.put('/:key/v1/library/:id/state', async (req, res) => {
   const position = status === 'ReadyToRead' ? null : location
     ? generated && generated.key !== renditionKey ? null : await koboCFI(b, location)
     : percent === undefined ? before?.position || null : null;
-  const hasProgress = percent !== undefined || status !== undefined;
-  const now = hasProgress ? sync.saveProgress(req.user, b, { percent: fraction, position, finished: status ? status === 'Finished' : fraction >= 0.999 }) : Math.max(Date.now(), before?.updated_at || 0);
-  const old = sync.load(req.user, 'kobo', uuid(b.id));
-  const previous = old ? JSON.parse(old.data) : {};
-  if (old && before && old.updated_at < before.updated_at) delete previous.CurrentBookmark;
-  const merged = { ...previous, ...value, Statistics: { ...previous.Statistics, ...value.Statistics }, renditionKey };
-  if (status === 'ReadyToRead') delete merged.CurrentBookmark;
-  sync.store(req.user, 'kobo', uuid(b.id), b.id, merged, now);
-  res.json({ RequestResult: 'Success', UpdateResults: [{ EntitlementId: uuid(b.id), CurrentBookmarkResult: { Result: 'Success' },
-    StatusInfoResult: { Result: 'Success' }, StatisticsResult: { Result: 'Success' }, LastModified: iso(now), PriorityTimestamp: iso(now) }] });
+  return () => {
+    const hasProgress = percent !== undefined || status !== undefined;
+    const now = hasProgress ? sync.saveProgress(req.user, b, { percent: fraction, position, finished: status ? status === 'Finished' : fraction >= 0.999 }) : Math.max(Date.now(), before?.updated_at || 0);
+    const old = sync.load(req.user, 'kobo', uuid(b.id));
+    const previous = old ? JSON.parse(old.data) : {};
+    if (old && before && old.updated_at < before.updated_at) delete previous.CurrentBookmark;
+    const merged = { ...previous, ...value, Statistics: { ...previous.Statistics, ...value.Statistics }, renditionKey };
+    if (status === 'ReadyToRead') delete merged.CurrentBookmark;
+    sync.store(req.user, 'kobo', uuid(b.id), b.id, merged, now);
+    return { EntitlementId: uuid(b.id), CurrentBookmarkResult: { Result: 'Success' },
+      StatusInfoResult: { Result: 'Success' }, StatisticsResult: { Result: 'Success' }, LastModified: iso(now), PriorityTimestamp: iso(now) };
+  };
+}
+
+router.put('/:key/v1/library/:id/state', async (req, res) => {
+  const list = visibleBooks(req); if (!list) return res.status(404).end();
+  const input = req.body?.ReadingStates;
+  if (!Array.isArray(input) || input.length !== list.length || !input.every(validReadingState)) return res.status(400).json({ error: 'Invalid ReadingStates' });
+  const available = new Map(list.map(b => [uuid(b.id), b]));
+  const seen = new Set();
+  const pairs = [];
+  for (const value of input) {
+    const id = value.EntitlementId || (list.length === 1 ? uuid(list[0].id) : null);
+    if (!available.has(id) || seen.has(id)) return res.status(400).json({ error: 'Reading state IDs must match the requested books' });
+    seen.add(id); pairs.push([available.get(id), value]);
+  }
+  // Complete authorization, validation and position conversion before any write.
+  const writes = await Promise.all(pairs.map(([book, value]) => prepareReadingState(req, book, value)));
+  const results = tx(() => writes.map(write => write()));
+  res.json({ RequestResult: 'Success', UpdateResults: results });
 });
 router.get('/:key/download/:id', async (req, res) => {
   const b = visibleBook(req); if (!b) return res.status(404).end();

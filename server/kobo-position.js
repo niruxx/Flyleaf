@@ -2,12 +2,13 @@
 
 const { epubTarget } = require('./kosync-position');
 const { parse } = require('node-html-parser');
-const { readZipFile } = require('./archive');
+const { readMarkup } = require('./epub-text');
 const path = require('node:path');
 const { rendition } = require('./kepub');
 const { cfiPath: canonicalPath } = require('./epub-cfi-path');
 const elements = node => node.childNodes.filter(n => n.nodeType === 1);
-const name = node => node.rawTagName?.toLowerCase();
+const name = node => node.rawTagName?.split(':').pop().toLowerCase();
+const find = (root, local) => root.querySelectorAll('*').find(n => name(n) === local);
 
 function cfiPath(node, root) {
   const steps = [];
@@ -31,11 +32,11 @@ async function koboCFI(book, location, { allowGenerated = true } = {}) {
     const source = path.posix.normalize(decodeURIComponent(location.Source));
     const mapped = generated?.spans.find(span => span.source === source && span.id === location.Value);
     if (mapped) return mapped.cfi;
-    const container = parse((await readZipFile(book.path, 'META-INF/container.xml')).toString('utf8'));
-    const opfPath = container.querySelector('rootfile')?.getAttribute('full-path');
+    const container = parse(await readMarkup(book.path, 'META-INF/container.xml'));
+    const opfPath = find(container, 'rootfile')?.getAttribute('full-path');
     if (!opfPath) return null;
-    const opf = parse((await readZipFile(book.path, opfPath)).toString('utf8'));
-    const pkg = opf.querySelector('package');
+    const opf = parse(await readMarkup(book.path, opfPath));
+    const pkg = find(opf, 'package');
     const manifest = elements(pkg).find(n => name(n) === 'manifest');
     const spine = elements(pkg).find(n => name(n) === 'spine');
     for (const ref of elements(spine)) {
@@ -44,8 +45,8 @@ async function koboCFI(book, location, { allowGenerated = true } = {}) {
       const href = decodeURIComponent(item.getAttribute('href').split('#')[0]);
       const full = path.posix.normalize(path.posix.join(path.posix.dirname(opfPath), href));
       if (full !== source) continue;
-      const doc = parse((await readZipFile(book.path, full)).toString('utf8'), { comment: true });
-      const html = doc.querySelector('html');
+      const doc = parse(await readMarkup(book.path, full), { comment: true });
+      const html = find(doc, 'html');
       const span = html.querySelectorAll('[id]').find(n => n.getAttribute('id') === location.Value);
       if (!span) return null;
       const firstText = node => {

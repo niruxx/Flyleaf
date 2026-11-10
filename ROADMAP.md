@@ -44,13 +44,21 @@ for metadata, so the series IDs are already there.
 - 🟨 A **kosync-compatible endpoint** at `/api/kosync`: revocable API-key login, checksum matching,
   and two-way page progress. EPUB positions convert between web CFIs and native XPointers in
   both directions. Other ebook formats and unresolvable positions retain native-anchor fallback.
-  Remaining: MOBI/FB2 position conversion, CREngine CSS/DOM parity and real-client validation.
+  FB2 positions now use the pinned Foliate converter, including notes and flattened poem verses.
+  Legacy MOBI6 text maps in both directions, including PalmDOC compression and section breaks.
+  Remaining: filepos/NCX-anchored or structurally complex MOBI, native KF8/AZW3 support,
+  CREngine CSS/DOM parity and real-client validation.
 - 🟨 **Kobo sync** at `/api/kobo/<key>`: an owned collection as an EPUB shelf, initialization,
   downloads, covers, incremental entitlements and shared reading progress. Experimental until
   validated on physical Kobo firmware. Cached KEPUB downloads now provide sentence-span maps
   to original EPUB positions; device edits preserve individual book membership. Resumable
-  100-record pages, revision checks and statistics-only updates are implemented. Remaining:
-  firmware/rendering validation and non-text/fixed-layout coverage. [Compatibility checks](docs/device-sync.md#compatibility-validation)
+  100-record pages, atomic batch progress writes, revision checks and statistics-only updates are implemented.
+  XML/structure coverage now includes RTL/CJK, ruby, footnotes, tables, SVG/MathML and legacy
+  encodings; fixed-layout and image-only chapters are preserved unchanged. Remaining: real-device
+  visual validation and advanced publisher CSS coverage. Body-child/descendant rules now retain
+  their specificity across Kobo wrappers. Chapter-specific derivatives also handle body classes,
+  IDs and attributes when they uniquely identify the body; generated CSS is declared in the package.
+  [Compatibility checks](docs/device-sync.md#compatibility-validation)
 
 ### ✅ Search inside a book (2 of 2 done)
 - ✅ Search in the reader (`/` or Ctrl+F) for EPUB, MOBI/AZW3, FB2, TXT/DOCX/RTF and text PDFs,

@@ -10,6 +10,7 @@ const { getBook, BOOK_SELECT } = require('./serialize');
 const { accessFilter } = require('./util');
 const sync = require('./client-sync');
 const { epubXPointer, epubFromXPointer } = require('./kosync-position');
+const { textXPointer, textFromXPointer } = require('./fb2-position');
 const router = express.Router();
 const md5 = (value) => crypto.createHash('md5').update(value).digest('hex');
 
@@ -48,7 +49,14 @@ router.post('/users/create', (req, res) => res.status(403).json({ message: 'Crea
 
 async function findBook(user, document) {
   const existing = sync.load(user, 'kosync', document);
-  if (existing?.book_id) return getBook(existing.book_id, user);
+  if (existing?.book_id) {
+    const book = getBook(existing.book_id, user);
+    if (!book || book.missing) return null;
+    if (md5(path.basename(book.path)) === document) return book;
+    try { if (await partialMD5(book.path) === document) return book; } catch {}
+    // A cached binary digest must not keep pointing at a replaced edition.
+    return null;
+  }
   const filter = accessFilter(user);
   const books = q(`${BOOK_SELECT} WHERE b.missing = 0 AND ${filter.sql}`).all(user.id, user.id, ...filter.args);
   // Never search books outside this user's current library and age restrictions.
@@ -71,7 +79,9 @@ router.put('/syncs/progress', async (req, res) => {
   if ((paged && !/^[1-9]\d*$/.test(b.progress)) || (!paged && !b.progress.startsWith('/'))) return res.status(400).json({ message: 'Invalid position for this format' });
   const page = paged ? Number(b.progress) - 1 : null;
   if (page !== null && (!Number.isSafeInteger(page) || (book.page_count && page >= book.page_count))) return res.status(400).json({ message: 'Invalid page' });
-  const position = page === null ? await epubFromXPointer(book, b.progress) : null;
+  let position = null;
+  if (page === null) position = ['fb2', 'mobi', 'azw3'].includes(book.format)
+    ? await textFromXPointer(book, b.progress) : await epubFromXPointer(book, b.progress);
   const now = sync.saveProgress(req.user, book, { percent: b.percentage, page, position });
   const old = sync.load(req.user, 'kosync', document);
   const anchors = old ? JSON.parse(old.data).anchors || [] : [];
@@ -91,16 +101,16 @@ router.get('/syncs/progress/:document', async (req, res) => {
   if (!p) return res.status(404).json({ message: 'No progress' });
   const data = stored ? JSON.parse(stored.data) : null;
   if (data && stored.updated_at >= p.updated_at) return res.json({ ...data, anchors: undefined, document, timestamp: Math.floor(stored.updated_at / 1000) });
-  // Prefer the exact EPUB text location; native anchors remain a fallback for
-  // other reflowable formats and unresolvable CFIs.
+  // Prefer mapped text locations; native anchors remain a fallback for guarded
+  // formats and unresolvable CFIs.
   let progress;
   let percentage = p.percent;
   if (['pdf', 'cbz', 'cbr', 'cb7', 'cbt'].includes(book.format)) progress = String((p.page ?? Math.round(p.percent * Math.max(0, (book.page_count || 1) - 1))) + 1);
   else {
-    progress = await epubXPointer(book, p.position);
+    progress = ['fb2', 'mobi', 'azw3'].includes(book.format) ? await textXPointer(book, p.position) : await epubXPointer(book, p.position);
     if (!progress) {
       const anchor = data?.anchors?.reduce((best, a) => !best || Math.abs(a.percentage - p.percent) < Math.abs(best.percentage - p.percent) ? a : best, null);
-      if (!anchor) return res.status(409).json({ message: 'No convertible EPUB position. Read in the web reader or push once from KOReader to establish native text positions.' });
+      if (!anchor) return res.status(409).json({ message: 'No convertible text position. Read in the web reader or push once from KOReader to establish native text positions.' });
       progress = anchor.progress; percentage = anchor.percentage;
     }
   }

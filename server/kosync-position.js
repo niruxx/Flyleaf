@@ -6,10 +6,11 @@
 const { parse } = require('node-html-parser');
 const CFI = require('foliate-js/epubcfi.js');
 const path = require('node:path');
-const { readZipFile } = require('./archive');
+const { readMarkup } = require('./epub-text');
 const { cfiPath } = require('./epub-cfi-path');
 const tag = node => node.rawTagName?.split(':').pop().toLowerCase();
 const elements = node => node.childNodes.filter(n => n.nodeType === 1);
+const find = (root, local) => root.querySelectorAll('*').find(n => tag(n) === local);
 
 function resolve(root, steps) {
   let node = root;
@@ -53,7 +54,7 @@ function nativeOffset(node, offset) {
   // A CFI may not bisect a UTF-16 surrogate pair.
   if (offset > 0 && /[\uD800-\uDBFF]/.test(node.text[offset - 1]) && /[\uDC00-\uDFFF]/.test(node.text[offset] || '')) return null;
   let prefix = node.text.slice(0, offset);
-  if (pre && node === node.parentNode.firstChild && prefix.startsWith('\n')) prefix = prefix.slice(1);
+  if (['pre', 'textarea'].includes(tag(node.parentNode)) && node === node.parentNode.firstChild && prefix.startsWith('\n')) prefix = prefix.slice(1);
   return Array.from(normalize(prefix)).length;
 }
 
@@ -89,11 +90,11 @@ async function epubTarget(book, position) {
   try {
     const parts = CFI.parse(CFI.collapse(position));
     if (parts.length !== 2 || !parts[0].length || !parts[1].length) return null;
-    const container = parse((await readZipFile(book.path, 'META-INF/container.xml')).toString('utf8'));
-    const opfPath = container.querySelector('rootfile')?.getAttribute('full-path');
+    const container = parse(await readMarkup(book.path, 'META-INF/container.xml'));
+    const opfPath = find(container, 'rootfile')?.getAttribute('full-path');
     if (!opfPath) return null;
-    const opf = parse((await readZipFile(book.path, opfPath)).toString('utf8'));
-    const pkg = opf.querySelector('package');
+    const opf = parse(await readMarkup(book.path, opfPath));
+    const pkg = find(opf, 'package');
     if (!pkg) return null;
     const ref = resolve(pkg, parts[0])?.node;
     const spine = elements(pkg).find(n => tag(n) === 'spine');
@@ -106,8 +107,8 @@ async function epubTarget(book, position) {
     if (!href || /^[a-z]+:|^\/|\\/i.test(href)) return null;
     const chapterPath = path.posix.normalize(path.posix.join(path.posix.dirname(opfPath), href));
     if (chapterPath.startsWith('../')) return null;
-    const doc = parse((await readZipFile(book.path, chapterPath)).toString('utf8'), { comment: true, blockTextElements: { script: true, style: true, pre: true } });
-    const html = doc.querySelector('html');
+    const doc = parse(await readMarkup(book.path, chapterPath), { comment: true, blockTextElements: { script: true, style: true } });
+    const html = find(doc, 'html');
     const body = html && elements(html).find(n => tag(n) === 'body');
     if (!body) return null;
     const target = resolve(html, parts[1]);
@@ -132,10 +133,10 @@ async function epubFromXPointer(book, pointer) {
   const match = pointer.match(/^\/body(?:\[1\])?\/DocFragment(?:\[(\d+)\])?\/body(?:\[1\])?(\/.*)?$/);
   if (!match) return null;
   try {
-    const container = parse((await readZipFile(book.path, 'META-INF/container.xml')).toString('utf8'));
-    const opfPath = container.querySelector('rootfile')?.getAttribute('full-path');
-    const opf = parse((await readZipFile(book.path, opfPath)).toString('utf8'));
-    const pkg = opf.querySelector('package');
+    const container = parse(await readMarkup(book.path, 'META-INF/container.xml'));
+    const opfPath = find(container, 'rootfile')?.getAttribute('full-path');
+    const opf = parse(await readMarkup(book.path, opfPath));
+    const pkg = find(opf, 'package');
     const manifest = elements(pkg).find(n => tag(n) === 'manifest');
     const spine = elements(pkg).find(n => tag(n) === 'spine');
     const items = elements(manifest);
@@ -148,8 +149,8 @@ async function epubFromXPointer(book, pointer) {
     if (!href || /^[a-z]+:|^\/|\\/i.test(href)) return null;
     const full = path.posix.normalize(path.posix.join(path.posix.dirname(opfPath), href));
     if (full.startsWith('../')) return null;
-    const doc = parse((await readZipFile(book.path, full)).toString('utf8'), { comment: true, blockTextElements: { script: true, style: true, pre: true } });
-    const html = doc.querySelector('html');
+    const doc = parse(await readMarkup(book.path, full), { comment: true, blockTextElements: { script: true, style: true } });
+    const html = find(doc, 'html');
     let node = elements(html).find(n => tag(n) === 'body'), offset = 0;
     for (const part of (match[2] || '').split('/').filter(Boolean)) {
       const step = part.match(/^([\w-]+|text\(\))(?:\[(\d+)\])?(?:\.(\d+))?$/);
