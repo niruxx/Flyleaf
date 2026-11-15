@@ -25,14 +25,14 @@ Visit **http://localhost:8000**. Google Fonts is optional; system fonts provide 
 
 ## 🌐 Publish on GitHub Pages
 
-1. Push this repository to GitHub on `main`.
+1. Push the `website` branch to `niruxx/Flyleaf` on GitHub.
 2. Open **Settings → Pages → Build and deployment**.
 3. Choose **GitHub Actions** as the source.
-4. Run **Deploy to GitHub Pages** from Actions, or push a commit to `main`.
+4. Push a commit to `website` to trigger **Deploy to GitHub Pages**. If the `github-pages` environment restricts deployment branches, allow `website` in Settings → Environments.
 
 The workflow uploads only public website files. The live URL appears in the deployment and Pages settings. Relative assets support project sites and custom domains.
 
-Alternatively, choose **Deploy from a branch → main → / (root)**. This checkout is prepared for deployment; it has not been published.
+Alternatively, choose **Deploy from a branch → website → / (root)**. Use either branch publishing or the Actions workflow above. The expected project URL is https://niruxx.github.io/Flyleaf/ unless a custom domain is configured.
 
 ## 🛠️ Make it yours
 
@@ -54,3 +54,16 @@ The embedded reader is an illustration, **not the Flyleaf application**. It does
 
 Product details, screenshots and icon: [niruxx/Flyleaf](https://github.com/niruxx/Flyleaf), described as MIT licensed in its README. Asset sources and licensing notes are in [`assets/ATTRIBUTION.md`](assets/ATTRIBUTION.md). Cover artwork visible in upstream screenshots retains its respective rights. Reader excerpt: Lewis Carroll’s *Alice’s Adventures in Wonderland* (public domain). DM Sans and Manrope are served through Google Fonts.
 
+
+## Repository layout
+
+The service lives on the `main` branch of `niruxx/Flyleaf`. This independent `website` branch preserves the history imported from `niruxx/Flyleaf-website`. Keep website changes on this branch; do not merge it into `main`.
+
+To edit in a separate checkout:
+
+```sh
+git fetch origin website
+git worktree add ../Flyleaf-site website
+```
+
+The previous project address (https://niruxx.github.io/Flyleaf-website/) will not automatically redirect to the new address. Keep the old repository available until the new deployment is verified and any old links are updated.
