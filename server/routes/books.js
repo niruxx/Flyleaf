@@ -103,7 +103,9 @@ router.get('/books/:id/info', (req, res) => {
       language: emb.language || null,
       genres: emb.genres || [],
       tags: emb.tags || [],
-      people: emb.people || [],
+      people: row.meta_locked && emb.authorOverride
+        ? [...(row.author ? [{ name: row.author, role: 'Writer' }] : []), ...(emb.people || []).filter((p) => !/writer|author|story/i.test(p.role))]
+        : emb.people?.length ? emb.people : row.author ? [{ name: row.author, role: 'Writer' }] : [],
       series: emb.series || null,
       ageRating: emb.ageRating || null,
       links: emb.links || [],
@@ -206,6 +208,7 @@ router.patch('/books/:id', requireAdmin, (req, res) => {
     // Keep explicit numbers through rescans by recording them as embedded metadata.
     const row = q('SELECT embedded, volume, chapter FROM books WHERE id = ?').get(book.id);
     const emb = { ...json(row.embedded, {}), volume: row.volume, number: row.chapter };
+    if (req.body?.author !== undefined) emb.authorOverride = true;
     q('UPDATE books SET embedded = ? WHERE id = ?').run(JSON.stringify(emb), book.id);
   }
   res.json({ ok: true });

@@ -306,6 +306,7 @@ async function processBook(book) {
     }
   }
 
+  if (book.meta_locked && json(book.embedded, {}).authorOverride) embedded.authorOverride = true;
   const sets = ['embedded = ?'];
   const values = [JSON.stringify(embedded)];
   for (const [key, val] of Object.entries(update)) {

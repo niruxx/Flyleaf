@@ -4,6 +4,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const { readZipFile } = require('./archive');
 const { quietly } = require('./log');
+const { creditRoles } = require('./metadata-match');
 
 // ---------------------------------------------------------------------------
 // Tiny XML helpers – good enough for OPF and ComicInfo, which are simple.
@@ -83,11 +84,16 @@ async function epubMetadata(file) {
   const metaByName = (n) => metas.find((m) => m.attrs.name === n)?.attrs.content || null;
   const metaByProp = (p) => metas.find((m) => m.attrs.property === p)?.text || null;
 
-  const creatorEls = elements(opf, 'creator');
-  const creators = creatorEls.map((c) => c.text).filter(Boolean);
+  const creatorEls = [...elements(opf, 'creator').map((c) => ({ ...c, defaultRole: 'aut' })),
+    ...elements(opf, 'contributor').map((c) => ({ ...c, defaultRole: 'Contributor' }))];
   const people = creatorEls
     .filter((c) => c.text)
-    .map((c) => ({ name: c.text, role: /ill|art/.test(c.attrs['opf:role'] || '') ? 'Artist' : 'Writer' }));
+    .flatMap((c) => {
+      const refined = metas.filter((m) => c.attrs.id && m.attrs.refines === `#${c.attrs.id}` && m.attrs.property === 'role').map((m) => m.text);
+      const roles = refined.length ? refined : [c.attrs['opf:role'] || c.attrs.role || c.defaultRole];
+      return [...new Set(roles.flatMap(creditRoles))].map((role) => ({ name: c.text, role }));
+    });
+  const creators = [...new Set(people.filter((p) => p.role === 'Writer').map((p) => p.name))];
   const series = metaByName('calibre:series') || metaByProp('belongs-to-collection');
   const seriesIndex = metaByName('calibre:series_index') || metaByProp('group-position');
   const date = first(opf, 'date');
@@ -194,7 +200,7 @@ function parseComicInfo(xml) {
     number: num(get('Number')),
     volume: num(get('Volume')),
     count: num(get('Count')),
-    author: people.find((p) => p.role === 'Writer')?.name || people[0]?.name || null,
+    author: people.filter((p) => p.role === 'Writer').map((p) => p.name).join(', ') || null,
     people,
     description: stripHtml(get('Summary')),
     genres: splitList(get('Genre')),

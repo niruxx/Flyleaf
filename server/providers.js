@@ -7,6 +7,7 @@
 
 const { stripHtml, linkSource, mergeLinks } = require('./util');
 const settings = require('./settings');
+const { creditRoles } = require('./metadata-match');
 
 const UA = 'Flyleaf/2.0 (self-hosted library; https://github.com)';
 
@@ -80,10 +81,10 @@ function fromAniList(m) {
     year: m.startDate?.year || null,
     genres: m.genres || [],
     tags: (m.tags || []).filter((t) => !t.isMediaSpoiler && t.rank >= 50).map((t) => t.name),
-    people: (m.staff?.edges || []).map((e) => ({
+    people: (m.staff?.edges || []).flatMap((e) => creditRoles(e.role).map((role) => ({
       name: e.node.name.full,
-      role: /story|original/i.test(e.role) ? 'Writer' : /art/i.test(e.role) ? 'Artist' : e.role.replace(/\s*\(.*\)/, ''),
-    })),
+      role,
+    }))),
     ageRating: m.isAdult ? 3 : null,
     links,
     coverUrl: m.coverImage?.extraLarge || m.coverImage?.large || null,
@@ -208,7 +209,7 @@ function fromJikan(m) {
     year: m.published?.prop?.from?.year || null,
     genres: [...(m.genres || []), ...(m.demographics || [])].map((g) => g.name),
     tags: (m.themes || []).map((g) => g.name),
-    people: (m.authors || []).map((a) => ({ name: flipName(a.name), role: 'Writer' })),
+    people: (m.authors || []).flatMap((a) => creditRoles(a.role || 'Writer').map((role) => ({ name: flipName(a.name), role }))),
     publisher: m.serializations?.[0]?.name || null,
     ageRating: (m.explicit_genres || []).length || (m.genres || []).some((g) => /hentai|erotica/i.test(g.name)) ? 3 : null,
     links: [{ source: 'MyAnimeList', url: m.url }],
@@ -236,10 +237,10 @@ function fromMalOfficial(m) {
     year: m.start_date ? Number(m.start_date.slice(0, 4)) || null : null,
     genres: (m.genres || []).map((g) => g.name),
     tags: [],
-    people: (m.authors || []).map((a) => ({
+    people: (m.authors || []).flatMap((a) => creditRoles(a.role || 'Writer').map((role) => ({
       name: [a.node?.first_name, a.node?.last_name].filter(Boolean).join(' '),
-      role: /art/i.test(a.role || '') && !/story/i.test(a.role || '') ? 'Artist' : 'Writer',
-    })).filter((p) => p.name),
+      role,
+    }))).filter((p) => p.name),
     publisher: m.serialization?.[0]?.node?.name || null,
     ageRating: m.nsfw === 'black' ? 3 : m.nsfw === 'gray' ? 2 : null,
     links: [{ source: 'MyAnimeList', url: `https://myanimelist.net/manga/${m.id}` }],
@@ -466,8 +467,8 @@ const PROVIDERS = { anilist, mangadex, mal, mangaupdates, comicvine, openlibrary
 /** Default provider order for automatic matching. */
 const DEFAULT_SOURCES = {
   manga: ['anilist', 'mangadex', 'mal', 'mangaupdates'],
-  comics: ['comicvine', 'anilist', 'mangadex'],
-  books: ['openlibrary', 'googlebooks', 'anilist'],
+  comics: ['comicvine'],
+  books: ['openlibrary', 'googlebooks'],
 };
 
 function list() {
