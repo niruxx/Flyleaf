@@ -4,6 +4,7 @@ const { parse } = require('node-html-parser');
 const cssTree = require('css-tree');
 const JSZip = require('jszip');
 const { rewriteCss, prepareStyles } = require('../server/kepub-css');
+const { specificity } = require('../server/publisher-selectors');
 
 test('body child and descendant selectors still select original content with unchanged specificity', () => {
   const before = parse('<html><body class="chapter"><p id="first">One</p><section id="section"><p id="nested">Two</p></section><p id="last">Three</p></body></html>');
@@ -25,6 +26,27 @@ test('body child and descendant selectors still select original content with unc
   }
 });
 
+test('ambiguous state and functional selectors preserve body and non-body matches and specificity', () => {
+  const make = wrapped => parse(`<html><body class="shared" data-hover="yes">${wrapped ? '<div id="book-columns"><div id="book-inner">' : ''}<p id="top">Top</p><section class="shared" data-hover="yes"><p id="nested">Nested</p><a id="link">Link</a></section>${wrapped ? '</div></div>' : ''}</body></html>`);
+  const before = make(false), after = make(true);
+  const context = { root: before, body: before.querySelector('body'), key: 'states.xhtml' };
+  for (const selector of ['.shared:hover > p', '.shared:has(>p) > p', ':is(body,.shared):hover >p',
+    ':where(body,.shared)>p', 'p:not(body>p)', 'body:has(>p) > section', 'html>body:hover>p::before']) {
+    const output = rewriteCss(selector + '{color:red}', 'styles.css', new Map(), context);
+    const rewritten = cssTree.parse(output).children.first.prelude;
+    for (const branch of rewritten.children) assert.deepEqual(specificity(branch), specificity(selector), selector);
+    if (selector.includes('::')) continue;
+    const state = text => text.replace(/:hover/g, '[data-hover="yes"]');
+    const select = (root, s) => root.querySelectorAll(s).map(n => n.id).filter(Boolean);
+    assert.deepEqual(select(after, state(cssTree.generate(rewritten))), select(before, state(selector)), selector);
+    before.querySelector('body').removeAttribute('data-hover');
+    after.querySelector('body').removeAttribute('data-hover');
+    assert.deepEqual(select(after, state(cssTree.generate(rewritten))), select(before, state(selector)), selector + ' with body state off');
+    before.querySelector('body').setAttribute('data-hover', 'yes');
+    after.querySelector('body').setAttribute('data-hover', 'yes');
+  }
+});
+
 test('CSS derivatives preserve import conditions and original resources for fixed-layout chapters', async () => {
   const zip = new JSZip();
   const original = '@charset "UTF-8";@import "../theme/colors.css" screen;@media print{body > p{color:red!important}}@font-face{font-family:Example;src:url(../fonts/example.woff2)}';
@@ -36,6 +58,17 @@ test('CSS derivatives preserve import conditions and original resources for fixe
   assert.match(rewritten, /@import[^;]+flyleaf-kobo-[^;]+screen;/);
   assert.match(rewritten, /@media print\{body>\*>\*>p\{color:red!important\}\}/);
   assert.match(rewritten, /url\(\.\.\/fonts\/example\.woff2\)/);
+});
+
+test('stylesheet imports with arbitrary extensions and cycles all receive derivatives', async () => {
+  const zip = new JSZip();
+  zip.file('styles/main.css', '@import "../theme/publisher" screen;body>p{color:red}');
+  zip.file('theme/publisher', '@import "../styles/main.css";body:hover>p{color:blue}');
+  const aliases = await prepareStyles(zip, null, ['styles/main.css']);
+  assert.equal(aliases.size, 2);
+  assert.match(await zip.file(aliases.get('styles/main.css')).async('string'), /@import[^;]+flyleaf-kobo-[^;]+screen/);
+  assert.match(await zip.file(aliases.get('theme/publisher')).async('string'), /body:hover>\*>\*>p/);
+  assert.equal(await zip.file('theme/publisher').async('string'), '@import "../styles/main.css";body:hover>p{color:blue}');
 });
 
 test('chapter-specific styles adapt body classes and IDs without rewriting matching non-body elements', async () => {
@@ -57,5 +90,9 @@ test('chapter-specific styles adapt body classes and IDs without rewriting match
   assert.doesNotMatch(retained, /\.chapter>\*>\*>p/);
   assert.equal(await zip.file('shared.css').async('string'), css);
   const ambiguous = parse('<html><body class="chapter"><section class="chapter"><p>Text</p></section></body></html>');
-  assert.equal(rewriteCss('.chapter>p{color:red}', 'style.css', new Map(), context(ambiguous, 'ambiguous.xhtml')), '.chapter>p{color:red}', 'ambiguous selectors are not guessed');
+  const wrapped = parse('<html><body class="chapter"><div id="book-columns"><div id="book-inner"><section class="chapter"><p id="nested">Text</p></section><p id="top">Top</p></div></div></body></html>');
+  const original = parse('<html><body class="chapter"><section class="chapter"><p id="nested">Text</p></section><p id="top">Top</p></body></html>');
+  const output = rewriteCss('.chapter>p{color:red}', 'style.css', new Map(), context(ambiguous, 'ambiguous.xhtml'));
+  const selector = cssTree.generate(cssTree.parse(output).children.first.prelude);
+  assert.deepEqual(wrapped.querySelectorAll(selector).map(n => n.id), original.querySelectorAll('.chapter>p').map(n => n.id), 'both body and non-body matches retain publisher behavior');
 });

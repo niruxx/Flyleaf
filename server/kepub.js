@@ -19,7 +19,7 @@ const escape = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace
 // pre is parsed as markup, not a raw-text element: <pre><code>…</code></pre>
 // must retain its nested markup and exact whitespace.
 const options = { comment: true, voidTag: { closingSlash: true }, blockTextElements: { script: true, style: true, textarea: true } };
-const VERSION = 8;
+const VERSION = 9;
 
 async function rendition(book) {
   if (book.format !== 'epub') return null;
@@ -90,7 +90,12 @@ async function rendition(book) {
       visit(body);
       if (!texts.length) { preserved.push({ source, reason: 'non-text' }); continue; }
       const context = { root: html, body, key: source };
-      const styles = await prepareStyles(zip, context, styleSources);
+      const chapterStyles = new Set(styleSources);
+      for (const link of html.querySelectorAll('*').filter(n => name(n) === 'link' && /(?:^|\s)stylesheet(?:\s|$)/i.test(n.getAttribute('rel') || ''))) {
+        const linked = localResource(source, link.getAttribute('href'));
+        if (linked && zip.file(linked)) chapterStyles.add(linked);
+      }
+      const styles = await prepareStyles(zip, context, chapterStyles);
       for (const alias of styles.values()) {
         if (declaredStyles.has(alias)) continue;
         declaredStyles.add(alias);
@@ -105,7 +110,7 @@ async function rendition(book) {
       }
       for (const link of html.querySelectorAll('*').filter(n => name(n) === 'link' && /(?:^|\s)stylesheet(?:\s|$)/i.test(n.getAttribute('rel') || ''))) {
         const alias = styles.get(localResource(source, link.getAttribute('href')));
-        if (alias) link.setAttribute('href', relativeResource(source, alias));
+        if (alias) { link.setAttribute('href', relativeResource(source, alias)); link.removeAttribute('integrity'); }
       }
       for (const style of html.querySelectorAll('*').filter(n => name(n) === 'style')) {
         const css = style.innerHTML.replace(/^\s*<!\[CDATA\[([\s\S]*)\]\]>\s*$/, '$1');

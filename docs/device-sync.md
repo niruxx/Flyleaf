@@ -34,24 +34,66 @@ anchor fallback. This still requires CREngine/device validation.
 Other ebook formats, percentage-only progress, unreadable EPUBs and unresolvable
 CFIs fall back to the nearest of up to 500 positions previously sent by KOReader.
 That fallback reports the anchor's percentage, and returns 409 if no anchor exists.
-Publisher whitespace overrides and differences in CREngine's rendered DOM can
-affect conversion; inline `white-space` overrides explicitly use the fallback.
+Static publisher `white-space` rules are resolved from inline styles, linked
+stylesheets and recursive local imports, including inheritance, selector
+specificity, source order and `!important`. Normal/nowrap collapse whitespace;
+pre, pre-wrap, pre-line and break-spaces retain PRE-mode DOM text as CREngine
+does, independently of how the renderer displays the spaces. CRLF and emoji
+boundaries are preserved in both directions. This targets normalized CREngine
+XPointers; older/non-normalized saved DOMs still need device validation.
+
+Rules whose result depends on a viewport, interactive state or unsupported
+cascade features use fallback when they could change the winning whitespace
+mode. Missing/external stylesheets, unresolved variables and cascade layers
+with whitespace declarations also use fallback. An unambiguous static override
+can still resolve a conditional rule. Publisher styles must be enabled on the
+device; custom user CSS and device settings are not sent in the sync protocol.
 Conversion targets current CREngine spine ordering (including non-linear items).
 Older device DOM versions, publisher CSS and physical-device behavior still need
 validation. MOBI conversion is limited to the supported legacy layouts described below.
 
 Legacy MOBI6 now supports two-way text mapping through the pinned Foliate reader,
 including UTF-8, uncompressed/PalmDOC-compressed records, nested inline markup
-and pagebreak-based sections. Mapping requires exact agreement between original
-text runs and Foliate's section documents. Files with filepos/NCX anchors, tables,
-preformatted blocks or publisher whitespace styles retain native-anchor fallback:
-CREngine may alter their DOM differently. Cached binary-checksum bindings are
+and pagebreak-based sections. Ordered source text must agree exactly with Foliate's
+section documents, even when filepos markers split one text run into several.
+Filepos links and real INDX/NCX targets support both tag boundaries and mid-text
+positions. Nested tables support explicit row groups and CREngine's implicit
+`tbody` groups (normalized HTML DOM versions from 20200824 onward). Preformatted
+text preserves tabs and repeated spaces, strips the initial HTML newline, and
+converts CRLF and UTF-16/UTF-32 boundaries without splitting emoji.
+
+CREngine DOM versions before 20260812 omit standalone mid-text anchors; newer
+versions insert them. The mapper keeps both layouts. A native push that uniquely
+identifies one establishes the profile used for subsequent new web positions.
+An ambiguous observation can retain a profile established by the same device ID;
+a different device must establish its own. Without a profile, export succeeds
+only where both models agree. Ambiguous pointers, malformed tables requiring
+foster parenting, publisher whitespace CSS and unsupported structures use native
+fallback; fallback anchors from incompatible profiles/devices are excluded.
+These are server-side mappings, not a claim of completed on-device validation.
+Cached binary-checksum bindings are
 revalidated so replacing a file cannot silently bind the old digest to a new edition.
 
 Pure KF8/AZW3 is not assigned invented native pointers. CREngine's
 [MOBI importer explicitly notes that it does not support KF8](https://github.com/koreader/crengine/blob/master/crengine/src/pdbfmt.cpp).
-Hybrid/KF8 files and unsupported structures therefore retain observed-native-anchor
-fallback. Use an identical EPUB on both clients for the supported EPUB position path.
+For reflowable, unencrypted MOBI, hybrid KF8 and AZW3 files, open book details and
+choose **Download EPUB for KOReader** (`GET /api/books/:id/download?format=epub`).
+Download permission is required. Transfer that file unchanged to KOReader and keep
+its default **binary checksum** setting. The server recognizes the generated EPUB
+checksum and updates progress on the original library book; no duplicate import is
+needed. Web section/text CFIs are preserved and converted to EPUB XPointers both
+ways, including positions that have never been pushed from KOReader.
+
+Conversion uses the pinned Foliate importer in a bounded worker, packages its
+chapter DOMs and resolved resources, and verifies that serialization preserves
+every text CFI path. Originals remain byte-identical. Renditions are cached by
+source revision; replacing the source rejects old rendition checksums. Download
+the new EPUB after replacement. A conversion failure returns 422 with a reason,
+including encrypted files, fixed-layout KF8, unsupported resources or changed text
+paths. Inputs are limited to 64 MiB and two concurrent conversions, with a
+30-second deadline. Filename-checksum matching is intentionally unavailable for
+generated renditions: use binary checksums. Direct native KF8 pointers continue
+to use the observed-anchor fallback.
 
 Implementation reference: [CREngine EPUB spine assembly](https://github.com/koreader/crengine/blob/master/crengine/src/epubfmt.cpp)
 and [normalized XPointers and text offsets](https://github.com/koreader/crengine/blob/master/crengine/src/lvtinydom.cpp).
@@ -115,9 +157,14 @@ Reflowable chapters use derived stylesheets that adapt explicit body-child and
 body-descendant selectors to the pagination wrappers using universal selector
 steps, preserving publisher specificity. Stylesheet imports retain their media
 conditions and relative resource paths. Each chapter gets its own derivatives,
-allowing class/ID/attribute selectors to be adapted when they uniquely identify
-that chapter's body. The same class on a normal element in another chapter is
-left alone. Ambiguous or dynamic selectors are not guessed. Fixed-layout chapters
+allowing class/ID/attribute selectors to be adapted for that chapter's body.
+When a selector can match both body and ordinary elements, generated alternatives
+use zero-specificity `:where()` body/non-body guards. State selectors keep their
+live conditions; `:is()`, `:where()`, `:not()` and relative `:has()` selectors are
+rewritten recursively. Publisher specificity is unchanged. Stylesheet imports
+are discovered recursively even without `.css` extensions, and cycles terminate.
+These derivatives require client support for the emitted Selectors Level 4 syntax;
+older Kobo firmware remains part of the separate device-validation work. Fixed-layout chapters
 keep their original, unchanged stylesheets. Inline rules receive the same adjustment.
 Derived CSS files are declared in the EPUB manifest; generated resource URLs
 encode special path characters. Legacy cover metadata is normalized to the Kobo
@@ -140,7 +187,7 @@ Protocol reference: [Calibre-Web Kobo integration](https://github.com/janeczku/c
 
 ## Compatibility validation
 
-The roadmap remains partial until the missing format conversions and client
+The roadmap remains partial until guarded-layout handling and client
 validation are complete. Automated tests establish server behavior, not full
 compatibility with every firmware or CREngine DOM version.
 
@@ -154,14 +201,23 @@ node tests/kepub-rendering.test.cjs
 node tests/kepub-css.test.cjs
 node tests/fb2-position.test.cjs
 node tests/mobi-position.test.cjs
+node tests/koreader-epub.test.cjs
+node tests/publisher-css-position.test.cjs
 ```
 
 Before marking either integration complete, record client/firmware versions and
 results for these checks:
 
+The requested KOReader validation target is **2026.07.1**
+([release](https://github.com/koreader/koreader/releases/tag/v2026.07.1)).
+Server regression tests pass; no physical device or CREngine emulator has been
+used to claim client validation. Device model and on-device results remain pending.
+
 1. KOReader: log in, push and pull PDF/comic pages and EPUB positions in both
    directions, including Unicode, nested markup, publisher whitespace styles
    and an older saved DOM version. Verify key revocation and restricted books.
+   Also download a MOBI/AZW3 as EPUB, sync its progress to the original web book
+   and back, then replace the source and verify that the old checksum is rejected.
 2. Kobo: sync more than 100 books, interrupt and resume, download an ordinary
    EPUB, and verify covers, layout, text selection and bookmarks on the device.
 3. Read in the web reader and sync to Kobo, then read on Kobo and sync back.
@@ -176,8 +232,8 @@ bidirectional text, CJK/ruby, emoji, footnotes, tables, SVG, MathML, prefixed XM
 namespaces, UTF-16, Windows-1251 and mixed fixed/reflowable layouts. It validates
 output XML with an independent XML parser, verifies text/resource preservation
 and exercises position round trips. These checks do not compare rendered pixels
-or establish firmware compatibility. Ambiguous/dynamic publisher selectors,
-fixed-layout appearance, DRM-protected titles and guarded MOBI/KF8 layouts remain
+or establish firmware compatibility. Device-dependent publisher whitespace,
+older selector-engine support, fixed-layout appearance, DRM-protected titles and guarded native MOBI/KF8 layouts remain
 validation/implementation gaps. FB2 and supported MOBI6 have converter and route-level
 tests but are not yet verified against a real CREngine client.
 

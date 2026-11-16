@@ -123,6 +123,7 @@ function render(b, close) {
             navigate(`/read/${b.id}`);
           } }),
           can(session.user, 'download') && h('a.btn.tonal.state', { href: downloadUrl(b), download: '' }, icon('download'), t('Download')),
+          can(session.user, 'download') && ['mobi', 'azw3'].includes(b.format) && h('a.btn.tonal.state', { href: `${downloadUrl(b)}?format=epub`, download: '' }, icon('download'), t('Download EPUB for KOReader')),
         ),
       ),
       ring(r.finished ? 1 : r.percent),

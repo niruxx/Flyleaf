@@ -80,11 +80,14 @@ function createShell(data, tracker) {
   // Shown once the engine says it can search (EPUB-type books, PDFs with text).
   const searchBtn = iconButton('search', t('Search in book (/)'), () => openSearch());
   searchBtn.hidden = true;
+  const speechBtn = iconButton('record_voice_over', t('Read aloud'), () => shell.engine?.openReadAloud?.());
+  speechBtn.hidden = true;
 
   const top = h('div.chrome-top',
     iconButton('arrow_back', t('Close book'), () => exit()),
     h('div.titles', h('div.t', book.series && book.series !== book.label ? `${book.series} · ${book.label}` : book.title), titleSub),
     searchBtn,
+    speechBtn,
     bookmarkBtn,
     tocBtn,
     fsBtn,
@@ -133,7 +136,7 @@ function createShell(data, tracker) {
   let hideTimer = autoHide() ? setTimeout(() => shell.showChrome(false), settings.immersive ? 600 : 2500) : null;
 
   const onKey = (e) => {
-    if (e.target.closest?.('input, textarea, select, dialog, .sel-toolbar')) return;
+    if (e.target.closest?.('input, textarea, select, dialog, .sel-toolbar, .read-aloud-bar')) return;
     if (document.querySelector('dialog[open]')) return;
     shell.handleKey(e);
   };
@@ -462,6 +465,7 @@ function createShell(data, tracker) {
     /** After the book opens: show what this engine supports. */
     engineReady() {
       searchBtn.hidden = !shell.engine?.search;
+      speechBtn.hidden = !shell.engine?.canReadAloud;
     },
     openSearch,
     handleKey(e) {

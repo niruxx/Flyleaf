@@ -41,7 +41,7 @@ export async function apiPanel(panel, stale) {
     group(h('div.setting-row.stack',
       h('p', t('Create a full-access API key for each device. In KOReader Progress sync, choose a custom server, log in with your Flyleaf username, and use the API key as the password.')),
       codeBlock(`${base}/kosync`),
-      h('p', t('KOReader matches original files by checksum. Page-based books sync both ways. Ebook imports resume by percentage in Flyleaf; returning to KOReader uses the nearest native position it has previously sent.')),
+      h('p', t('KOReader syncs pages and supported EPUB, FB2 and MOBI text positions both ways. For KF8/AZW3, choose Download EPUB for KOReader in book details and keep the default binary checksum. Unsupported positions use previously synced native anchors.')),
       koboShelf,
       h('p', t('Kobo sync is experimental. Only EPUBs in your selected collection sync. Set api_endpoint in the Kobo configuration to this URL, using a full-access key:')),
       codeBlock(`${base}/kobo/<full-access-key>`),

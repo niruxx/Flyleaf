@@ -25,6 +25,9 @@ test('EPUB CFIs convert arbitrary chapter positions without an observed anchor',
   assert.equal(await epubFromXPointer(book, '/body/DocFragment[2]/body/div[1]/p[1]/text()[1].10'), 'epubcfi(/6/4!/4/2/4/1:11)');
   assert.equal(await epubFromXPointer(book, '/body/DocFragment[2]/body/div/p/text().8'), 'epubcfi(/6/4!/4/2/4/1:8)');
   assert.equal(await epubFromXPointer(book, '/body/DocFragment[99]/body/p/text().0'), null);
+  assert.equal(await epubFromXPointer(book, '/body/DocFragment[1]/body.0'), 'epubcfi(/6/2!/4)');
+  assert.equal(await epubFromXPointer(book, '/body/DocFragment[1]/body/p[0]/text().0'), null);
+  assert.equal(await epubFromXPointer(book, '/body/DocFragment[1]/body/p.0/em/text().0'), null);
   assert.equal(await convert('/6/4!/4/2/4/2/1:3'), '/body/DocFragment[2]/body/div[1]/p[1]/em[1]/text()[1].3');
   assert.equal(await convert('/6/4!/4/2/4/3:2'), '/body/DocFragment[2]/body/div[1]/p[1]/text()[2].2');
   assert.equal(await convert('/6/4!/4/2/6/1:4'), '/body/DocFragment[2]/body/div[1]/p[2]/text()[1].4', 'element indexes count siblings by tag');
@@ -32,7 +35,7 @@ test('EPUB CFIs convert arbitrary chapter positions without an observed anchor',
   assert.equal(await convert('/6/4!/4/2/8/1:11'), '/body/DocFragment[2]/body/div[1]/pre[1]/text()[1].11');
   assert.equal(await convert('/6/2!/4/2/1:0'), '/body/DocFragment[1]/body/p[1]/text()[1].0');
   assert.equal(await convert('/6/2!/4/4[a^,b]/3:13'), '/body/DocFragment[1]/body/p[2]/text()[1].12', 'dropped leading block whitespace does not shift native text indexes');
-  assert.equal(await convert('/6/2!/4/6/1:4'), null, 'publisher whitespace overrides use fallback');
+  assert.equal(await convert('/6/2!/4/6/1:4'), '/body/DocFragment[1]/body/p[3]/text()[1].4', 'static publisher whitespace overrides are resolved');
   assert.equal(await convert('/6/4!/4/2/4/1:9'), null, 'reject offsets bisecting a surrogate pair');
   for (const cfi of ['/6/8!/4/2/1:0', '/6/4!/4/2/4[wrong]/1:0', '/6/4!/4/2/6/1:9999', '/6/4!/4/2/99:0']) assert.equal(await convert(cfi), null);
   assert.equal(await epubXPointer(book, 'not a CFI'), null);

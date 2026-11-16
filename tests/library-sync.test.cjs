@@ -311,6 +311,75 @@ test('kosync exchanges precise legacy MOBI positions while retaining native fall
   assert.equal((await request(router, 'GET', '/syncs/progress/' + binary, {}, headers)).status, 404, 'cached binary digests do not bind replaced editions');
 });
 
+test('kosync learns MOBI DOM profiles and converts new web positions without reusing another device layout', async t => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'flyleaf-mobi-dom-route-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const { load, q, request, user } = setup(t, dir);
+  const source = '<html><head><title>NCX</title></head><body><p>Before 😀 target follows.</p></body></html>';
+  const ncxOffset = Buffer.byteLength(source.slice(0, source.indexOf('target')));
+  const file = path.join(dir, 'complex.mobi');
+  fs.writeFileSync(file, require('./mobi-fixture.cjs')(source, { ncxOffset }));
+  q("UPDATE books SET path = ?, format = 'mobi' WHERE id = 1").run(file);
+  const { router } = load('server/kosync.js');
+  const sync = load('server/client-sync.js');
+  const document = crypto.createHash('md5').update('complex.mobi').digest('hex');
+  const headers = { 'x-auth-user': 'reader', 'x-auth-key': crypto.createHash('md5').update('full-access-key-123456789').digest('hex') };
+  const web = offset => sync.saveProgress(user, { id: 1 }, { percent: 0.8, position: `epubcfi(/6/2!/4/2/1:${offset})` });
+  const push = (progress, device_id, percentage = 0.3) => request(router, 'PUT', '/syncs/progress', { document, progress, percentage, device_id }, headers);
+  const pull = () => request(router, 'GET', '/syncs/progress/' + document, {}, headers);
+  web(14);
+  assert.equal((await pull()).status, 409, 'no DOM version is guessed before a native observation');
+  assert.equal((await push('/body/p[1]/text()[2].4', 'modern')).status, 200);
+  assert.equal(q('SELECT position FROM progress WHERE book_id = 1').get().position, 'epubcfi(/6/2!/4/2/1:14)');
+  web(18);
+  const modern = await pull();
+  assert.equal(modern.body.progress, '/body/p[1]/text()[2].8');
+  assert.equal(modern.body.percentage, 0.8);
+  assert.equal(modern.body.mobiDomProfile, undefined);
+  await push('/body/p[1]/text()[1].3', 'modern');
+  web(18);
+  assert.equal((await pull()).body.progress, '/body/p[1]/text()[2].8', 'same-device observations retain the established profile');
+  await push('/body/p[1]/text()[1].13', 'legacy', 0.7);
+  web(18);
+  assert.equal((await pull()).body.progress, '/body/p[1]/text()[1].17');
+  await push('/body/p[1]/text()[1].3', 'unknown', 0.1);
+  web(18);
+  const fallback = await pull();
+  assert.equal(fallback.body.progress, '/body/p[1]/text()[1].3');
+  assert.equal(fallback.body.percentage, 0.1, 'unknown devices only use their compatible anchor, with its actual percentage');
+  sync.store(user, 'kosync', document, 1, { progress: '/body/p[1]/text()[1].3', percentage: 0.1, device_id: 'old-client',
+    anchors: [{ progress: '/body/p[1]/text()[1].3', percentage: 0.1 }, { progress: '/body/p[1]/text()[1].13', percentage: 0.7 }] });
+  web(18);
+  assert.equal((await pull()).body.percentage, 0.1, 'pre-upgrade anchors preserve the latest known pointer without guessing other devices');
+});
+
+test('KOReader EPUB downloads bind KF8 progress to the original book and reject old renditions', async t => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'flyleaf-kf8-route-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const { load, q, request, user } = setup(t, dir);
+  const file = path.join(dir, 'book.azw3');
+  fs.writeFileSync(file, require('./kf8-fixture.cjs')());
+  q("UPDATE books SET path = ?, format = 'azw3' WHERE id = 1").run(file);
+  const download = await request(load('server/routes/books.js').router, 'GET', '/books/1/download?format=epub');
+  assert.equal(download.status, 200);
+  assert.equal(download.filename, 'book.epub');
+  const rendition = await load('server/koreader-epub.js').existingRendition({ path: file, format: 'azw3' });
+  const { router, partialMD5 } = load('server/kosync.js');
+  const document = await partialMD5(rendition);
+  const headers = { 'x-auth-user': 'reader', 'x-auth-key': crypto.createHash('md5').update('full-access-key-123456789').digest('hex') };
+  const native = '/body/DocFragment[1]/body/p[1]/text()[1].4';
+  assert.equal((await request(router, 'PUT', '/syncs/progress', { document, progress: native, percentage: 0.2 }, headers)).status, 200);
+  assert.equal(q('SELECT position FROM progress WHERE book_id = 1').get().position, 'epubcfi(/6/2!/4/2/1:4)');
+  load('server/client-sync.js').saveProgress(user, { id: 1 }, { percent: 0.5, position: 'epubcfi(/6/2!/4/2/1:8)' });
+  const pulled = await request(router, 'GET', '/syncs/progress/' + document, {}, headers);
+  assert.equal(pulled.body.progress, '/body/DocFragment[1]/body/p[1]/text()[1].8');
+  user.role = 'guest'; user.visibleLibraryIds = [];
+  assert.equal((await request(router, 'GET', '/syncs/progress/' + document, {}, headers)).status, 404);
+  user.role = 'admin'; user.visibleLibraryIds = [1];
+  fs.writeFileSync(file, require('./kf8-fixture.cjs')('Replacement text.'));
+  assert.equal((await request(router, 'GET', '/syncs/progress/' + document, {}, headers)).status, 404);
+});
+
 test('Kobo downloads generated KEPUB and maps device progress only for the downloaded revision', async t => {
   const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'flyleaf-kobo-rendition-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

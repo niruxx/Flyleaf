@@ -1107,3 +1107,24 @@
   color: var(--md-on-surface);
 }
 .reader .zoom-reset[hidden] { display: none; }
+.read-aloud-bar {
+  position: absolute;
+  z-index: 30;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 8px 12px;
+  border-radius: 20px;
+  color: var(--md-on-surface);
+  background: var(--md-surface-container-high, var(--md-surface));
+  box-shadow: 0 4px 24px #0004;
+}
+.read-aloud-bar label { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.read-aloud-bar select { max-width: 110px; color: inherit; background: var(--md-surface); border-radius: 8px; padding: 6px; }

@@ -45,6 +45,13 @@ async function check(route) {
 }
 
 (async () => {
+  if (process.argv.includes('--speech')) {
+    const response = await check('/speech');
+    assert.ok(!response.errors.length, JSON.stringify(response));
+    assert.equal(response.result.chapter, 2);
+    console.log(JSON.stringify(response, null, 2));
+    return;
+  }
   const results = [];
   for (const route of ['/race?raw', '/race', '/reader', '/reader-slide']) results.push(await check(route));
   const [raw, patched, book, slide] = results.map(response => response.result);
