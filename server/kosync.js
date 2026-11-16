@@ -10,7 +10,7 @@ const { getBook, BOOK_SELECT } = require('./serialize');
 const { accessFilter } = require('./util');
 const sync = require('./client-sync');
 const { epubXPointer, epubFromXPointer } = require('./kosync-position');
-const { textXPointer, textPositionFromXPointer } = require('./fb2-position');
+const { textXPointer, textFromXPointer } = require('./fb2-position');
 const router = express.Router();
 const md5 = (value) => crypto.createHash('md5').update(value).digest('hex');
 
@@ -48,22 +48,12 @@ router.get('/users/auth', (req, res) => res.json({ authorized: 'OK' }));
 router.post('/users/create', (req, res) => res.status(403).json({ message: 'Create a Flyleaf account and a full-access API key in the web app, then log in.' }));
 
 async function findBook(user, document) {
-  const matchRendition = async book => {
-    if (!['mobi', 'azw3'].includes(book.format)) return null;
-    try {
-      const file = await require('./koreader-epub').existingRendition(book);
-      if (file && await partialMD5(file) === document) return { ...book, syncPath: file };
-    } catch {}
-    return null;
-  };
   const existing = sync.load(user, 'kosync', document);
   if (existing?.book_id) {
     const book = getBook(existing.book_id, user);
     if (!book || book.missing) return null;
     if (md5(path.basename(book.path)) === document) return book;
     try { if (await partialMD5(book.path) === document) return book; } catch {}
-    const rendition = await matchRendition(book);
-    if (rendition) return rendition;
     // A cached binary digest must not keep pointing at a replaced edition.
     return null;
   }
@@ -74,8 +64,6 @@ async function findBook(user, document) {
     if (book.format === 'folder' || book.format === 'audio') continue;
     if (md5(path.basename(book.path)) === document) return book;
     try { if (await partialMD5(book.path) === document) return book; } catch {}
-    const rendition = await matchRendition(book);
-    if (rendition) return rendition;
   }
   return null;
 }
@@ -92,25 +80,14 @@ router.put('/syncs/progress', async (req, res) => {
   const page = paged ? Number(b.progress) - 1 : null;
   if (page !== null && (!Number.isSafeInteger(page) || (book.page_count && page >= book.page_count))) return res.status(400).json({ message: 'Invalid page' });
   let position = null;
-  let mobiDomProfile = null;
-  const old = sync.load(req.user, 'kosync', document);
-  const previous = old ? JSON.parse(old.data) : null;
-  if (page === null && book.syncPath) position = await epubFromXPointer({ ...book, path: book.syncPath, format: 'epub' }, b.progress);
-  else if (page === null && ['fb2', 'mobi', 'azw3'].includes(book.format)) {
-    let mapped = await textPositionFromXPointer(book, b.progress);
-    // An ambiguous pointer can reuse a profile established by this device's
-    // earlier unambiguous push. A different device must establish its own.
-    if (b.device_id && previous?.device_id === String(b.device_id) && ['legacy', 'modern'].includes(previous.mobiDomProfile) && !mapped?.profile) {
-      mapped = await textPositionFromXPointer({ ...book, mobiDomProfile: previous.mobiDomProfile }, b.progress);
-    }
-    position = mapped?.position || null;
-    mobiDomProfile = mapped?.profile || null;
-  } else if (page === null) position = await epubFromXPointer(book, b.progress);
+  if (page === null) position = ['fb2', 'mobi', 'azw3'].includes(book.format)
+    ? await textFromXPointer(book, b.progress) : await epubFromXPointer(book, b.progress);
   const now = sync.saveProgress(req.user, book, { percent: b.percentage, page, position });
-  const anchors = previous?.anchors || [];
-  anchors.push({ percentage: b.percentage, progress: b.progress, mobiDomProfile, device_id: String(b.device_id || '').slice(0, 200) });
+  const old = sync.load(req.user, 'kosync', document);
+  const anchors = old ? JSON.parse(old.data).anchors || [] : [];
+  anchors.push({ percentage: b.percentage, progress: b.progress });
   sync.store(req.user, 'kosync', document, book.id, { progress: b.progress, percentage: b.percentage,
-    device: String(b.device || '').slice(0, 200), device_id: String(b.device_id || '').slice(0, 200), mobiDomProfile, anchors: anchors.slice(-500) }, now);
+    device: String(b.device || '').slice(0, 200), device_id: String(b.device_id || '').slice(0, 200), anchors: anchors.slice(-500) }, now);
   res.json({ document, timestamp: Math.floor(now / 1000) });
 });
 
@@ -123,26 +100,16 @@ router.get('/syncs/progress/:document', async (req, res) => {
   const p = q('SELECT * FROM progress WHERE user_id = ? AND book_id = ?').get(req.user.id, book.id);
   if (!p) return res.status(404).json({ message: 'No progress' });
   const data = stored ? JSON.parse(stored.data) : null;
-  if (data && stored.updated_at >= p.updated_at) return res.json({ ...data, anchors: undefined, mobiDomProfile: undefined, document, timestamp: Math.floor(stored.updated_at / 1000) });
+  if (data && stored.updated_at >= p.updated_at) return res.json({ ...data, anchors: undefined, document, timestamp: Math.floor(stored.updated_at / 1000) });
   // Prefer mapped text locations; native anchors remain a fallback for guarded
   // formats and unresolvable CFIs.
   let progress;
   let percentage = p.percent;
   if (['pdf', 'cbz', 'cbr', 'cb7', 'cbt'].includes(book.format)) progress = String((p.page ?? Math.round(p.percent * Math.max(0, (book.page_count || 1) - 1))) + 1);
   else {
-    progress = book.syncPath ? await epubXPointer({ ...book, path: book.syncPath, format: 'epub' }, p.position)
-      : ['fb2', 'mobi', 'azw3'].includes(book.format) ? await textXPointer({ ...book,
-        mobiDomProfile: ['legacy', 'modern'].includes(data?.mobiDomProfile) ? data.mobiDomProfile : null }, p.position) : await epubXPointer(book, p.position);
+    progress = ['fb2', 'mobi', 'azw3'].includes(book.format) ? await textXPointer(book, p.position) : await epubXPointer(book, p.position);
     if (!progress) {
-      const anchor = data?.anchors?.filter(a => {
-        if (book.syncPath || !['mobi', 'azw3'].includes(book.format)) return true;
-        // Pre-profile records have no per-anchor device information. Only their
-        // latest known native position can safely stand in for the old device.
-        if (a.device_id === undefined && !a.mobiDomProfile) return a.progress === data.progress && a.percentage === data.percentage;
-        return data.mobiDomProfile ? a.mobiDomProfile === data.mobiDomProfile
-          : !a.mobiDomProfile && a.device_id === data.device_id;
-      })
-        .reduce((best, a) => !best || Math.abs(a.percentage - p.percent) < Math.abs(best.percentage - p.percent) ? a : best, null);
+      const anchor = data?.anchors?.reduce((best, a) => !best || Math.abs(a.percentage - p.percent) < Math.abs(best.percentage - p.percent) ? a : best, null);
       if (!anchor) return res.status(409).json({ message: 'No convertible text position. Read in the web reader or push once from KOReader to establish native text positions.' });
       progress = anchor.progress; percentage = anchor.percentage;
     }

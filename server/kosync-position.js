@@ -8,7 +8,6 @@ const CFI = require('foliate-js/epubcfi.js');
 const path = require('node:path');
 const { readMarkup } = require('./epub-text');
 const { cfiPath } = require('./epub-cfi-path');
-const { whiteSpaceResolver } = require('./publisher-whitespace');
 const tag = node => node.rawTagName?.split(':').pop().toLowerCase();
 const elements = node => node.childNodes.filter(n => n.nodeType === 1);
 const find = (root, local) => root.querySelectorAll('*').find(n => tag(n) === local);
@@ -45,35 +44,34 @@ function resolve(root, steps) {
 // CREngine stores UTF-32 text with collapsed HTML whitespace; CFI uses UTF-16.
 // Be conservative for publisher whitespace overrides: those need the device's
 // rendered DOM, so retain the observed-anchor fallback instead of guessing.
-function nativeOffset(node, offset, whitespace) {
-  const mode = whitespace(node.parentNode);
-  if (mode == null) return null;
-  const pre = mode === 'preserve';
+function nativeOffset(node, offset) {
+  let pre = false;
+  for (let parent = node.parentNode; parent; parent = parent.parentNode) {
+    if (/white-space\s*:/i.test(parent.getAttribute?.('style') || '')) return null;
+    if (['pre', 'textarea'].includes(tag(parent))) pre = true;
+  }
   const normalize = text => pre ? text.replace(/\r\n?/g, '\n') : text.replace(/[\t\n\r ]+/g, ' ');
   // A CFI may not bisect a UTF-16 surrogate pair.
   if (offset > 0 && /[\uD800-\uDBFF]/.test(node.text[offset - 1]) && /[\uDC00-\uDFFF]/.test(node.text[offset] || '')) return null;
-  if (pre && node.text[offset - 1] === '\r' && node.text[offset] === '\n') return null;
   let prefix = node.text.slice(0, offset);
-  if (['pre', 'textarea'].includes(tag(node.parentNode)) && node === node.parentNode.firstChild) prefix = prefix.replace(/^(?:\r\n?|\n)/, '');
+  if (['pre', 'textarea'].includes(tag(node.parentNode)) && node === node.parentNode.firstChild && prefix.startsWith('\n')) prefix = prefix.slice(1);
   return Array.from(normalize(prefix)).length;
 }
 
 const BLOCKS = new Set(['body', 'div', 'section', 'article', 'aside', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote', 'table', 'tr', 'td', 'th', 'dl', 'dt', 'dd']);
-function nativeTextNodes(parent, whitespace) {
-  const mode = whitespace(parent);
-  if (mode == null) return [];
+function nativeTextNodes(parent) {
   const children = parent.childNodes.filter(n => n.nodeType === 1 || n.nodeType === 3);
   return children.filter((n, i) => n.nodeType === 3 && n.text.length &&
-    !(mode !== 'preserve' && i === 0 && BLOCKS.has(tag(parent)) && /^[\t\n\r ]*$/.test(n.text)));
+    !(i === 0 && BLOCKS.has(tag(parent)) && /^[\t\n\r ]*$/.test(n.text)));
 }
 
-function xpointer(body, target, fragment, whitespace) {
+function xpointer(body, target, fragment) {
   const parts = [];
   let node = target.node;
   if (node.nodeType === 3) {
-    const peers = nativeTextNodes(node.parentNode, whitespace);
+    const peers = nativeTextNodes(node.parentNode);
     if (!peers.includes(node)) return null;
-    const offset = nativeOffset(node, target.offset, whitespace);
+    const offset = nativeOffset(node, target.offset);
     if (offset == null) return null;
     parts.unshift(`text()[${peers.indexOf(node) + 1}].${offset}`);
     node = node.parentNode;
@@ -118,8 +116,7 @@ async function epubTarget(book, position) {
     // Ignore unresolved itemrefs just as CREngine does. Retain non-linear and
     // non-XHTML items: current CREngine gives every valid spine item a fragment.
     const refs = elements(spine).filter(n => tag(n) === 'itemref' && items.some(item => item.getAttribute('id') === n.getAttribute('idref')));
-    const whitespace = await whiteSpaceResolver(book.path, doc, chapterPath);
-    return { body, target, chapterPath, base: cfiPath(ref, pkg), html, fragment: refs.indexOf(ref) + 1, whitespace };
+    return { body, target, chapterPath, base: cfiPath(ref, pkg), html, fragment: refs.indexOf(ref) + 1 };
   } catch {
     // Unreadable/malformed EPUBs and unsupported locators use native anchors.
     return null;
@@ -128,12 +125,12 @@ async function epubTarget(book, position) {
 
 async function epubXPointer(book, position) {
   const resolved = await epubTarget(book, position);
-  return resolved ? xpointer(resolved.body, resolved.target, resolved.fragment, resolved.whitespace) : null;
+  return resolved ? xpointer(resolved.body, resolved.target, resolved.fragment) : null;
 }
 
 async function epubFromXPointer(book, pointer) {
   if (book.format !== 'epub' || typeof pointer !== 'string' || pointer.length > 4000) return null;
-  const match = pointer.match(/^\/body(?:\[1\])?\/DocFragment(?:\[(\d+)\])?\/body(?:\[1\])?(\/.*|\.0)?$/);
+  const match = pointer.match(/^\/body(?:\[1\])?\/DocFragment(?:\[(\d+)\])?\/body(?:\[1\])?(\/.*)?$/);
   if (!match) return null;
   try {
     const container = parse(await readMarkup(book.path, 'META-INF/container.xml'));
@@ -154,15 +151,12 @@ async function epubFromXPointer(book, pointer) {
     if (full.startsWith('../')) return null;
     const doc = parse(await readMarkup(book.path, full), { comment: true, blockTextElements: { script: true, style: true } });
     const html = find(doc, 'html');
-    const whitespace = await whiteSpaceResolver(book.path, doc, full);
     let node = elements(html).find(n => tag(n) === 'body'), offset = 0;
-    const steps = match[2] === '.0' ? [] : (match[2] || '').split('/').filter(Boolean);
-    for (const [i, part] of steps.entries()) {
+    for (const part of (match[2] || '').split('/').filter(Boolean)) {
       const step = part.match(/^([\w-]+|text\(\))(?:\[(\d+)\])?(?:\.(\d+))?$/);
       if (!step || !node || node.nodeType !== 1) return null;
       const index = Number(step[2] || 1) - 1;
-      if (!Number.isSafeInteger(index) || index < 0 || (step[3] !== undefined && i !== steps.length - 1)) return null;
-      node = step[1] === 'text()' ? nativeTextNodes(node, whitespace)[index] : elements(node).filter(n => tag(n) === step[1].toLowerCase())[index];
+      node = step[1] === 'text()' ? nativeTextNodes(node)[index] : elements(node).filter(n => tag(n) === step[1].toLowerCase())[index];
       if (!node) return null;
       if (step[3] !== undefined) {
         if (node.nodeType !== 3) return null;
@@ -170,18 +164,15 @@ async function epubFromXPointer(book, pointer) {
         // Invert normalized UTF-32 offsets into the original UTF-16 text.
         const boundaries = [0];
         let raw = 0;
-        for (const char of node.text) {
-          raw += char.length;
-          if (!(whitespace(node.parentNode) === 'preserve' && node.text[raw - 1] === '\r' && node.text[raw] === '\n')) boundaries.push(raw);
-        }
+        for (const char of node.text) { raw += char.length; boundaries.push(raw); }
         let low = 0, high = boundaries.length - 1;
         while (low < high) {
           const mid = Math.floor((low + high) / 2);
-          const count = nativeOffset(node, boundaries[mid], whitespace);
+          const count = nativeOffset(node, boundaries[mid]);
           if (count === null) return null;
           if (count < native) low = mid + 1; else high = mid;
         }
-        if (nativeOffset(node, boundaries[low], whitespace) !== native) return null;
+        if (nativeOffset(node, boundaries[low]) !== native) return null;
         offset = boundaries[low];
       }
     }

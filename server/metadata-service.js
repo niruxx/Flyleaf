@@ -5,8 +5,7 @@
 const { q } = require('./db');
 const providers = require('./providers');
 const covers = require('./covers');
-const { json, mergeLinks } = require('./util');
-const { bestMatch } = require('./metadata-match');
+const { json, similarity, mergeLinks } = require('./util');
 const log = require('./log').logger('metadata');
 
 const FIELDS = ['name', 'localized_name', 'summary', 'status', 'year', 'publisher', 'age_rating', 'genres', 'tags', 'people', 'links', 'cover'];
@@ -61,9 +60,16 @@ async function applyToSeries(seriesId, result, { fields = FIELDS, force = false,
 const autoQueue = [];
 let autoRunning = false;
 
+function bestMatch(name, results) {
+  let best = null;
+  for (const r of results) {
+    const score = Math.max(similarity(name, r.title), ...(r.altTitles || []).map((t) => similarity(name, t)));
+    if (!best || score > best.score) best = { result: r, score };
+  }
+  return best && best.score >= 0.86 ? best.result : null;
+}
+
 async function autoMatchSeries(series, lib) {
-  const embeddedPeople = q('SELECT embedded FROM books WHERE series_id = ? AND missing = 0').all(series.id)
-    .flatMap((b) => json(b.embedded, {}).people || []);
   const sources = json(lib.sources, null) || providers.DEFAULT_SOURCES[lib.kind];
   for (const id of sources) {
     const p = providers.get(id);
@@ -75,12 +81,10 @@ async function autoMatchSeries(series, lib) {
       log.file(`${p.name} search failed for "${series.name}": ${err.message}`);
       continue;
     }
-    const match = bestMatch(series.name, results, embeddedPeople);
+    const match = bestMatch(series.name, results);
     if (!match) continue;
     const full = await p.details(match.id).catch(() => match);
-    if (!bestMatch(series.name, [full], embeddedPeople)) continue;
-    await applyToSeries(series.id, full, { coverPolicy: lib.cover_policy,
-      fields: FIELDS.filter((f) => f !== 'name' && (f !== 'people' || !embeddedPeople.length)) });
+    await applyToSeries(series.id, full, { coverPolicy: lib.cover_policy, fields: FIELDS.filter((f) => f !== 'name') });
     return full;
   }
   // Remember the attempt so we don't retry every scan.
