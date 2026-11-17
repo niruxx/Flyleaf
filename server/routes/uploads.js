@@ -112,16 +112,23 @@ router.put('/file', async (req, res) => {
   const { uniquePath } = require('../plugins/downloads');
   const dest = await uniquePath(path.join(dir, fileName));
   const part = `${dest}.part`;
+  const tasks = require('../tasks');
+  const task = tasks.start('upload', fileName, { userId: req.user.id, libraryId: lib.id, total: declared || null });
   let received = 0;
+  let lastUpdate = 0;
   req.on('data', (chunk) => {
     received += chunk.length;
+    if (Date.now() - lastUpdate > 1000) { tasks.progress(task, received, declared || null); lastUpdate = Date.now(); }
     if (received > MAX_BYTES) req.destroy(err('File too large.', 413));
   });
   try {
     await pipeline(req, fs.createWriteStream(part, { flags: 'wx' }));
     if (declared && received !== declared) throw new Error('The upload was interrupted.');
     await fsp.rename(part, dest);
+    tasks.progress(task, received, received);
+    tasks.finish(task);
   } catch (e) {
+    tasks.finish(task, e.message);
     await fsp.rm(part, { force: true }).catch(() => {});
     if (e.status) throw e;
     throw err(['EROFS', 'EACCES', 'EPERM', 'ENOSPC'].includes(e.code) ? (e.code === 'ENOSPC' ? 'The server is out of disk space.' : fsMessage(e, dir)) : e.message);

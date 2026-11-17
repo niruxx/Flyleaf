@@ -10,7 +10,7 @@ const weekdayNames = () => Array.from({ length: 7 }, (_, i) => new Date(2000, 0,
 export async function statsView(view, params, stale) {
   const page = h('div.page', { style: { maxWidth: '1100px' } });
   view.append(page, );
-  page.append(pageHeader(t('Reading stats')));
+  page.append(pageHeader(t('Reading stats'), h('a.btn.tonal.state', { href: '#/journal' }, icon('edit_note'), t('Reading journal'))));
 
   let days = 30;
   const body = h('div');

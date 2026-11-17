@@ -419,6 +419,9 @@ function buildDrawer() {
       h('div.drawer-secondary',
         navItem('/bookmarks', 'bookmarks', t('Bookmarks & notes')),
         navItem('/stats', 'insights', t('Reading stats')),
+        navItem('/tonight', 'bedtime', t('Fits tonight')),
+        navItem('/journal', 'edit_note', t('Reading journal')),
+        navItem('/activity', 'pending_actions', t('Activity center')),
         offlineSupported() && navItem('/offline', 'offline_pin', t('Saved offline'))),
       (mine.length + shared.length > 0) && group('libraries', t('Libraries'), [
         mine.length > 0 && h('div.drawer-sublabel', t('My libraries')),

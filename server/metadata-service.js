@@ -71,6 +71,7 @@ function bestMatch(name, results) {
 
 async function autoMatchSeries(series, lib) {
   const sources = json(lib.sources, null) || providers.DEFAULT_SOURCES[lib.kind];
+  let providerError = null;
   for (const id of sources) {
     const p = providers.get(id);
     if (p.needsKey && !require('./settings').get('comicvineKey')) continue;
@@ -78,6 +79,7 @@ async function autoMatchSeries(series, lib) {
     try {
       results = await p.search(series.name);
     } catch (err) {
+      providerError = err;
       log.file(`${p.name} search failed for "${series.name}": ${err.message}`);
       continue;
     }
@@ -87,6 +89,7 @@ async function autoMatchSeries(series, lib) {
     await applyToSeries(series.id, full, { coverPolicy: lib.cover_policy, fields: FIELDS.filter((f) => f !== 'name') });
     return full;
   }
+  if (providerError) throw providerError;
   // Remember the attempt so we don't retry every scan.
   q("UPDATE series SET metadata_source = 'none', metadata_at = ? WHERE id = ?").run(Date.now(), series.id);
   return null;
@@ -108,14 +111,22 @@ async function runAuto() {
       if (!lib) continue;
       const pending = q('SELECT * FROM series WHERE library_id = ? AND metadata_source IS NULL').all(libId);
       if (!pending.length) continue;
+      const tasks = require('./tasks');
+      const task = tasks.start('metadata', lib.name, { libraryId: lib.id, total: pending.length });
+      let completed = 0;
+      let errors = 0;
       let matched = 0;
       for (const s of pending) {
         try {
           if (await autoMatchSeries(s, lib)) matched++;
         } catch (err) {
+          errors++;
           log.file(`auto-match "${s.name}": ${err.message}`);
         }
+        tasks.progress(task, ++completed, pending.length);
       }
+      // Progress is updated after every provider attempt.
+      tasks.finish(task, errors ? `${errors} metadata lookups failed. Retry to try the pending series again.` : null);
       log.info(`"${lib.name}": matched metadata for ${matched} of ${pending.length} new series`);
     }
   } finally {

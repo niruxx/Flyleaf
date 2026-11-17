@@ -4,6 +4,7 @@
 import { api } from '../api.js';
 import { onLeave, navigate, previousPath } from '../router.js';
 import { h, icon, iconButton, button, sheet, syncThemeColor, snackbar, segmented } from '../ui.js';
+import { displaySettings } from '../reading-display.js';
 import { Tracker } from './tracker.js';
 import { autoSaveNext } from '../offline.js';
 import { readerSettingsForm, PAPER_GRAIN } from '../components/reader-settings.js';
@@ -240,7 +241,7 @@ function createShell(data, tracker) {
         body.replaceChildren(...views[v]());
       }
       show(toc.length ? 'toc' : 'bookmarks');
-      return h('div.toc', h('div.sheet-section', seg), body);
+      return h('div.toc', h('div.sheet-section', seg), body, h('div.sheet-footer', button(t('Add a private reflection'), { variant: 'tonal', icon: 'edit_note', onclick: () => { close(); import('../components/reflection.js').then(m => m.editReflection({ book })); } })));
     });
   }
 
@@ -356,7 +357,7 @@ function createShell(data, tracker) {
     stage,
     book,
     tracker,
-    settings,
+    settings: displaySettings(settings, () => document.documentElement?.classList?.contains('eink')),
     engine: null,
     get annotations() {
       return annotations;
@@ -398,8 +399,8 @@ function createShell(data, tracker) {
     },
     applyBehaviour() {
       root.classList.toggle('immersive', Boolean(settings.immersive));
-      root.classList.toggle('look-book', settings.look === 'book');
-      root.classList.toggle('look-eink', settings.look === 'eink');
+      root.classList.toggle('look-book', settings.look === 'book' && !document.documentElement?.classList?.contains('eink'));
+      root.classList.toggle('look-eink', settings.look === 'eink' || document.documentElement?.classList?.contains('eink'));
       root.style.setProperty('--paper-grain', PAPER_GRAIN);
     },
     /** Change one setting from inside the reader (like the settings sheet does). */

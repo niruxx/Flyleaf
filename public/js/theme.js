@@ -42,19 +42,22 @@ export function applyTheme(partial = {}) {
     if (preset.mode) s.mode = preset.mode;
   }
   const r = document.documentElement;
-  if (s.mode === 'light' || s.mode === 'dark') r.dataset.theme = s.mode;
+  if (s.eink) r.dataset.theme = 'light';
+  else if (s.mode === 'light' || s.mode === 'dark') r.dataset.theme = s.mode;
   else delete r.dataset.theme;
   r.style.setProperty('--seed-hue', s.hue);
   r.style.setProperty('--seed-chroma', s.chroma);
   if (s.oled) r.dataset.oled = '';
   else delete r.dataset.oled;
-  r.classList.toggle('no-motion', Boolean(s.noMotion));
+  r.classList.toggle('no-motion', Boolean(s.noMotion || s.eink));
+  r.classList.toggle('eink', Boolean(s.eink));
   write(s);
   syncThemeColor();
   return s;
 }
 
 export function isDark() {
+  if (themeState().eink) return false;
   const m = themeState().mode;
   return m === 'dark' || (m === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
 }

@@ -167,6 +167,8 @@ function preferencesPanel(panel) {
     h('h2', t('Preferences')),
     group(languageRow()),
     group(
+      tog('spoilerSafe', 'visibility_off', t('Spoiler-safe series browsing'), t('Hide titles and covers beyond your current or next unread volume. Reveal individual items when you choose.')),
+      tog('einkMode', 'tablet', t('E-ink interface'), t('Use a high-contrast monochrome interface, quiet backgrounds, and instant page turns. Your saved reader profiles stay intact.')),
       tog('blurUnreadSummaries', 'blur_on', t('Blur unread summaries'), t('Hide series summaries behind a blur until you start reading – no spoilers.')),
       tog('promptOnDownload', 'download', t('Prompt on download'), t('Ask before downloading a book or series to this device.')),
       tog('disableAnimations', 'animation', t('Disable animations'), t('Turn off page transitions, ripples and other motion.')),

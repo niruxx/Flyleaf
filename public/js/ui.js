@@ -214,7 +214,7 @@ export function dialog({ title, icon: ic, content, actions = [], className = '',
       dlg.remove();
       resolve(result);
     });
-    document.body.append(dlg);
+    (document.fullscreenElement || document.body).append(dlg);
     dlg.showModal();
     onOpen?.(dlg, close);
   });

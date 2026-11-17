@@ -1,7 +1,9 @@
 import { api, can } from '../api.js';
+import { homeLayout, sortHomeItems } from '../home-layout.js';
+import { customizeHome } from '../components/home-customize.js';
 import { prefs } from '../prefs.js';
 import { isAdmin, session, render } from '../router.js';
-import { h, icon, skeleton, emptyState, stagger, pageHeader, cover, formatDuration } from '../ui.js';
+import { h, icon, skeleton, emptyState, stagger, pageHeader, cover, formatDuration, button } from '../ui.js';
 import { t, plural, currentLanguage } from '../i18n.js';
 import { seriesCard, resumeCard } from '../components/cards.js';
 import { scanIndicator } from './scan.js';
@@ -10,7 +12,9 @@ import { refreshShell } from '../shell.js';
 const KIND_ICON = { books: 'menu_book', manga: 'auto_stories', comics: 'photo_library' };
 
 export async function homeView(view, params, stale) {
-  const page = h('div.page.home-page');
+  const layout = homeLayout(prefs().home);
+  const sorted = items => sortHomeItems(items, layout.sort, currentLanguage());
+  const page = h('div.page.home-page', { class: layout.compact ? 'home-compact' : '' });
   view.append(page);
   page.append(skeleton('home'));
   const scan = isAdmin()
@@ -49,6 +53,7 @@ export async function homeView(view, params, stale) {
   page.append(
     h('div.home-welcome',
       h('span', t('{greeting}, {name}', { greeting: greet, name: session.user.displayName })),
+      button(t('Customize home'), { variant: 'text', icon: 'dashboard_customize', onclick: customizeHome }),
       h('span.home-date', new Date().toLocaleDateString(currentLanguage(), { weekday: 'long', month: 'long', day: 'numeric' }))),
     h('section.hero.home-hero.enter',
       h('div.hero-text',
@@ -65,13 +70,17 @@ export async function homeView(view, params, stale) {
         ['bookmark_heart', t('Want to read'), t('Your next great read'), '#/want-to-read'],
         ['format_list_numbered', t('Reading lists'), t('A story in the right order'), '#/reading-lists'],
         ['collections_bookmark', t('Collections'), t('Your shelves, your way'), '#/collections'],
+        ['bedtime', t('Fits tonight'), t('A story for the time you have'), '#/tonight'],
+        ['edit_note', t('Reading journal'), t('Keep what stays with you'), '#/journal'],
         ['insights', t('Reading stats'), t('A little progress, every day'), '#/stats'],
       ].map(([ic, title, sub, href]) => h('a.home-shortcut.state', { href },
         h('span.shortcut-icon', icon(ic)), h('div', h('span.shortcut-title', title), h('span.shortcut-sub', sub)), icon('arrow_outward')))),
   );
+  page.querySelector('.home-hero').hidden = !layout.hero;
+  page.querySelector('.home-shortcuts').hidden = !layout.shortcuts;
   // Streak, this week, yearly goal: filled in when the stats arrive.
   const glance = h('section.glance', { hidden: true });
-  api.stats(7).then((s) => glance.isConnected && fillGlance(glance, s, data)).catch(() => {});
+  if (!layout.hidden.includes('glance')) api.stats(7).then((s) => glance.isConnected && fillGlance(glance, s, data)).catch(() => {});
 
   if (!data.libraries.length) {
     page.append(
@@ -88,29 +97,29 @@ export async function homeView(view, params, stale) {
     items.length > 0 &&
     h('section.section.enter',
       sectionHead(title, ic, `${items.length}${items.length >= 12 ? '+' : ''}`, href),
-      stagger(h('div.shelf', items.map(build))),
+      stagger(h('div.shelf', sorted(items).map(build))),
     );
 
   // append() would print false/null as text, so leave out sections with nothing to show.
   // Recommendations load after the rest of the page, so they never slow it down.
   const recs = h('section.section.recs', { hidden: true });
-  api.recommendations(18).then((list) => {
+  if (!layout.hidden.includes('recommendations')) api.recommendations(18).then((list) => {
     if (!list.length || !recs.isConnected) return;
     recs.append(
       sectionHead(t('Recommended for you'), 'auto_awesome', null, '#/recommended'),
-      stagger(h('div.shelf', list.map((s) => recCard(s, reload)))),
+      stagger(h('div.shelf', sorted(list).map((s) => recCard(s, reload)))),
     );
     recs.hidden = false;
   }).catch(() => {});
 
   // Suggestions from Content Finder sources (slow, cached on the server; loaded last).
   const discover = h('section.section.recs', { hidden: true });
-  if (finderRecsOn()) {
+  if (finderRecsOn() && !layout.hidden.includes('discover')) {
     api.finderRecommendations().then((r) => {
       if (!r.items.length || !discover.isConnected) return;
       discover.append(
         sectionHead(t('Discover in Content Finder'), 'travel_explore', null, '#/recommended'),
-        stagger(h('div.shelf', r.items.slice(0, 18).map(finderRecCard))),
+        stagger(h('div.shelf', sorted(r.items.slice(0, 18)).map(finderRecCard))),
       );
       discover.hidden = false;
     }).catch(() => {});
@@ -118,10 +127,10 @@ export async function homeView(view, params, stale) {
 
   // Genres as a tag cloud (loaded after the page).
   const genres = h('section.section.enter', { hidden: true });
-  api.genres().then((list) => {
+  if (!layout.hidden.includes('genres')) api.genres().then((list) => {
     if (!list.length || !genres.isConnected) return;
-    const top = list.slice(0, 24);
-    const max = top[0].count;
+    const top = layout.sort === 'az' || layout.sort === 'za' ? sorted(list.slice(0, 24)) : list.slice(0, 24);
+    const max = Math.max(...top.map(g => g.count));
     genres.append(
       sectionHead(t('Browse by genre'), 'category', `${list.length}`),
       h('div.genre-cloud', top.map((g, i) => h('a.genre-pill.state', {
@@ -135,14 +144,14 @@ export async function homeView(view, params, stale) {
 
   // New chapters of series you follow (last two weeks).
   const updates = h('section.section.enter', { hidden: true });
-  if (can(session.user, 'contentFinder')) {
+  if (can(session.user, 'contentFinder') && !layout.hidden.includes('updates')) {
     api.followUpdates(30).then((list) => {
       const recent = list.filter((u) => Date.now() - u.foundAt < 14 * 86400_000);
       if (!recent.length || !updates.isConnected) return;
       const STATUS = { new: t('Tap to download'), queued: t('Queued'), downloading: t('Downloading'), done: t('Downloaded'), downloaded: t('Downloaded'), failed: t('Download failed') };
       updates.append(
         sectionHead(t('New chapters'), 'new_releases', `${recent.length}`, '#/finder/following'),
-        stagger(h('div.shelf', recent.map((u) => h('a.tile', { href: '#/finder/following', title: `${u.title} · ${u.file.label}` },
+        stagger(h('div.shelf', sorted(recent).map((u) => h('a.tile', { href: '#/finder/following', title: `${u.title} · ${u.file.label}` },
           cover({ title: u.title, coverUrl: u.cover }, { showProgress: false }),
           h('div.t-title', u.title),
           h('div.t-sub', `${u.file.label} · ${STATUS[u.status] || u.status}`))))),
@@ -153,41 +162,35 @@ export async function homeView(view, params, stale) {
 
   // Smart shelves (saved filters) set to show on Home, each loaded on its own.
   const shelves = h('div');
-  api.smartFilters().then((list) => {
+  if (!layout.hidden.includes('shelves')) api.smartFilters().then((list) => {
     if (!shelves.isConnected) return;
-    for (const f of list.filter((x) => x.onHome)) {
+    for (const f of sorted(list.filter((x) => x.onHome))) {
       const sec = h('section.section.enter', { hidden: true });
       shelves.append(sec);
       api.seriesList({ ...f.filter, limit: 18 }).then((r) => {
         if (!r.items.length || !sec.isConnected) return;
         sec.append(
           sectionHead(f.name, 'filter_alt', `${r.items.length}${r.hasMore ? '+' : ''}`, `#/shelf/${f.id}`),
-          stagger(h('div.shelf', r.items.map((s) => seriesCard(s, { onChange: reload })))),
+          stagger(h('div.shelf', sorted(r.items).map((s) => seriesCard(s, { onChange: reload })))),
         );
         sec.hidden = false;
       }).catch(() => {});
     }
   }).catch(() => {});
 
-  page.append(...[
-    data.continueReading.length > 0 &&
-      h('section.section.enter', sectionHead(t('Continue reading'), 'play_circle', `${data.continueReading.length}`), stagger(h('div.continue', data.continueReading.map(resumeCard)))),
-    glance,
-    updates,
-    recs,
-    discover,
-    shelf(t('Want to read'), 'bookmark_heart', data.wantToRead, '#/want-to-read'),
+  const sections = {
+    continue: data.continueReading.length > 0 && h('section.section.enter', sectionHead(t('Continue reading'), 'play_circle', `${data.continueReading.length}`), stagger(h('div.continue', sorted(data.continueReading).map(resumeCard)))),
+    glance, updates, recommendations: recs, discover,
+    want: shelf(t('Want to read'), 'bookmark_heart', data.wantToRead, '#/want-to-read'),
     shelves,
-    shelf(t('Recently added'), 'new_releases', data.recentlyAdded, '#/library?sort=added'),
-    shelf(t('Recently updated'), 'update', data.recentlyUpdated, '#/library?sort=updated'),
+    added: shelf(t('Recently added'), 'new_releases', data.recentlyAdded, '#/library?sort=added'),
+    updated: shelf(t('Recently updated'), 'update', data.recentlyUpdated, '#/library?sort=updated'),
     genres,
-    ...libraryGroups(data.libraries).map(([heading, list]) =>
-      h('section.section.enter',
-        sectionHead(heading, 'shelves', `${list.length}`),
-        stagger(h('div.lib-cards', list.map(libraryCard))),
-      )),
-    exploreTiles(),
-  ].filter(Boolean));
+    libraries: !layout.hidden.includes('libraries') && h('div', libraryGroups(data.libraries).map(([heading, list]) =>
+      h('section.section.enter', sectionHead(heading, 'shelves', `${list.length}`), stagger(h('div.lib-cards', sorted(list).map(libraryCard)))))),
+    explore: exploreTiles(),
+  };
+  page.append(...layout.order.filter(id => !layout.hidden.includes(id)).map(id => sections[id]).filter(Boolean));
 }
 
 /** A section heading with an icon badge, an optional count and an optional “See all”. */

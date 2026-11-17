@@ -562,6 +562,69 @@ const migrations = [
     PRIMARY KEY (user_id, client, document)
   );
   `,
+  `
+  CREATE TABLE background_tasks (
+    id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    library_id INTEGER REFERENCES libraries(id) ON DELETE SET NULL,
+    status TEXT NOT NULL,
+    done INTEGER NOT NULL DEFAULT 0,
+    total INTEGER,
+    error TEXT,
+    created_at INTEGER NOT NULL,
+    finished_at INTEGER
+  );
+  CREATE INDEX background_tasks_user ON background_tasks(user_id, id);
+  `,
+  `
+  CREATE TABLE journal_entries (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    book_id INTEGER REFERENCES books(id) ON DELETE SET NULL,
+    day TEXT NOT NULL,
+    body TEXT NOT NULL,
+    mood TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE INDEX journal_entries_user_day ON journal_entries(user_id, day);
+  `,
+  `
+  CREATE TABLE position_history (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    position TEXT,
+    page INTEGER,
+    percent REAL NOT NULL,
+    finished INTEGER NOT NULL,
+    version INTEGER,
+    at INTEGER NOT NULL
+  );
+  CREATE INDEX position_history_book ON position_history(user_id, book_id, id);
+  CREATE INDEX position_history_user ON position_history(user_id, id);
+  INSERT INTO position_history (user_id, book_id, position, page, percent, finished, version, at)
+    SELECT p.user_id, p.book_id, p.position, p.page, p.percent, p.finished, b.mtime, p.updated_at
+    FROM progress p JOIN books b ON b.id = p.book_id;
+  CREATE TRIGGER progress_history_insert AFTER INSERT ON progress BEGIN
+    INSERT INTO position_history (user_id, book_id, position, page, percent, finished, version, at)
+      SELECT NEW.user_id, NEW.book_id, NEW.position, NEW.page, NEW.percent, NEW.finished, b.mtime, NEW.updated_at FROM books b WHERE b.id = NEW.book_id;
+    DELETE FROM position_history WHERE user_id = NEW.user_id AND book_id = NEW.book_id AND id NOT IN (
+      SELECT id FROM position_history WHERE user_id = NEW.user_id AND book_id = NEW.book_id ORDER BY id DESC LIMIT 100);
+    DELETE FROM position_history WHERE user_id = NEW.user_id AND id NOT IN (SELECT id FROM position_history WHERE user_id = NEW.user_id ORDER BY id DESC LIMIT 10000);
+  END;
+  CREATE TRIGGER progress_history_update AFTER UPDATE ON progress
+    WHEN NEW.position IS NOT OLD.position OR NEW.page IS NOT OLD.page OR NEW.percent IS NOT OLD.percent OR NEW.finished IS NOT OLD.finished
+  BEGIN
+    INSERT INTO position_history (user_id, book_id, position, page, percent, finished, version, at)
+      SELECT NEW.user_id, NEW.book_id, NEW.position, NEW.page, NEW.percent, NEW.finished, b.mtime, NEW.updated_at FROM books b WHERE b.id = NEW.book_id;
+    DELETE FROM position_history WHERE user_id = NEW.user_id AND book_id = NEW.book_id AND id NOT IN (
+      SELECT id FROM position_history WHERE user_id = NEW.user_id AND book_id = NEW.book_id ORDER BY id DESC LIMIT 100);
+    DELETE FROM position_history WHERE user_id = NEW.user_id AND id NOT IN (SELECT id FROM position_history WHERE user_id = NEW.user_id ORDER BY id DESC LIMIT 10000);
+  END;
+  `,
 ];
 
 function migrate() {

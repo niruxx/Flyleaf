@@ -631,7 +631,7 @@ export class PageEngine {
     }
 
     const solo = this.s.layout === 'double' && spread.length === 1;
-    const turn = dir ? this.s.pageTurn || 'slide' : 'none';
+    const turn = dir && !document.documentElement?.classList?.contains('eink') ? this.s.pageTurn || 'slide' : 'none';
     const wrap = h(`div.spread${this.wideFit ? '.fit-wide' : ''}${solo ? '.solo' : ''}${turn === 'slide' ? `.turn-${dir}` : ''}${els.length > 1 ? '.pair' : ''}`, els);
     // The Book look: a spine between two pages, or a soft fold on the bound side of one.
     if (this.s.look === 'book') wrap.append(h(`div.spine${els.length > 1 ? '' : '.single'}`));

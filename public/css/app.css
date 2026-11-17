@@ -4944,3 +4944,33 @@ html.has-bg body.scrolled .app-bar {
 .finder-health-toggle { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
 .finder-health-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid var(--md-outline-variant); }
 .finder-health-row > div { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+
+
+/* Home customization and background activity. */
+.home-customize { display: grid; gap: 14px; }
+.home-toggle { display: flex; align-items: center; gap: 12px; cursor: pointer; min-height: 44px; }
+.home-toggle input { width: 20px; height: 20px; accent-color: var(--md-primary); }
+.home-section-choice { display: flex; align-items: center; gap: 4px; }
+.home-section-choice .home-toggle { flex: 1; min-width: 0; }
+.home-save-error, .task-error { color: var(--md-error); overflow-wrap: anywhere; }
+.home-compact .shelf { grid-auto-columns: 108px; gap: 12px; }
+.home-compact .continue { grid-auto-columns: min(280px, 80vw); }
+.home-compact .section { margin-top: 20px; }
+.activity-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 24px 0 12px; }
+.activity-filters .field { flex: 1 1 180px; }
+.task-list { display: grid; gap: 12px; }
+.task-card { display: flex; gap: 16px; align-items: flex-start; padding: 20px; border-radius: 20px; background: var(--md-surface-container); border: 1px solid var(--md-outline-variant); }
+.task-icon { color: var(--md-primary); padding-top: 2px; }
+.task-content { flex: 1; min-width: 0; }
+.task-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.task-heading h2 { margin: 0; overflow-wrap: anywhere; }
+.task-status { font-size: 12px; color: var(--md-on-surface-variant); }
+.task-card[data-status="failed"] .task-status { color: var(--md-error); }
+.task-content p { margin: 8px 0 0; }
+.task-actions { display: flex; flex-wrap: wrap; }
+.task-progress { width: 100%; height: 6px; accent-color: var(--md-primary); margin-top: 14px; }
+@media (max-width: 599px) {
+  .task-card { flex-wrap: wrap; gap: 10px; padding: 16px; }
+  .task-actions { width: 100%; justify-content: flex-end; }
+  .home-welcome { flex-wrap: wrap; }
+}

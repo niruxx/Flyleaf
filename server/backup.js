@@ -314,6 +314,8 @@ function storedPath(name) {
 /** Write a backup into the backup folder now, then remove the oldest beyond `keep`. */
 async function runScheduled({ manual = false } = {}) {
   if (backupRunning) return backupRunning;
+  const tasks = require('./tasks');
+  const task = tasks.start('backup', manual ? 'Backup' : 'Scheduled backup');
   backupRunning = (async () => {
     const s = schedule();
     const dir = backupFolder(s);
@@ -334,8 +336,9 @@ async function runScheduled({ manual = false } = {}) {
     for (const old of (await listStored()).slice(s.keep)) await fsp.rm(path.join(dir, old.name), { force: true }).catch(() => {});
     require('./settings').set('backupLast', { at: Date.now(), name, error: null });
     log.info(`${manual ? 'Backup' : 'Scheduled backup'} saved: ${path.join(dir, name)}`);
+    tasks.finish(task);
     return { name };
-  })().finally(() => {
+  })().catch(e => { tasks.finish(task, e.message); throw e; }).finally(() => {
     backupRunning = null;
   });
   return backupRunning;

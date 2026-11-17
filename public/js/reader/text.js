@@ -176,6 +176,7 @@ export class TextEngine {
   // ----- appearance -----
 
   colors() {
+    if (typeof document !== 'undefined' && document.documentElement?.classList?.contains('eink')) return { bg: '#fff', fg: '#000', link: '#000', surround: '#fff' };
     if (LOOKS[this.s.look]) return LOOKS[this.s.look];
     const key = this.s.textTheme === 'auto' ? (isDark() ? 'dark' : 'light') : this.s.textTheme;
     return TEXT_THEMES[key] || TEXT_THEMES.light;
@@ -190,7 +191,7 @@ export class TextEngine {
     r.setAttribute('max-inline-size', m.inline);
     r.setAttribute('max-column-count', this.s.columns === '1' || this.s.columns === 1 ? '1' : '2');
     // Slide between pages; Book turns are drawn by turnBook(); None jumps.
-    if (this.s.pageTurn === 'slide' || !this.s.pageTurn) r.setAttribute('animated', '');
+    if (!(typeof document !== 'undefined' && document.documentElement?.classList?.contains('eink')) && (this.s.pageTurn === 'slide' || !this.s.pageTurn)) r.setAttribute('animated', '');
     else r.removeAttribute('animated');
     if (this.s.columns === '2' || this.s.columns === 2) r.setAttribute('max-inline-size', `${parseInt(m.inline, 10) * 2}px`);
   }

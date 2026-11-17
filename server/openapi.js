@@ -12,6 +12,15 @@
 const pkg = require('../package.json');
 
 const R = [
+  ['get', '/reading/tonight', 'Reading', 'Find next unread items that fit a time budget, respecting library and age access', { query: { minutes: 'integer – 5–240', kind: 'text | comic | pdf | audio', speed: 'number – 0.5–3; default 1' }, returns: '{ items: [{ book, seconds, basis, kind }], unknown, total, minutes, speed }' }],
+  ['get', '/journal', 'Reading', 'Your private monthly reading days, reflections and saved highlights', { query: { month: 'YYYY-MM', from: 'integer – optional local month start in milliseconds', until: 'integer – optional local next-month start in milliseconds' } }],
+  ['post', '/journal', 'Reading', 'Add a private reflection', { body: { day: 'YYYY-MM-DD', body: 'string – up to 10000 characters', bookId: 'integer | null', mood: 'reflective | delighted | curious | moved | challenged | disappointed | null' } }],
+  ['put', '/journal/{id}', 'Reading', 'Replace your reflection', { body: { day: 'YYYY-MM-DD', body: 'string', bookId: 'integer | null', mood: 'string | null' } }],
+  ['delete', '/journal/{id}', 'Reading', 'Delete your reflection'],
+  ['get', '/books/{id}/positions', 'Reading', 'Your saved positions and recent native-client observations'],
+  ['post', '/books/{id}/positions/{position}/restore', 'Reading', 'Restore your compatible saved position without adding reading time', { body: { expectedUpdatedAt: 'integer | null – must match the current progress revision' } }],
+  ['get', '/tasks', 'Activity', 'Background tasks and download history; own uploads/downloads for readers, server tasks for admins', { returns: '{ items }' }],
+  ['post', '/tasks/{id}/retry', 'Activity', 'Retry a failed scan, metadata lookup, search index or backup', { admin: true }],
   ['patch', '/series/bulk', 'Library', 'Edit up to 500 selected series atomically; shared metadata requires admin', { body: { ids: 'integer[]', genres: 'string[]', tags: 'string[]', ageRating: '0–3 | null', collectionId: 'integer – add to an owned collection' } }],
   ['put', '/finder/source-schedules', 'Content Finder', 'Set the check interval for all your follows on one source', { perm: 'contentFinder', body: { plugin: 'string', hours: 'number – 0 pauses, null restores FOLLOW_CHECK_HOURS; maximum 8760' } }],
   // Tracking connections require an interactive session, rather than an API key.

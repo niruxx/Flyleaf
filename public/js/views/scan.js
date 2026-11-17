@@ -5,7 +5,7 @@ import { h } from '../ui.js';
 
 /** Small pill that shows while the library is being scanned; polls until idle. */
 export function scanIndicator(onDone) {
-  const el = h('span.scan-pill', { hidden: true }, h('span.spinner'), h('span.txt', t('Scanning…')));
+  const el = h('a.scan-pill', { hidden: true, href: '#/activity' }, h('span.spinner'), h('span.txt', t('Scanning…')));
   let timer;
   let wasRunning = false;
   let stopped = false;

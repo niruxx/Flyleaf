@@ -2,11 +2,12 @@
 // books saved for offline reading (flyleaf-offline, never cleared on update). Other API calls
 // always go to the network.
 
-const VERSION = 'flyleaf-v26';
+const VERSION = 'flyleaf-v27';
 const SHELL = [
   '/',
   '/css/m3.css',
   '/css/app.css',
+  '/css/reading-room.css',
   '/css/ambience.css',
   '/css/expressive.css',
   '/css/motion.css',

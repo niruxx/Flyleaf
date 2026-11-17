@@ -41,6 +41,24 @@ Flyleaf brings your files, reading progress, and discoveries together in a respo
 
 Comic archives are read in place without unpacking the entire collection to disk. Flyleaf reads embedded metadata and ComicInfo.xml, imports Calibre metadata, and can match titles against external book, manga, and comic catalogs.
 
+### Arrange your home and follow background work
+
+**Find a read for tonight.** Choose a time budget and discover the next unread books
+and volumes that fit, with estimates based on your pace when there is enough history.
+Protect future covers and titles, keep a private monthly reading journal with
+reflections and highlights, or switch the whole app into a quiet e-ink interface.
+Reading-position history lets you recover from an accidental jump or sync update.
+[Explore your reading room](docs/reading-room.md).
+
+Choose **Customize home** to show, hide, and reorder sections, use compact cards,
+and organize shelf contents by title A–Z, title Z–A, author, or reading progress.
+Your layout is saved to your account across devices.
+
+The **Activity center** brings downloads and uploads together with admin views of
+scans, automatic metadata matching, search indexing, and stored backups. Filter
+by status or type, see failures and progress, retry supported tasks, and cancel
+downloads. [Usage and current coverage](docs/home-and-activity.md).
+
 ### Built for your server, available on your devices
 
 Run Flyleaf with Docker, a Linux systemd install, or Node.js. The frontend uses plain JavaScript modules with no build step, and the server uses SQLite. Open the same library on desktop, tablet, or phone, with light and dark themes, custom colors, and an installable web app.

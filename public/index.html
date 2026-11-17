@@ -29,7 +29,8 @@
         if (t.hue != null) r.style.setProperty('--seed-hue', t.hue);
         if (t.chroma != null) r.style.setProperty('--seed-chroma', t.chroma);
         if (t.oled) r.dataset.oled = '';
-        if (t.noMotion) r.classList.add('no-motion');
+        if (t.noMotion || t.eink) r.classList.add('no-motion');
+        if (t.eink) { r.classList.add('eink'); r.dataset.theme = 'light'; }
       } catch (e) {}
     </script>
 
@@ -39,6 +40,7 @@
     <link rel="stylesheet" href="/css/motion.css" />
     <link rel="stylesheet" href="/css/reader.css" />
     <link rel="stylesheet" href="/css/expressive.css" />
+    <link rel="stylesheet" href="/css/reading-room.css" />
     <script type="module" src="/js/main.js"></script>
   </head>
   <body class="bare">

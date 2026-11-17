@@ -131,21 +131,29 @@ const PENDING_SQL = `FROM books b LEFT JOIN book_text_state t ON t.book_id = b.i
 async function indexPending() {
   if (!ENABLED || state.running) return;
   state.running = true;
+  const tasks = require('./tasks');
+  let task;
+  let errors = 0;
   try {
     // Rows of deleted books (FTS tables have no foreign keys).
     q('DELETE FROM book_text WHERE book_id NOT IN (SELECT id FROM books)').run();
     const books = q(`SELECT b.* ${PENDING_SQL} ORDER BY b.id`).all(...FORMATS);
     Object.assign(state, { done: 0, total: books.length });
+    if (books.length) task = tasks.start('index', 'Search indexing', { total: books.length });
     const started = Date.now();
     for (const book of books) {
       state.current = book.title;
       await indexBook(book);
       state.done++;
+      if (q('SELECT error FROM book_text_state WHERE book_id = ?').get(book.id)?.error) errors++;
+      if (task) tasks.progress(task, state.done, books.length);
       // Let requests through between books.
       await new Promise((r) => setImmediate(r));
     }
+    if (task) tasks.finish(task, errors ? `${errors} books could not be indexed. See search settings for details.` : null);
     if (books.length) log.file(`Indexed ${books.length} books in ${((Date.now() - started) / 1000).toFixed(1)}s`);
   } catch (e) {
+    if (task) tasks.finish(task, e.message);
     log.warn(`Indexing stopped: ${e.message}`);
   } finally {
     Object.assign(state, { running: false, current: null });

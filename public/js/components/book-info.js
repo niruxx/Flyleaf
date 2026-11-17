@@ -4,6 +4,8 @@ import { t, plural } from '../i18n.js';
 import { api, can, downloadUrl } from '../api.js';
 import { session, navigate, isAdmin } from '../router.js';
 import { h, icon, button, cover, dialog, formatBytes, formatDuration, timeAgo, copyText, loading, stagger } from '../ui.js';
+import { positionHistory } from './position-history.js';
+import { editReflection } from './reflection.js';
 import { seriesCard } from './cards.js';
 import { languageName } from '../languages.js';
 
@@ -122,6 +124,8 @@ function render(b, close) {
             close();
             navigate(`/read/${b.id}`);
           } }),
+          button(t('Reading positions'), { variant: 'text', icon: 'history', onclick: () => positionHistory(b) }),
+          button(t('Reflect'), { variant: 'text', icon: 'edit_note', onclick: () => editReflection({ book: b }) }),
           can(session.user, 'download') && h('a.btn.tonal.state', { href: downloadUrl(b), download: '' }, icon('download'), t('Download')),
         ),
       ),

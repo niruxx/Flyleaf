@@ -51,3 +51,44 @@ is still being verified. [Setup, supported formats and limitations](docs/device-
 ## 🛠️ Platform
 
 - ⬜ **Publish the Docker image** to a registry (GitHub Container Registry) from CI, for `docker pull`
+
+
+---
+
+## Home & activity
+
+- ✅ **Customizable home**: per-account section visibility and ordering, optional
+  welcome banner and shortcuts, compact cards, and shelf sorting by title, author,
+  or reading progress.
+- ✅ **Unified activity center**: downloads, uploads, library scans, automatic
+  metadata matching, search indexing, and stored backups, with progress, filters,
+  durable history, and supported retry/cancel controls.
+  [Usage and current coverage](docs/home-and-activity.md)
+- ⬜ **Additional activity sources**: device sync, reader conversions, backup
+  downloads, and restore operations.
+
+---
+
+## A distinctive reading experience
+
+- ✅ **Fits tonight**: time-budget discovery using indexed text, page counts, known
+  audio durations, and personal reading pace, while preserving series reading order.
+- ✅ **Spoiler-safe series browsing**: hide future titles and covers, reveal individual
+  items deliberately, and protect unstarted series summaries.
+- ✅ **Private reading journal**: reading days, highlights, personal reflections and
+  moods, with monthly Markdown export.
+- ✅ **E-ink interface**: monochrome app chrome and temporary reader display overrides,
+  without changing saved reading profiles.
+- ✅ **Reading-position recovery**: bounded history across progress writers, guarded
+  restores, and recent Kobo/KOReader position observations.
+  [Usage, estimates, and limitations](docs/reading-room.md)
+
+## Follow-on UI & system work
+
+- ⬜ **Sync conflict inbox** with per-device status and pending offline changes.
+- ⬜ **Metadata review inbox** with proposed changes and batch approval.
+- ⬜ **Command palette** for navigation and common actions.
+- ⬜ **Backup health and restore preview** with archive validation.
+- ⬜ **Offline policies** for storage budgets, pinned books, and cleanup.
+- ⬜ **System diagnostics** with permissions, watcher and integration health.
+- ⬜ **Edition and format grouping** with preferred editions and independent positions.

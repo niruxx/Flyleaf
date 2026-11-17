@@ -10,8 +10,8 @@ export const prefs = () => session.user?.prefs || {};
 /** Apply everything visual from the signed-in user's prefs. */
 export function applyUserPrefs() {
   const p = prefs();
-  applyTheme({ ...(p.theme || {}), noMotion: Boolean(p.disableAnimations) });
-  applyBackground(p.background, session.user?.backgroundUrl);
+  applyTheme({ ...(p.theme || {}), noMotion: Boolean(p.disableAnimations), eink: Boolean(p.einkMode) });
+  applyBackground(p.einkMode ? null : p.background, session.user?.backgroundUrl);
 }
 
 let saveTimer;
@@ -26,8 +26,8 @@ export function setPref(key, value) {
     pending = {};
     api.savePrefs(body).catch(() => {});
   }, 400);
-  if (key === 'disableAnimations') applyTheme({ noMotion: Boolean(value) });
-  if (key === 'background') applyBackground(value, session.user?.backgroundUrl);
+  if (key === 'disableAnimations' || key === 'einkMode') applyUserPrefs();
+  if (key === 'background') applyBackground(prefs().einkMode ? null : value, session.user?.backgroundUrl);
 }
 
 /** Change theme (mode/preset/hue) and remember it on the account. */

@@ -4,7 +4,9 @@ import { t, plural } from '../i18n.js';
 
 import { api, can, seriesDownloadUrl } from '../api.js';
 import { isAdmin, navigate, render, session } from '../router.js';
-import { prefs } from '../prefs.js';
+import { spoilerHiddenIds } from '../spoilers.js';
+import { spoilerGuard } from '../components/spoiler-guard.js';
+import { prefs, setPref } from '../prefs.js';
 import { h, icon, iconButton, button, cover, menu, snackbar, stagger, emptyState, skeleton, STATUS_LABEL, USER_STATUS, timeAgo, formatBytes, formatDuration, segmented, toggleSwitch } from '../ui.js';
 import { volumeCard, seriesCard } from '../components/cards.js';
 import { seriesActions, bookActions, addToCollection, sendTo, download, canDownload } from '../components/actions.js';
@@ -23,6 +25,9 @@ export async function seriesView(view, params, stale) {
   if (!s) return page.append(emptyState('search_off', t('Series not found'), t('It may have been removed, or it’s outside your age restriction.'), h('a.btn.tonal', { href: '#/library' }, t('Browse library'))));
 
   const p = prefs();
+  let protectSpoilers = Boolean(p.spoilerSafe);
+  const protectedBooks = spoilerHiddenIds(s.books);
+  const revealedBooks = new Set();
   const reload = () => render();
   const started = s.books.some((b) => b.progress);
   const next = s.books.find((b) => b.id === s.nextBookId);
@@ -72,7 +77,7 @@ export async function seriesView(view, params, stale) {
       items.push(
         { header: t('Download') },
         { label: t('Download whole series (.zip)'), icon: 'folder_zip', onClick: () => download(seriesDownloadUrl(s.id), t('{name} – all volumes', { name: s.name })) },
-        ...s.books.slice(0, 40).map((b) => ({ label: b.label, icon: 'download', trailing: b.format.toUpperCase(), onClick: () => download(`/api/books/${b.id}/download`, b.label, b.size) })),
+        ...s.books.slice(0, 40).map((b) => ({ label: protectSpoilers && protectedBooks.has(b.id) && !revealedBooks.has(b.id) ? t('Future volume') : b.label, icon: 'download', trailing: b.format.toUpperCase(), onClick: () => download(`/api/books/${b.id}/download`, b.label, b.size) })),
         '-',
         { label: t('Send to…'), icon: 'send_to_mobile', onClick: () => sendTo({ series: s }) },
       );
@@ -164,7 +169,9 @@ export async function seriesView(view, params, stale) {
     const text = h('p.summary.clamped.body-large', s.summary);
     text.addEventListener('click', () => text.classList.toggle('clamped'));
     summary = h('div.summary-wrap', text);
-    if (p.blurUnreadSummaries && !started) {
+    if (p.spoilerSafe && !started) {
+      summary = h('details.summary-wrap', h('summary', t('Reveal series summary')), text);
+    } else if (p.blurUnreadSummaries && !started) {
       text.classList.add('spoiler');
       const reveal = button(t('Show summary'), { variant: 'tonal', icon: 'visibility', onclick: () => {
         text.classList.remove('spoiler');
@@ -216,7 +223,7 @@ export async function seriesView(view, params, stale) {
 
   const scape = h('div.scape');
   page.append(h('div.series-view', scape, h('section.series-hero.enter', h('div.cover-col', art), info)));
-  if (p.colorScape) applyColorScape(art, scape, page);
+  if (p.colorScape && !p.einkMode) applyColorScape(art, scape, page);
 
   // ----- New chapters (series downloaded with Content Finder) -----
   if (can(session.user, 'contentFinder')) page.append(followPanel(s));
@@ -260,12 +267,17 @@ export async function seriesView(view, params, stale) {
     return g?.missing.length > 0 && h('div.gap-note', icon('report'),
       t('Missing {value} {missingText} (you have {ranges})', { value: kind === 'volume' ? (g.missing.length === 1 ? t('volume') : t('volumes')) : (g.missing.length === 1 ? t('chapter') : t('chapters')), missingText: g.missingText, ranges: g.ranges }));
   };
+  const guardedVolume = (b, asList) => {
+    const build = () => asList ? volumeRow(b, s, reload) : volumeCard(b, { series: s, onChange: reload });
+    return protectSpoilers && protectedBooks.has(b.id) && !revealedBooks.has(b.id)
+      ? spoilerGuard(b, s.books.indexOf(b), build, { list: asList, onReveal: () => revealedBooks.add(b.id) }) : build();
+  };
   const drawVolumes = () => volumes.replaceChildren(...groups.map(([label, list]) => [label, list.filter((b) => !selectedLanguage || (selectedLanguage === '?' ? !languageCodes(b.language).length : languageCodes(b.language).includes(selectedLanguage)))])
     .filter(([, list]) => list.length).map(([label, list]) =>
     h('div.vol-group', !single && h('h3.title-medium', { style: { margin: '0 0 12px' } }, label), gapNote(label, list),
       layout === 'list'
-        ? stagger(h('div.vol-list', list.map((b) => volumeRow(b, s, reload))))
-        : stagger(h('div.grid', list.map((b) => volumeCard(b, { series: s, onChange: reload })))))));
+        ? stagger(h('div.vol-list', list.map((b) => guardedVolume(b, true))))
+        : stagger(h('div.grid', list.map((b) => guardedVolume(b, false)))))));
   drawVolumes();
   const layoutToggle = segmented([
     { value: 'grid', icon: 'grid_view', label: '', title: t('Covers') },
@@ -279,7 +291,7 @@ export async function seriesView(view, params, stale) {
   page.append(
     h('section.section',
       h('div.section-head', h('h2', single && groups[0][0] !== 'Other' ? `${groups[0][0]} (${s.books.length})` : t('In this series ({length})', { length: s.books.length })), layoutToggle),
-      availableLanguages.length > 0 && h('div.toolbar', languageFilter),
+      h('div.toolbar', availableLanguages.length > 0 && languageFilter, h('label.check', toggleSwitch(protectSpoilers, value => { protectSpoilers = value; setPref('spoilerSafe', value); drawVolumes(); }, t('Protect future titles and covers')), t('Protect future titles and covers'))),
       volumes,
     ),
   );

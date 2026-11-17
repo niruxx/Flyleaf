@@ -10,6 +10,7 @@ const { saveCover } = require('./covers');
 const { parseFilename, normalizeKey } = require('./parser');
 const { json, parseAgeRating, mergeLinks, uniqBy } = require('./util');
 const log = require('./log').logger('scan');
+const tasks = require('./tasks');
 const { AUDIO_EXT } = require('./audio');
 
 // Extension → format. Archives are re-identified by signature (a .cbr that is really a zip, etc.).
@@ -503,6 +504,7 @@ async function runQueue() {
         state.found = 0;
         const stats = { total: 0, added: 0, changed: 0, missing: 0, errors: 0 };
         const started = Date.now();
+        const task = tasks.start('scan', lib.name, { libraryId: lib.id });
         try {
           await scanLibrary(lib, stats);
           await processMetadata(lib.id, stats);
@@ -517,8 +519,11 @@ async function runQueue() {
           if (changes || stats.errors) log.info(summary);
           else log.file(summary);
           announce(lib, stats);
+          tasks.progress(task, stats.total, stats.total);
+          tasks.finish(task, stats.errors ? `${stats.errors} unreadable files. See the server log for details.` : null);
           if (lib.auto_metadata) require('./metadata-service').queueAuto(lib.id);
         } catch (err) {
+          tasks.finish(task, err.message);
           state.lastError = err.message;
           log.warn(`"${lib.name}": ${err.message}`);
         }

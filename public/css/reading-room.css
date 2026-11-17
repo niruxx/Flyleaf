@@ -1,0 +1,76 @@
+/* A private place to plan, read, and reflect. */
+.reading-room-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 24px 0; }
+.reading-room-toolbar .field { flex: 1 1 180px; }
+.reading-room-toolbar .btn { flex: 0 0 auto; }
+.reading-room-toolbar [hidden] { display: none !important; }
+.tonight-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 18px; }
+.tonight-card { display: flex; align-items: center; gap: 20px; padding: 20px; border: 1px solid var(--md-outline-variant); border-radius: 24px; background: var(--md-surface-container-low); }
+.tonight-art { width: 110px; flex: 0 0 110px; }
+.tonight-info { min-width: 0; }
+.tonight-info h2 { margin: 10px 0; overflow-wrap: anywhere; }
+.tonight-time { display: flex; gap: 6px; align-items: center; color: var(--md-primary); font-size: 14px; font-weight: 650; }
+.tonight-time .icon { font-size: 18px; }
+.journal-page { max-width: 1050px; }
+.journal-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 36px; }
+.journal-summary > div { display: grid; gap: 10px; padding: 20px; border: 1px solid var(--md-outline-variant); border-radius: 20px; background: var(--md-surface-container-low); }
+.journal-summary strong { font-size: 26px; }
+.journal-summary span:last-child { font-size: 13px; color: var(--md-on-surface-variant); }
+.journal-day { padding: 0 0 32px 24px; border-left: 2px solid var(--md-outline-variant); margin-left: 6px; }
+.journal-day h2 { margin-top: 0; font-size: 20px; }
+.journal-reading { display: flex; align-items: center; gap: 14px; padding: 12px 0; color: inherit; text-decoration: none; }
+.journal-reading > .icon:last-child { margin-left: auto; }
+.journal-reading p { margin: 5px 0; }
+.journal-cover { width: 42px; flex-shrink: 0; }
+.reflection-card { padding: 20px; margin: 12px 0; border-radius: 20px; background: var(--md-surface-container); }
+.reflection-card h3 { margin: 0; }
+.reflection-card .section-head { flex-wrap: wrap; }
+.reflection-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.reflection-actions { display: flex; justify-content: flex-end; }
+.journal-highlights { padding: 16px 0; }
+.journal-highlights summary { cursor: pointer; font-weight: 600; }
+.journal-highlights blockquote { border-left: 3px solid var(--md-primary); padding-left: 16px; margin: 18px 0; overflow-wrap: anywhere; }
+.spoiler-placeholder { display: grid; place-items: center; aspect-ratio: 2 / 3; background: var(--md-surface-container-high); border: 1px dashed var(--md-outline); border-radius: 12px; }
+.spoiler-placeholder .icon { font-size: 38px; color: var(--md-on-surface-variant); }
+.spoiler-copy h3 { margin: 12px 0 4px; }
+.spoiler-copy p { margin: 0 0 12px; }
+.spoiler-copy .btn { padding-inline: 12px; min-height: 36px; font-size: 12px; }
+.spoiler-guard.as-list { display: flex; align-items: center; gap: 18px; padding: 16px 0; }
+.spoiler-guard.as-list .spoiler-placeholder { width: 64px; flex-shrink: 0; }
+.spoiler-revealed > .tile { display: block; }
+
+/* Device-friendly monochrome UI. No colour-only state, gradients, moving backdrops or page fades. */
+:root.eink, :root.eink .reseed {
+  color-scheme: light;
+  --md-primary: #000; --md-on-primary: #fff; --md-primary-container: #eee; --md-on-primary-container: #000;
+  --md-secondary: #222; --md-on-secondary: #fff; --md-secondary-container: #eee; --md-on-secondary-container: #000;
+  --md-tertiary: #222; --md-on-tertiary: #fff; --md-tertiary-container: #eee; --md-on-tertiary-container: #000;
+  --md-surface: #fff; --md-surface-dim: #fff; --md-surface-bright: #fff;
+  --md-surface-container-lowest: #fff; --md-surface-container-low: #fff; --md-surface-container: #fff;
+  --md-surface-container-high: #eee; --md-surface-container-highest: #eee;
+  --md-on-surface: #000; --md-on-surface-variant: #222; --md-outline: #333; --md-outline-variant: #777;
+  --md-error: #000; --md-on-error: #fff; --md-error-container: #eee; --md-on-error-container: #000;
+  --md-inverse-surface: #000; --md-inverse-on-surface: #fff; --md-inverse-primary: #fff;
+}
+:root.eink *, :root.eink *::before, :root.eink *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; box-shadow: none !important; text-shadow: none !important; backdrop-filter: none !important; }
+:root.eink .ambient, :root.eink .scape, :root.eink .banner-glow, :root.eink .hero::before, :root.eink .hero::after { display: none !important; }
+:root.eink .hero, :root.eink .page-banner, :root.eink .home-shortcut, :root.eink .explore-tile, :root.eink .glance-tile { background: #fff !important; border: 1px solid #777; }
+:root.eink h1, :root.eink .page-banner h1 { background: none !important; color: #000 !important; -webkit-text-fill-color: #000 !important; }
+:root.eink .cover { filter: grayscale(1); }
+:root.eink .btn, :root.eink .chip, :root.eink .nav-item[aria-current='page'] { border: 1px solid currentColor; }
+:root.eink :focus-visible { outline: 3px solid #000; outline-offset: 3px; }
+:root.eink .reader { --reader-bg: #fff !important; --reader-fg: #000 !important; }
+@media (max-width: 599px) {
+  .journal-summary { grid-template-columns: repeat(2, 1fr); }
+  .tonight-card { padding: 16px; gap: 14px; }
+  .tonight-art { width: 84px; flex-basis: 84px; }
+  .tonight-info h2 { font-size: 20px; }
+  .journal-day { padding-left: 14px; }
+}
+
+.position-history-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--md-outline-variant); }
+.position-history-row p { margin: 5px 0; }
+
+:root.eink .genre-pill, :root.eink .shortcut-icon, :root.eink .sec-icon, :root.eink .logo { background: #eee !important; color: #000 !important; }
+:root.eink .stars { color: #000 !important; }
+
+.tonight-page .reading-room-toolbar .field { flex-basis: 150px; }
