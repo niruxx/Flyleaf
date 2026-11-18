@@ -1,0 +1,3 @@
+# Qt Widgets + Qt Network only. Do not substitute the PySide6 meta-package:
+# the Addons/WebEngine browser runtime is intentionally not a dependency.
+PySide6-Essentials==6.12.0

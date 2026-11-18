@@ -62,12 +62,12 @@ is still being verified. [Setup, supported formats and limitations](docs/device-
 ## 🛠️ Platform
 
 - ⬜ **Publish the Docker image** to a registry (GitHub Container Registry) from CI, for `docker pull`
-- ⬜ **Windows / Linux desktop client**: develop on `feature/desktop-client` in this
-  repository, reusing the web UI and server APIs where practical. Start with connecting
-  to an existing Flyleaf server, sign-in, browsing and reading; add remembered servers,
-  clear connection/certificate errors and secure credential storage. Evaluate the desktop
-  runtime before committing to packaging, then validate Windows and Linux installers,
-  external-link handling, downloads, keyboard navigation and release/update behavior.
+- 🟨 **Windows / Linux desktop client**: native Qt 6 Widgets/PySide6 Essentials project
+  on `feature/desktop-client`, with no embedded browser. Illustrated client onboarding,
+  server connection, sign-in, browsing, native comic/image reading, coordinated themes,
+  reduced-motion effects and a matching title bar are implemented; native ebooks, PDF, audio,
+  offline operation, installers and full parity remain pending.
+  [Run the preview](desktop/README.md) · [Phased desktop parity roadmap](desktop/roadmap.md)
 
 
 ---
