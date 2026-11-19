@@ -21,6 +21,12 @@ A self-hosted reading home for ebooks, manga, comics, and audiobooks. Organize y
 
 ## A home for your whole collection
 
+**Native desktop preview:** work on `feature/desktop-client` adds a Qt 6 Windows/Linux
+client that connects to your server without an embedded browser. See the
+[desktop setup guide](desktop/README.md) and [feature-parity phases](desktop/roadmap.md).
+This initial preview supports native comic/image reading; other readers and standalone
+installers remain in development.
+
 Flyleaf brings your files, reading progress, and discoveries together in a responsive Material 3 interface. Add existing folders, import a Calibre library, or upload books from another device. Watched folders keep the catalog up to date, while metadata, artwork, and personal shelves help you find your next read.
 
 - **Read your way.** Dedicated ebook, comic, and PDF readers with adjustable typography, themes, reading profiles, and page turns. Comics support right-to-left reading, smart spreads, webtoon scrolling, zoom, border cropping, and image filters.
