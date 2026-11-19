@@ -36,6 +36,10 @@ app.use('/api/kobo', require('./kobo').router);
 const api = express.Router();
 api.use(express.json({ limit: '512kb' }));
 api.use(auth.sessionMiddleware);
+api.use((req, res, next) => {
+  if (req.user) res.set('X-Flyleaf-Account', String(req.user.id));
+  next();
+});
 // Who did what (Settings → Activity); see activity.js for what's recorded.
 api.use(require('./activity').middleware);
 // Libraries added, moved or removed: watch the right folders straight away.

@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const { createHash } = require('node:crypto');
 const { q, tx } = require('../db');
 const { toBook, getBook } = require('../serialize');
 
@@ -37,11 +38,24 @@ function serverDay() {
  * local date so stats line up with the reader's own calendar.
  */
 router.put('/books/:id/progress', (req, res) => {
+  if (req.body?.eventId && req.body.accountId !== undefined && req.body.accountId !== req.user.id) return res.status(403).json({ error: 'The authenticated account changed. Sign in again before syncing.', reason: 'accountMismatch' });
   const bookId = Number(req.params.id);
   if (!getBook(bookId, req.user)) return res.status(404).json({ error: 'Book not found.' });
 
   const body = req.body || {};
-  const now = Date.now();
+  const eventId = body.eventId;
+  const row = getBook(bookId, req.user);
+  let digest;
+  if (eventId !== undefined) {
+    if (typeof eventId !== 'string' || !/^[a-zA-Z0-9-]{16,80}$/.test(eventId) ||
+        !Object.hasOwn(body, 'baseUpdatedAt') || !(body.baseUpdatedAt === null || Number.isSafeInteger(body.baseUpdatedAt)) ||
+        !Object.hasOwn(body, 'version') || body.version == null) {
+      return res.status(400).json({ error: 'Durable progress requires an event ID, source revision and expected server revision.' });
+    }
+    digest = createHash('sha256').update(JSON.stringify(body)).digest('hex');
+  }
+  const before = q('SELECT position, finished, page, percent, updated_at FROM progress WHERE user_id = ? AND book_id = ?').get(req.user.id, bookId);
+  const now = Math.max(Date.now(), (before?.updated_at || 0) + 1);
   const percent = Number.isFinite(Number(body.percent)) ? Math.min(Math.max(Number(body.percent), 0), 1) : null;
   const page = Number.isInteger(body.page) && body.page >= 0 ? body.page : null;
   const position = typeof body.position === 'string' ? body.position.slice(0, 2000) : null;
@@ -49,10 +63,8 @@ router.put('/books/:id/progress', (req, res) => {
   const day = typeof body.day === 'string' && DAY_RE.test(body.day) ? body.day : serverDay();
   const finished = body.finished === true || (percent != null && percent >= 0.999) ? 1 : null;
 
-  const before = q('SELECT finished, page, percent FROM progress WHERE user_id = ? AND book_id = ?').get(req.user.id, bookId);
   const wasFinished = Boolean(before?.finished);
   // Pages read since the last save (forwards only).
-  const row = getBook(bookId, req.user);
   const total = bookPages(row);
   let pages = 0;
   if (total) {
@@ -60,7 +72,30 @@ router.put('/books/:id/progress', (req, res) => {
     else if (percent != null) pages = Math.round((percent - (before?.percent ?? 0)) * total);
     pages = Math.max(0, Math.min(pages, MAX_PAGES_PER_SAVE));
   }
+  let response;
+  let conflict, duplicate = false;
   tx(() => {
+    if (eventId !== undefined) {
+      // Receipt, revision check, progress and additive time share the same lock.
+      const receipt = q('SELECT * FROM progress_receipts WHERE user_id = ? AND event_id = ?').get(req.user.id, eventId);
+      if (receipt) {
+        if (receipt.book_id !== bookId || receipt.digest !== digest) conflict = { error: 'This event ID was already used for a different save.', reason: 'eventMismatch' };
+        else { response = JSON.parse(receipt.response); duplicate = true; }
+        return;
+      }
+      if (body.accountId !== req.user.id) {
+        conflict = { status: 400, error: 'Update the desktop save with its verified account identity.', reason: 'accountIdentityRequired' }; return;
+      }
+      const source = q('SELECT mtime FROM books WHERE id=?').get(bookId);
+      if (!source || body.version !== source.mtime) {
+        conflict = { error: 'The book file changed. Review the source revision before syncing.', reason: 'sourceChanged' }; return;
+      }
+      const current = q('SELECT position,page,percent,finished,updated_at FROM progress WHERE user_id=? AND book_id=?').get(req.user.id, bookId);
+      if (body.baseUpdatedAt !== (current?.updated_at ?? null)) {
+        conflict = { error: 'Another client changed this reading position. Choose which position to keep.', reason: 'positionChanged',
+          progress: current ? { position: current.position, page: current.page, percent: current.percent, finished: Boolean(current.finished), updatedAt: current.updated_at } : null }; return;
+      }
+    }
     q(`INSERT INTO progress (user_id, book_id, position, page, percent, finished, started_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (user_id, book_id) DO UPDATE SET
@@ -83,11 +118,16 @@ router.put('/books/:id/progress', (req, res) => {
       q(`INSERT INTO reading_log (user_id, book_id, day, seconds, pages) VALUES (?, ?, ?, ?, ?)
          ON CONFLICT (user_id, book_id, day) DO UPDATE SET seconds = seconds + excluded.seconds, pages = pages + excluded.pages`).run(req.user.id, bookId, day, seconds, pages);
     }
+    const current = q('SELECT position, page, percent, finished, updated_at FROM progress WHERE user_id = ? AND book_id = ?').get(req.user.id, bookId);
+    response = { ok: true, finished: Boolean(current.finished), progress: { position: current.position, page: current.page, percent: current.percent, finished: Boolean(current.finished), updatedAt: current.updated_at } };
+    if (eventId !== undefined) q('INSERT INTO progress_receipts (user_id,event_id,book_id,digest,response,created_at) VALUES (?,?,?,?,?,?)').run(req.user.id,eventId,bookId,digest,JSON.stringify(response),now);
   });
+  if (conflict) return res.status(conflict.status || 409).json(conflict);
+  if (duplicate) return res.json(response);
   const p = q('SELECT page, percent, finished FROM progress WHERE user_id = ? AND book_id = ?').get(req.user.id, bookId);
   events.emit('progress.updated', { userId: req.user.id, username: req.user.username, bookId, page: p.page, percent: p.percent, finished: Boolean(p.finished) });
   if (p.finished && !wasFinished) events.emit('book.finished', { userId: req.user.id, username: req.user.username, bookId });
-  res.json({ ok: true, finished: Boolean(finished) });
+  res.json(response);
 });
 
 // Mark as read / unread.

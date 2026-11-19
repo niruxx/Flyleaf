@@ -627,6 +627,19 @@ const migrations = [
   `,
 ];
 
+// Desktop/offline saves need durable receipts: retries must not add reading time twice.
+migrations.push(`
+  CREATE TABLE progress_receipts (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    event_id TEXT NOT NULL,
+    book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    digest TEXT NOT NULL,
+    response TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, event_id)
+  );
+`);
+
 function migrate() {
   const version = db.prepare('PRAGMA user_version').get().user_version;
   for (let i = version; i < migrations.length; i++) {

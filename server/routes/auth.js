@@ -33,6 +33,7 @@ router.get('/status', (req, res) => {
   const reg = settings.get('registration') || {};
   res.json({
     needsSetup: userCount() === 0,
+    capabilities: { catalogFilters: ['language', 'format'], durableProgress: 1, nativeEpubRenditions: 1 },
     // Whether the sign-in page offers "Create an account" (and asks for an invite code).
     registration: reg.enabled ? { inviteRequired: Boolean(reg.inviteCode) } : null,
     user: req.user ? { ...publicUser(req.user), backgroundUrl: req.user.backgroundUrl } : null,

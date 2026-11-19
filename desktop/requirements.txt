@@ -1,3 +1,15 @@
 # Qt Widgets + Qt Network only. Do not substitute the PySide6 meta-package:
 # the Addons/WebEngine browser runtime is intentionally not a dependency.
 PySide6-Essentials==6.12.0
+PyMuPDF==1.26.7
+Pillow==12.1.0
+python-vlc==3.0.21203
+pyttsx3==2.99
+pywin32==312; sys_platform == 'win32'
+dbus-next==0.2.3; sys_platform == 'linux'
+winrt-Windows.Media.Interop==4.0.0; sys_platform == 'win32'
+winrt-Windows.Media==4!10.0.28000.2957; sys_platform == 'win32'
+winrt-Windows.Foundation==4!10.0.28000.2957; sys_platform == 'win32'
+winrt-Windows.Foundation.Collections==4!10.0.28000.2957; sys_platform == 'win32'
+winrt-Windows.Storage.Streams==4!10.0.28000.2957; sys_platform == 'win32'
+winrt-runtime==4.2.0; sys_platform == 'win32'

@@ -144,6 +144,7 @@ router.get('/books/:id/reader', (req, res) => {
   const annotations = q('SELECT * FROM annotations WHERE user_id = ? AND book_id = ? ORDER BY COALESCE(page, 0), created_at').all(req.user.id, row.id);
   res.json({
     book,
+    accountId: req.user.id,
     ...resolved,
     annotations: annotations.map(annotationRow),
     keybinds: req.user.prefs.keybinds,
@@ -442,6 +443,7 @@ router.post('/books/:id/cover/generated', rawImage, async (req, res) => {
 });
 
 router.get('/books/:id/cover', (req, res) => {
+  if (!getBook(req.params.id, req.user)) return res.status(404).end();
   const book = q('SELECT cover FROM books WHERE id = ?').get(Number(req.params.id));
   if (!book?.cover) return res.status(404).end();
   res.set('Cache-Control', 'private, max-age=31536000, immutable');
@@ -457,9 +459,11 @@ router.get('/books/:id/file', async (req, res) => {
   if (!book) return;
   if (isDirBook(book)) return res.status(400).json({ error: 'Not a single file.' });
   let file = book.path;
-  if (formats.CONVERTIBLE.has(book.format)) file = await formats.toEpub(book.path, book.format, book.title);
+  const native = req.query.native === 'epub' && ['fb2', 'mobi', 'azw3'].includes(book.format);
+  if (native) file = await require('../native-epub').toNativeEpub(book);
+  else if (formats.CONVERTIBLE.has(book.format)) file = await formats.toEpub(book.path, book.format, book.title);
   res.set('Cache-Control', 'private, max-age=86400');
-  res.type(FILE_MIME[book.format] || 'application/octet-stream');
+  res.type(native ? 'application/epub+zip' : FILE_MIME[book.format] || 'application/octet-stream');
   res.sendFile(file, { dotfiles: 'allow' }, (err) => err && !res.headersSent && res.status(404).end());
 });
 

@@ -22,6 +22,7 @@ function setup(t, dataDir) {
       require: (name) => {
         if (name === 'node:sqlite') return { DatabaseSync: function () { return new DatabaseSync(':memory:'); } };
         if (file.endsWith(`${path.sep}db.js`) && name === 'node:fs') return { mkdirSync() {} };
+        if (file.endsWith(`${path.sep}personal.js`) && name === 'node:fs') return { ...fs, mkdirSync() {} };
         if (name.endsWith('/config')) return { dataDir: dataDir || '<memory>', cacheDir: dataDir && path.join(dataDir, 'cache') };
         if (name.endsWith('/auth')) return auth;
         if (name.endsWith('/events')) return { emit: (...args) => events.push(args) };
@@ -56,6 +57,33 @@ function setup(t, dataDir) {
   return { ...db, load, user, request, events };
 }
 
+test('durable desktop progress receipts deduplicate time and reject concurrent or revised sources', async t => {
+  const { load, q, request, user, events } = setup(t);
+  q('UPDATE books SET mtime=77 WHERE id=1').run();
+  const router = load('server/routes/reading.js').router;
+  const body = { eventId: crypto.randomUUID(), accountId: 1, version: 77, baseUpdatedAt: null, page: 2, percent: .2, seconds: 45, day: '2026-11-18' };
+  const saved = await request(router, 'PUT', '/books/1/progress', body);
+  assert.equal(saved.status, 200);
+  assert.ok(saved.body.progress.updatedAt);
+  const count = events.length;
+  const retry = await request(router, 'PUT', '/books/1/progress', body);
+  assert.deepEqual(retry.body, saved.body);
+  assert.equal(q('SELECT SUM(seconds) AS n FROM reading_log').get().n, 45);
+  const wrongAccount = await request(router, 'PUT', '/books/1/progress', { ...body, eventId: crypto.randomUUID(), accountId: 8 });
+  assert.equal(wrongAccount.status, 403);
+  assert.equal(wrongAccount.body.reason, 'accountMismatch');
+  assert.equal(events.length, count, 'receipt replay does not emit duplicate tracking events');
+  assert.equal((await request(router, 'PUT', '/books/1/progress', { ...body, seconds: 46 })).status, 409);
+  const conflict = await request(router, 'PUT', '/books/1/progress', { ...body, eventId: crypto.randomUUID(), page: 3 });
+  assert.equal(conflict.status, 409);
+  assert.equal(conflict.body.reason, 'positionChanged');
+  const changed = await request(router, 'PUT', '/books/1/progress', { ...body, eventId: crypto.randomUUID(), version: 78 });
+  assert.equal(changed.body.reason, 'sourceChanged');
+  assert.equal(q('SELECT SUM(seconds) AS n FROM reading_log').get().n, 45);
+  const denied = await request(router, 'PUT', '/books/1/progress', body, {}, { ...user, role: 'guest', visibleLibraryIds: [] });
+  assert.equal(denied.status, 404, 'revoked permission is checked even for accepted receipts');
+});
+
 test('book languages come from each file, including mixed-language series', (t) => {
   const { q, load, user } = setup(t);
   q('UPDATE series SET language = ? WHERE id = 1').run('ja');
@@ -76,6 +104,38 @@ test('book languages come from each file, including mixed-language series', (t) 
   assert.equal(toBook(getBook(1, user), false, user).ageRating, 1);
   q('UPDATE books SET embedded = ? WHERE id = 1').run(JSON.stringify({ ageRating: 3 }));
   assert.equal(toBook(getBook(1, user), false, user).ageRating, 3, 'adult file metadata takes precedence over a teen series rating');
+});
+
+test('catalog language and format filters use visible nonmissing books and parameterized exact matching', async (t) => {
+  const { q, load, request, user } = setup(t);
+  const router = load('server/routes/series.js').router;
+  q('UPDATE series SET language = ? WHERE id = 1').run('ja');
+  q('UPDATE books SET embedded = ? WHERE id = 1').run(JSON.stringify({ language: ['en', 'fr'] }));
+  q("UPDATE books SET format = 'pdf', embedded = ? WHERE id = 2").run(JSON.stringify({ language: 'de' }));
+  const ids = async query => (await request(router, 'GET', '/series?' + query)).body.items.map(item => item.id);
+  assert.deepEqual(await ids('language=EN&format=EPUB'), [1]);
+  assert.deepEqual(await ids('language=ja'), [1]);
+  assert.deepEqual(await ids('language=de&format=pdf'), [2]);
+  assert.deepEqual(await ids('language=de&format=epub'), []);
+  assert.deepEqual(await ids('language=' + encodeURIComponent("en' OR 1=1 --")), []);
+  assert.deepEqual((await request(router, 'GET', '/series?language=en', {}, {}, { ...user, visibleLibraryIds: [] })).body.items, []);
+  q('UPDATE books SET missing = 1 WHERE id = 2').run();
+  assert.deepEqual(await ids('format=pdf'), []);
+});
+
+test('saved filters preserve language and format and remain account-owned', async (t) => {
+  const { load, request, user } = setup(t);
+  const router = load('server/routes/personal.js').router;
+  const created = await request(router, 'POST', '/filters', { name: 'French ebooks', filter: { language: 'fr', format: 'epub', unsupported: 'discard' } });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.filter.language, 'fr');
+  assert.equal(created.body.filter.format, 'epub');
+  assert.equal(created.body.filter.unsupported, undefined);
+  const id = created.body.id;
+  assert.equal((await request(router, 'PATCH', '/filters/' + id, { name: 'Renamed' })).body.name, 'Renamed');
+  assert.equal((await request(router, 'GET', '/filters', {}, {}, { ...user, id: 2 })).body.length, 0);
+  await assert.rejects(request(router, 'DELETE', '/filters/' + id, {}, {}, { ...user, id: 2 }), /Shelf not found/);
+  assert.equal((await request(router, 'DELETE', '/filters/' + id)).status, 200);
 });
 
 test('bulk metadata edits validate atomically, lock fields, and enforce ownership', async (t) => {

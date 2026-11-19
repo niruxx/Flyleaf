@@ -113,6 +113,16 @@ router.get('/series', (req, res) => {
     where.push("EXISTS (SELECT 1 FROM json_each(s.people) j WHERE lower(json_extract(j.value, '$.name')) = lower(?))");
     args.push(String(p.person));
   }
+  if (p.language) {
+    where.push(`(lower(s.language) = lower(?) OR EXISTS (
+      SELECT 1 FROM books lb, json_each(lb.embedded, '$.language') lang
+      WHERE lb.series_id = s.id AND lb.missing = 0 AND lang.type = 'text' AND lower(lang.value) = lower(?)))`);
+    args.push(String(p.language), String(p.language));
+  }
+  if (p.format) {
+    where.push('EXISTS (SELECT 1 FROM books fb WHERE fb.series_id = s.id AND fb.missing = 0 AND lower(fb.format) = lower(?))');
+    args.push(String(p.format));
+  }
   if (p.status && PUB_STATUS.includes(p.status)) {
     where.push('s.status = ?');
     args.push(p.status);

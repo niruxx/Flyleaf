@@ -130,7 +130,7 @@ router.delete('/collections/:id/items/:seriesId', (req, res) => {
 
 const FILTER_KEYS = {
   library: 'id', kind: 'str', genre: 'list', tag: 'str', userTag: 'str', person: 'str', status: 'str', userStatus: 'str',
-  want: 'flag', collection: 'id', read: 'str', sort: 'str', q: 'str',
+  want: 'flag', collection: 'id', read: 'str', sort: 'str', q: 'str', language: 'str', format: 'str',
 };
 function cleanFilter(f) {
   const out = {};
