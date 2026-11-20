@@ -13,6 +13,7 @@ const SHELL = [
   '/css/motion.css',
   '/js/motion.js',
   '/js/main.js',
+  '/js/catalog-prefs.js',
   '/js/offline.js',
   '/js/views/offline.js',
   '/js/api.js',

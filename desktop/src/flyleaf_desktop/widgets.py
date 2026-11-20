@@ -24,7 +24,7 @@ class CoverDelegate(QStyledItemDelegate):
     """Predictable cover/caption geometry while retaining native selection and focus."""
 
     def sizeHint(self, option, index) -> QSize:
-        return QSize(160, 240)
+        return self.parent().gridSize()
 
     def paint(self, painter, option, index) -> None:
         native = QStyleOptionViewItem(option)
@@ -38,7 +38,9 @@ class CoverDelegate(QStyledItemDelegate):
         style.drawControl(QStyle.ControlElement.CE_ItemViewItem, native, painter, native.widget)
         painter.save()
         area = option.rect.adjusted(6, 6, -6, -6)
-        cover = QRect(area.center().x() - 56, area.top(), 112, 160)
+        size = self.parent().iconSize()
+        width, height = size.width(), size.height()
+        cover = QRect(area.center().x() - width // 2, area.top(), width, height)
         artwork.paint(painter, cover, Qt.AlignmentFlag.AlignCenter)
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         painter.setPen(option.palette.color(QPalette.ColorRole.Text))

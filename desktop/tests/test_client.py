@@ -134,6 +134,33 @@ class NativeClientTests(unittest.TestCase):
         self.assertIsNone(self.window.user)
         self.assertTrue(self.window.login.login_button.isEnabled())
 
+    def test_catalog_preferences_apply_and_follow_the_account_after_sign_in(self):
+        self.fixture.user["prefs"] = {"catalog": {"startPage": "library", "cardSize": "compact", "sort": "author", "showCovers": False}}
+        self.sign_in()
+        library = self.window.library
+        self.assertEqual(library.sidebar.currentRow(), 1)
+        self.assertEqual(library.sort.currentData(), "author")
+        self.assertEqual(library.grid.gridSize().width(), 126)
+        self.assertFalse(any(path.endswith("/cover") for _, path, _ in self.fixture.requests))
+
+        self.window.catalog_action.trigger()
+        dialog = self.window.catalog_dialog
+        dialog.choices["cardSize"].setCurrentIndex(dialog.choices["cardSize"].findData("large"))
+        dialog.choices["startPage"].setCurrentIndex(dialog.choices["startPage"].findData("want"))
+        dialog.covers.setChecked(True)
+        dialog.save()
+        wait_for(lambda: self.window.catalog_dialog is None)
+        self.assertEqual(library.grid.gridSize().width(), 208)
+        self.assertEqual(library.sidebar.currentRow(), 1)
+        wait_for(lambda: any(path.endswith("/cover") for _, path, _ in self.fixture.requests))
+        self.assertEqual(self.fixture.user["prefs"]["catalog"], {"startPage": "want", "cardSize": "large", "sort": "author", "showCovers": True})
+
+        self.window.sign_out()
+        wait_for(lambda: self.window.user is None)
+        self.window.sign_in("reader", "test-only-password")
+        wait_for(lambda: self.window.user is not None and library.sidebar.currentRow() == 2)
+        self.assertEqual(library.grid.gridSize().width(), 208)
+
     def test_personal_storage_move_and_live_progress(self):
         source = "/data/content/reader"
         destination = "/mnt/ssd/reader"

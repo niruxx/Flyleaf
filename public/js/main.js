@@ -3,6 +3,7 @@ import { route, render, session, navigate, onRoute } from './router.js';
 import { syncThemeColor } from './ui.js';
 import { initShell, afterSignIn, refreshShell } from './shell.js';
 import { watchStorageMigration } from './components/storage-migration.js';
+import { startPage } from './catalog-prefs.js';
 import { initMotion } from './motion.js';
 import { setupView, loginView, registerView } from './views/auth.js';
 import { welcomeView } from './views/welcome.js';
@@ -105,10 +106,10 @@ async function boot() {
   if (status.needsSetup) {
     history.replaceState(null, '', '#/setup');
   } else if (!status.user && hash !== '/login' && !(hash === '/register' && status.registration)) {
-    sessionStorage.setItem('flyleaf.after-login', hash || '/');
+    sessionStorage.setItem('flyleaf.after-login', hash);
     history.replaceState(null, '', '#/login');
-  } else if (status.user && (hash === '/login' || hash === '/setup' || hash === '/register')) {
-    history.replaceState(null, '', '#/');
+  } else if (status.user && (!hash || hash === '/login' || hash === '/setup' || hash === '/register')) {
+    history.replaceState(null, '', `#${startPage(status.user)}`);
   }
   if (session.user) afterSignIn();
   render();

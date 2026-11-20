@@ -8,9 +8,11 @@ from PySide6.QtWidgets import (
 )
 
 from .api import ApiError, FlyleafApi
+from .catalog import PAGES, SORTS, catalog_prefs
 from .widgets import CoverDelegate, decode_image, label, text
 
 ROLE = Qt.ItemDataRole.UserRole
+GRID_SIZES = {"compact": ((126, 188), (84, 120)), "standard": ((160, 240), (112, 160)), "large": ((208, 294), (144, 204))}
 
 
 class LibraryPage(QWidget):
@@ -31,6 +33,8 @@ class LibraryPage(QWidget):
         self._records: list[dict] = []
         self._covers: deque = deque()
         self._cover_active = 0
+        self._show_covers = True
+        self._catalog_sort = "default"
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
         self.sidebar = QListWidget()
@@ -53,7 +57,7 @@ class LibraryPage(QWidget):
         body.addWidget(self.search)
         self.sort = QComboBox()
         self.sort.setAccessibleName("Sort series")
-        for title, value in [("Title A–Z", "name"), ("Title Z–A", "name_desc"), ("Author", "author"), ("Recently added", "added"), ("Last read", "read"), ("Recently updated", "updated")]:
+        for title, value in SORTS:
             self.sort.addItem(title, value)
         toolbar.addWidget(self.sort)
         self.read_filter = QComboBox()
@@ -157,18 +161,54 @@ class LibraryPage(QWidget):
     def start_session(self, user: dict) -> None:
         self.clear_session()
         self.user = user
-        self._mode, self._library = "home", None
+        start = catalog_prefs(user)["startPage"]
+        start_index = next((index for index, (_, mode) in enumerate(PAGES) if mode == start), 0)
+        title, self._mode = PAGES[start_index]
+        self._library = None
+        self.apply_catalog(initial=True)
         session = self._session
         self.sidebar.blockSignals(True)
-        for title, mode in [("Home", "home"), ("Library", "library"), ("Want to read", "want")]:
-            item = QListWidgetItem(title)
+        for name, mode in PAGES:
+            item = QListWidgetItem(name)
             item.setData(ROLE, (mode, None))
             self.sidebar.addItem(item)
-        self.sidebar.setCurrentRow(0)
+        self.sidebar.setCurrentRow(start_index)
         self.sidebar.blockSignals(False)
+        self.heading.setText(title)
         self.api.json("GET", "/api/libraries", lambda data: self._libraries_loaded(data, session),
                       lambda error: self.notice.setText(error.message) if session == self._session else None)
         self.refresh()
+
+    def apply_catalog(self, *, initial=False):
+        prefs = catalog_prefs(self.user)
+        grid, icon = GRID_SIZES.get(prefs["cardSize"], GRID_SIZES["standard"])
+        self.grid.setGridSize(QSize(*grid))
+        self.grid.setIconSize(QSize(*icon))
+        index = max(0, self.sort.findData(prefs["sort"]))
+        sort_changed = prefs["sort"] != self._catalog_sort
+        self._catalog_sort = prefs["sort"]
+        if initial or sort_changed:
+            self.sort.blockSignals(True)
+            self.sort.setCurrentIndex(index)
+            self.sort.blockSignals(False)
+        if initial:
+            self.read_filter.blockSignals(True)
+            self.read_filter.setCurrentIndex(0)
+            self.read_filter.blockSignals(False)
+        covers = prefs["showCovers"] is not False
+        if covers != self._show_covers:
+            self._show_covers = covers
+            self._covers.clear()
+            placeholder = self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon)
+            for row, record in enumerate(self._records):
+                item = self.grid.item(row)
+                item.setIcon(placeholder)
+                data = record["data"]
+                if covers and data.get("coverUrl") and not data.get("blur"):
+                    self._covers.append((self._generation, item, data["coverUrl"]))
+            self._pump_covers()
+        if not initial and sort_changed and self._mode == "library":
+            self._load_series(True)
 
     def clear_session(self) -> None:
         self._session += 1
@@ -424,7 +464,7 @@ class LibraryPage(QWidget):
             item.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon))
             self.grid.addItem(item)
             self._records.append(record)
-            if data.get("coverUrl") and not data.get("blur"):
+            if self._show_covers and data.get("coverUrl") and not data.get("blur"):
                 self._covers.append((generation, item, data["coverUrl"]))
         self._pump_covers()
 
@@ -439,7 +479,7 @@ class LibraryPage(QWidget):
                 if session != self._session:
                     return
                 self._cover_active -= 1
-                if token == self._generation and isinstance(payload, bytes):
+                if self._show_covers and token == self._generation and isinstance(payload, bytes):
                     try:
                         target.setIcon(QIcon(QPixmap.fromImage(decode_image(payload, thumbnail=True))))
                     except ValueError:

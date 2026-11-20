@@ -8,6 +8,7 @@ import { prefs, setPref, setTheme } from '../prefs.js';
 import { THEMES, themeState } from '../theme.js';
 import { h, icon, button, field, formError, segmented, toggleSwitch, snackbar, loading, setButtonLabel } from '../ui.js';
 import { TEXT_THEMES } from '../components/reader-settings.js';
+import { startPage } from '../catalog-prefs.js';
 
 export const STEPS = [
   { id: 'account', icon: 'person', get label() { return t('Your account'); }, admin: true },
@@ -69,7 +70,7 @@ export async function welcomeView(view) {
   async function finish() {
     session.user.prefs = { ...prefs(), onboarded: true };
     await api.savePrefs({ onboarded: true }).catch(() => {});
-    navigate('/', { replace: true });
+    navigate(startPage(session.user), { replace: true });
   }
 
   async function show(i, back = false) {

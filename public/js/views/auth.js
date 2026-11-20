@@ -4,6 +4,7 @@ import { h, icon, field, button, formError } from '../ui.js';
 import { afterSignIn } from '../shell.js';
 import { onboardFrame, STEPS } from './welcome.js';
 import { t } from '../i18n.js';
+import { startPage } from '../catalog-prefs.js';
 
 // A function: the language is only known after this file loads.
 const FEATURES = () => [
@@ -192,7 +193,7 @@ export function loginView(view) {
           afterSignIn();
           const next = sessionStorage.getItem('flyleaf.after-login');
           sessionStorage.removeItem('flyleaf.after-login');
-          setTimeout(() => navigate(next && next !== '/login' && next !== '/setup' ? next : '/', { replace: true }), 260);
+          setTimeout(() => navigate(next && next !== '/login' && next !== '/setup' ? next : startPage(session.user), { replace: true }), 260);
         } catch (e2) {
           fail(err, e2.message, root.querySelector('.auth-card'));
           submit.disabled = false;

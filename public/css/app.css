@@ -672,6 +672,21 @@ body.bare #view {
   }
 }
 
+:root[data-catalog-size='compact'] :is(.library-page, .home-page, .vol-group) .grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 96px), 1fr));
+  gap: 16px 10px;
+}
+:root[data-catalog-size='large'] :is(.library-page, .home-page, .vol-group) .grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 144px), 1fr));
+  gap: 24px 16px;
+}
+@media (min-width: 600px) {
+  :root[data-catalog-size='compact'] :is(.library-page, .home-page, .vol-group) .grid { grid-template-columns: repeat(auto-fill, minmax(126px, 1fr)); }
+  :root[data-catalog-size='large'] :is(.library-page, .home-page, .vol-group) .grid { grid-template-columns: repeat(auto-fill, minmax(208px, 1fr)); }
+}
+:root[data-catalog-size='compact'] .home-page .shelf { grid-auto-columns: 100px; }
+:root[data-catalog-size='large'] .home-page .shelf { grid-auto-columns: 160px; }
+
 .shelf {
   display: grid;
   grid-auto-flow: column;

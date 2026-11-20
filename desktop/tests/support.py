@@ -141,7 +141,11 @@ class Fixture:
             def do_PUT(self):
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))) or b"{}")
                 fixture.requests.append(("PUT", self.path, dict(self.headers)))
-                if fixture.fail_save:
+                if self.path == "/api/me/prefs":
+                    prefs = fixture.user["prefs"]
+                    prefs["catalog"] = {**prefs.get("catalog", {}), **body.get("catalog", {})}
+                    self.respond(200, prefs)
+                elif fixture.fail_save:
                     self.respond(503, {"error": "Server temporarily unavailable"})
                 elif self.path == "/api/books/1/progress":
                     fixture.saves.append(body)

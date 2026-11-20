@@ -19,6 +19,7 @@ from .image_reader import IMAGE_FORMATS, ImageReader
 from .library import LibraryPage
 from .storage import PersonalStorage
 from .widgets import text
+from .catalog import CatalogDialog
 
 
 class MainWindow(QMainWindow):
@@ -32,6 +33,7 @@ class MainWindow(QMainWindow):
         self.api = api if api is not None else FlyleafApi(self)
         self.user: dict | None = None
         self.reader: ImageReader | None = None
+        self.catalog_dialog = None
         self._open_generation = 0
         self.stack = AnimatedStack(self.appearance)
         self.setCentralWidget(self.stack)
@@ -63,6 +65,8 @@ class MainWindow(QMainWindow):
         quit_action = file_menu.addAction("&Quit", self.close)
         quit_action.setShortcut(QKeySequence.StandardKey.Quit)
         view_menu = self.app_menu.addMenu("&View")
+        self.catalog_action = view_menu.addAction("Catalog &preferences…", self.open_catalog_settings)
+        self.catalog_action.setEnabled(False)
         refresh = view_menu.addAction("&Refresh library", self.library.refresh)
         refresh.setShortcut(QKeySequence.StandardKey.Refresh)
         fullscreen = view_menu.addAction("&Fullscreen", self.toggle_fullscreen)
@@ -166,6 +170,7 @@ class MainWindow(QMainWindow):
                 return
             self.user = data["user"]
             self.sign_out_action.setEnabled(True)
+            self.catalog_action.setEnabled(True)
             self.storage_action.setEnabled(True)
             self.storage.set_user(self.user)
             self.setWindowTitle(f"Flyleaf Desktop — {text(self.user.get('displayName'), username)}")
@@ -191,13 +196,29 @@ class MainWindow(QMainWindow):
             self.stack.removeWidget(reader)
             reader.deleteLater()
         self.api.reset()
+        if self.catalog_dialog is not None:
+            self.catalog_dialog.reject()
         self.storage.set_user(None)
         self.library.clear_session()
         self.user = None
         self.sign_out_action.setEnabled(False)
+        self.catalog_action.setEnabled(False)
         self.storage_action.setEnabled(False)
         self.setWindowTitle("Flyleaf Desktop")
         self.login.password.clear()
+
+    def open_catalog_settings(self):
+        if self.user is None or self.catalog_dialog is not None:
+            return
+        dialog = CatalogDialog(self, self.api, self.user, self.library.apply_catalog)
+        self.catalog_dialog = dialog
+
+        def closed():
+            self.catalog_dialog = None
+            dialog.deleteLater()
+
+        dialog.finished.connect(closed)
+        dialog.open()
 
     def change_server(self) -> None:
         if self.reader and self.reader.has_unsaved_changes:

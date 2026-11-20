@@ -172,7 +172,10 @@ me.get('/changelog', (req, res) => {
 me.put('/prefs', (req, res) => {
   const incoming = req.body && typeof req.body === 'object' ? req.body : {};
   const next = { ...req.user.prefs };
-  for (const [k, v] of Object.entries(incoming)) if (k in auth.PREF_DEFAULTS) next[k] = v;
+  for (const [k, v] of Object.entries(incoming)) {
+    if (!Object.hasOwn(auth.PREF_DEFAULTS, k)) continue;
+    next[k] = k === 'catalog' ? auth.catalogPrefs(v, auth.catalogPrefs(next.catalog)) : v;
+  }
   // A new account finishing the welcome steps starts from today's version: "What's new" is for
   // updates that come after.
   if (incoming.onboarded === true && !next.changelogSeen) next.changelogSeen = require('../changelog').latest();

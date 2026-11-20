@@ -14,6 +14,7 @@ import { trackingSettings } from '../components/tracking-settings.js';
 import { readerSettingsForm } from '../components/reader-settings.js';
 import { signOut, refreshAvatarInShell, initShell } from '../shell.js';
 import { t, plural, N_, languages, currentLanguage, setLanguage } from '../i18n.js';
+import { CATALOG_DEFAULTS, catalogPrefs, applyCatalogPrefs } from '../catalog-prefs.js';
 
 const PANELS = [
   { group: N_('You') },
@@ -166,6 +167,7 @@ function preferencesPanel(panel) {
   panel.append(
     h('h2', t('Preferences')),
     group(languageRow()),
+    catalogSettings(),
     group(
       tog('spoilerSafe', 'visibility_off', t('Spoiler-safe series browsing'), t('Hide titles and covers beyond your current or next unread volume. Reveal individual items when you choose.')),
       tog('einkMode', 'tablet', t('E-ink interface'), t('Use a high-contrast monochrome interface, quiet backgrounds, and instant page turns. Your saved reader profiles stay intact.')),
@@ -179,6 +181,46 @@ function preferencesPanel(panel) {
     ),
   );
   if (can(session.user, 'contentFinder')) finderRecsSection(panel);
+}
+
+function catalogSettings() {
+  const user = session.user;
+  let saved = catalogPrefs(user);
+  const option = (value, label) => ({ value, label });
+  const startPage = field(t('Start page'), { value: saved.startPage, support: t('Used when you open Flyleaf without a direct link.'), options: [option('home', t('Home')), option('library', t('Library')), option('want', t('Want to read'))] });
+  const cardSize = field(t('Catalog card size'), { value: saved.cardSize, options: [option('compact', t('Compact')), option('standard', t('Standard')), option('large', t('Large'))] });
+  const sort = field(t('Default library sort'), { value: saved.sort, options: [option('default', t('Use app default')), option('name', t('Title A–Z')), option('name_desc', t('Title Z–A')), option('author', t('Author')), option('added', t('Recently added')), option('read', t('Recently read')), option('updated', t('Recently updated'))] });
+  const covers = h('input', { type: 'checkbox', checked: saved.showCovers });
+  const status = h('p.body-small', { role: 'status' });
+  const save = button(t('Save catalog preferences'), { type: 'submit' });
+  const reset = button(t('Restore defaults'), { variant: 'text', onclick: () => {
+    startPage.input.value = CATALOG_DEFAULTS.startPage;
+    cardSize.input.value = CATALOG_DEFAULTS.cardSize;
+    sort.input.value = CATALOG_DEFAULTS.sort;
+    covers.checked = CATALOG_DEFAULTS.showCovers;
+    form.requestSubmit();
+  } });
+  const form = h('form', h('h3.title-medium', t('Catalog')), group(startPage, cardSize, sort),
+    h('label.check', covers, t('Show cover art on catalog cards')), h('div.toolbar', save, reset), status);
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (save.disabled || session.user !== user) return;
+    const choices = { startPage: startPage.input.value, cardSize: cardSize.input.value, sort: sort.input.value, showCovers: covers.checked };
+    const changes = Object.fromEntries(Object.entries(choices).filter(([key, value]) => saved[key] !== value));
+    if (!Object.keys(changes).length) { status.textContent = t('Catalog preferences saved'); return; }
+    save.disabled = reset.disabled = true;
+    status.textContent = t('Saving…');
+    try {
+      const result = await api.savePrefs({ catalog: changes });
+      if (session.user !== user) return;
+      user.prefs = { ...user.prefs, catalog: result.catalog };
+      saved = catalogPrefs(user);
+      applyCatalogPrefs(user);
+      status.textContent = t('Catalog preferences saved');
+    } catch (error) { status.textContent = error.message; }
+    finally { save.disabled = reset.disabled = false; }
+  });
+  return form;
 }
 
 /** Language of the app: “Automatic” follows the browser. Saved to your account, so it follows you. */

@@ -9,6 +9,7 @@ import { seriesCard, resumeCard } from '../components/cards.js';
 import { scanIndicator } from './scan.js';
 import { refreshShell } from '../shell.js';
 import { storageNotice } from '../components/library-storage.js';
+import { catalogPrefs } from '../catalog-prefs.js';
 
 const KIND_ICON = { books: 'menu_book', manga: 'auto_stories', comics: 'photo_library' };
 
@@ -44,7 +45,7 @@ export async function homeView(view, params, stale) {
   ];
   const progress = Math.round(Math.max(0, Math.min(1, Number(current?.progress?.percent) || 0)) * 100);
   const spotlight = current ? h('a.reading-spotlight.state', { href: `#/read/${current.id}`, 'aria-label': t('Continue {title}', { title: current.series || current.title }) },
-    h('div.spotlight-art', cover(current, { showProgress: false })),
+    h('div.spotlight-art', cover(catalogPrefs(session.user).showCovers ? current : { ...current, coverUrl: null }, { showProgress: false })),
     h('div.spotlight-info',
       h('span.spotlight-kicker', icon('auto_stories'), t('On your bedside table')),
       h('h2', current.series || current.title),

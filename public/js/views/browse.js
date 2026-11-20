@@ -10,6 +10,7 @@ import { refreshShell } from '../shell.js';
 import { scanIndicator } from './scan.js';
 import { storageNotice } from '../components/library-storage.js';
 import { rescanFinderLinks, reviewFinderLinks } from '../components/finder-links.js';
+import { catalogPrefs } from '../catalog-prefs.js';
 
 const PAGE = 90;
 const SORTS = [
@@ -143,13 +144,15 @@ function browse(kind) {
     }
     if (stale()) return;
 
-    const prefKey = `browse.${kind}`;
-    const saved = JSON.parse(store.get(prefKey, 'null')) || {};
-    const restored = rememberView(currentRoute(), () => ({ state: { ...state }, scroll: window.scrollY, filtersOpen: filters.open }));
+    const prefKey = kind === 'library' ? `browse.library.${session.user?.id ?? 'guest'}` : `browse.${kind}`;
+    const saved = JSON.parse(store.get(prefKey, kind === 'library' ? store.get('browse.library', 'null') : 'null')) || {};
+    const catalog = catalogPrefs(session.user);
+    const memory = rememberView(currentRoute(), () => ({ state: { ...state }, scroll: window.scrollY, filtersOpen: filters.open, defaultSort: catalog.sort }));
+    const restored = kind !== 'library' || memory?.defaultSort === catalog.sort ? memory : null;
     const sorts = SORTS.filter((s) => !s.search || kind === 'search');
     const state = {
       // Search results start with the best matches; other lists remember the last sort.
-      sort: params.query.get('sort') || initial.sort || (kind === 'search' ? 'relevance' : saved.sort) || (kind === 'want' ? 'want' : 'name'),
+      sort: params.query.get('sort') || initial.sort || (kind === 'library' && catalog.sort !== 'default' ? catalog.sort : null) || (kind === 'search' ? 'relevance' : saved.sort) || (kind === 'want' ? 'want' : 'name'),
       letter: '',
       read: initial.read || '',
       status: initial.status || '',
@@ -362,7 +365,7 @@ function browse(kind) {
       count.textContent = data.items.length ? t('{length}{value} series', { length: data.items.length, value: data.hasMore ? '+' : '' }) : '';
       if (!state.offset && !banner.dataset.art) {
         banner.dataset.art = '1';
-        banner.setArt(data.items.filter((s) => !s.blur).map((s) => s.coverUrl));
+        if (catalog.showCovers) banner.setArt(data.items.filter((s) => !s.blur).map((s) => s.coverUrl));
         if (['genre', 'person', 'tag', 'search'].includes(kind) || (kind === 'library' && !params.id)) banner.setSub(data.items.length ? t('{length}{value} series', { length: data.items.length, value: data.hasMore ? '+' : '' }) : kind === 'search' ? null : t('Nothing yet'));
       }
       if (!data.items.length) return results.append(noResults());

@@ -9,6 +9,9 @@ export const THEMES = [
   { id: 'forest', name: 'Forest', hue: 150, chroma: 0.9 },
   { id: 'ember', name: 'Ember', hue: 40, chroma: 1.1 },
   { id: 'paper', name: 'Paper', hue: 75, chroma: 0.45 },
+  { id: 'lagoon', name: 'Lagoon', hue: 190, chroma: 0.95 },
+  { id: 'marigold', name: 'Marigold', hue: 95, chroma: 1.05 },
+  { id: 'mulberry', name: 'Mulberry', hue: 322, chroma: 0.85 },
   { id: 'dracula', name: 'Dracula', hue: 295, chroma: 1.2 },
   { id: 'graphite', name: 'Graphite', hue: 260, chroma: 0.08 },
   { id: 'midnight', name: 'Midnight (OLED)', hue: 255, chroma: 0.8, oled: true, mode: 'dark' },
@@ -39,7 +42,7 @@ export function applyTheme(partial = {}) {
     s.hue = preset.hue;
     s.chroma = preset.chroma;
     s.oled = Boolean(preset.oled);
-    if (preset.mode) s.mode = preset.mode;
+    if (preset.mode && partial.mode == null) s.mode = preset.mode;
   }
   const r = document.documentElement;
   if (s.eink) r.dataset.theme = 'light';

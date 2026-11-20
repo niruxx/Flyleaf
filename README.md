@@ -441,6 +441,7 @@ Then use **⋮ → Send to…** on any book or series.
 
 - **Profile picture:** *Settings → Account → Upload*. It's cropped to a circle around the most interesting part of the picture, and shows in the top bar and the admin's user list.
 - **Background:** *Settings → Themes → Background*. Upload a picture or animated GIF (up to 30 MB), or paste a link to one. **Dim** fades it into your theme so text stays readable, **Blur** softens it, and **Size** chooses fill, fit or tile. The bars and side menu turn frosted glass over it. Backgrounds are per user: no one else sees yours.
+- **Catalog:** *Settings → Preferences → Catalog* lets you choose a start page, card size, default library sort, and cover visibility. These settings follow your account and are also available under *View → Catalog preferences* in Flyleaf Desktop.
 
 Pictures are stored in `data/avatars` and `data/backgrounds`. Large still images are resized to 2560 px for phones; GIFs are kept as they are.
 

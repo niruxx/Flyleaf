@@ -5,6 +5,10 @@ import { h, icon, cover, markHero, onContext, timeAgo } from '../ui.js';
 import { seriesActions, bookActions } from './actions.js';
 import { languageBadge } from './language-badge.js';
 import { contentRatingBadge } from './content-rating-badge.js';
+import { session } from '../router.js';
+import { catalogPrefs } from '../catalog-prefs.js';
+
+const artwork = item => catalogPrefs(session.user).showCovers ? item : { ...item, coverUrl: null };
 
 function moreButton(onOpen) {
   return h('button.more', {
@@ -22,7 +26,7 @@ function moreButton(onOpen) {
 export function seriesCard(s, { onChange } = {}) {
   const unread = s.count != null ? s.count - (s.readCount || 0) : null;
   const finished = s.count > 0 && unread === 0;
-  const coverEl = cover({ ...s, title: s.name }, { finished, count: unread > 0 && s.count > 1 ? unread : undefined });
+  const coverEl = cover({ ...artwork(s), title: s.name }, { finished, count: unread > 0 && s.count > 1 ? unread : undefined });
   const sub = [s.authors?.[0], s.count != null ? plural(s.count, '{count} item', '{count} items', { count: s.count }) : null].filter(Boolean).join(' · ');
   const el = h('a.tile', { href: `#/series/${s.id}`, title: s.name, onclick: () => markHero(coverEl) },
     coverEl,
@@ -44,7 +48,7 @@ export function volumeCard(b, { series, onChange } = {}) {
   else if (b.pageCount) sub = t('{pageCount} pages', { pageCount: b.pageCount });
   else sub = b.format.toUpperCase();
   const el = h('a.tile', { href: `#/read/${b.id}`, title: b.title },
-    cover({ ...b, title: b.label }),
+    cover({ ...artwork(b), title: b.label }),
     moreButton((btn) => bookActions(btn, b, { series, onChange })),
     h('div.t-title', b.label),
     h('div.card-badges', languageBadge(b.language), contentRatingBadge(b)),
@@ -59,8 +63,9 @@ export function resumeCard(book) {
   const pct = Math.round((p?.percent || 0) * 100);
   const where = book.engine === 'pages' && book.pageCount && p?.page != null ? t('Page {value} of {pageCount}', { value: p.page + 1, pageCount: book.pageCount }) : `${pct}%`;
   // The cover, blurred, tints the card behind the text.
-  return h('a.resume-card', { href: `#/series/${book.seriesId}`, style: book.coverUrl && !book.blur ? { '--art': `url("${book.coverUrl}")` } : null },
-    cover({ ...book, title: book.label }, { showProgress: false }),
+  const item = artwork(book);
+  return h('a.resume-card', { href: `#/series/${book.seriesId}`, style: item.coverUrl && !book.blur ? { '--art': `url("${item.coverUrl}")` } : null },
+    cover({ ...item, title: book.label }, { showProgress: false }),
     h('div.info',
       h('div.t', book.series || book.title),
       h('div.s', book.series && book.label !== book.series ? book.label : book.author || ''),

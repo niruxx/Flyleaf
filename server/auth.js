@@ -44,6 +44,7 @@ function validateUsername(username) {
 
 const PREF_DEFAULTS = {
   home: null,
+  catalog: { startPage: 'home', cardSize: 'standard', sort: 'default', showCovers: true },
   spoilerSafe: false,
   einkMode: false,
   koboCollectionId: null,
@@ -77,6 +78,17 @@ const PREF_DEFAULTS = {
   // The newest CHANGELOG.md version you've seen in "What's new" (null: not yet).
   changelogSeen: null,
 };
+
+function catalogPrefs(value, previous = PREF_DEFAULTS.catalog) {
+  const allowed = {
+    startPage: ['home', 'library', 'want'],
+    cardSize: ['compact', 'standard', 'large'],
+    sort: ['default', 'name', 'name_desc', 'author', 'added', 'read', 'updated'],
+    showCovers: [true, false],
+  };
+  return Object.fromEntries(Object.entries(allowed).map(([key, values]) =>
+    [key, values.includes(value?.[key]) ? value[key] : previous[key]]));
+}
 
 /** What a user may do beyond reading. Admins always have everything. */
 const PERMISSION_DEFAULTS = {
@@ -133,7 +145,7 @@ function toUser(row) {
     visibleLibraryIds,
     ownLibraryIds,
     permissions: perms,
-    prefs: { ...PREF_DEFAULTS, ...prefs },
+    prefs: { ...PREF_DEFAULTS, ...prefs, catalog: catalogPrefs(prefs?.catalog) },
   };
 }
 
@@ -301,6 +313,7 @@ module.exports = {
   toUser,
   userFromApiKey,
   PREF_DEFAULTS,
+  catalogPrefs,
   PERMISSION_DEFAULTS,
   requirePermission,
   hashPassword,
