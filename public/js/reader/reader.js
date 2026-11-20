@@ -85,11 +85,7 @@ function createShell(data, tracker) {
   const top = h('div.chrome-top',
     iconButton('arrow_back', t('Close book'), () => exit()),
     h('div.titles', h('div.t', book.series && book.series !== book.label ? `${book.series} · ${book.label}` : book.title), titleSub),
-    searchBtn,
-    bookmarkBtn,
-    tocBtn,
-    fsBtn,
-    settingsBtn,
+    h('div.chrome-actions', searchBtn, bookmarkBtn, tocBtn, fsBtn, settingsBtn),
   );
 
   const slider = h('input.slider', { type: 'range', min: 0, max: 100, value: 0, step: 1, 'aria-label': t('Position in book') });

@@ -86,7 +86,11 @@ const R = [
   ['get', '/books/{id}/pages', 'Books', 'Page count of an image book (CBZ/CBR/CB7/CBT/folder)', { returns: '{ count }' }],
   ['get', '/books/{id}/pages/{n}', 'Books', 'Page image n (0-based), read straight from the archive', { query: { w: 'integer – resize to this width (100–4000)' }, returns: 'image/*' }],
   ['put', '/books/{id}/progress', 'Reading', 'Save reading position', {
-    body: { page: 'integer – 0-based page', percent: 'number 0–1', position: 'string – EPUB CFI', seconds: 'integer – time read since the last save (≤ 600)', finished: 'boolean', day: 'YYYY-MM-DD – your local date' },
+    body: { page: 'integer – 0-based page', percent: 'number 0–1', position: 'string – EPUB CFI', seconds: 'integer – time read since the last save (≤ 600)', finished: 'boolean', day: 'YYYY-MM-DD – your local date',
+      eventId: 'string – optional durable receipt ID; retry with the same body', accountId: 'integer – authenticated account ID for durable saves',
+      version: 'integer – book source revision for durable saves', baseUpdatedAt: 'integer | null – expected progress revision for durable saves',
+      timeOnly: 'boolean – add durable time without creating a reading position; omit position fields' },
+    returns: '{ ok, finished, progress } – progress may be null for a time-only save',
   }],
   ['post', '/books/{id}/finished', 'Reading', 'Mark a book read or unread', { body: { finished: 'boolean' } }],
   ['post', '/series/{id}/finished', 'Reading', 'Mark a whole series read or unread', { body: { finished: 'boolean' } }],

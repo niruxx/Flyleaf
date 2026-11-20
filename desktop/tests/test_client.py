@@ -77,11 +77,12 @@ class NativeClientTests(unittest.TestCase):
             raise AssertionError("Unexpected test cleanup path")
         shutil.rmtree(self.temp_path)
 
-    def sign_in(self, remember=False):
+    def sign_in(self, remember=False, *, fixture=None):
+        fixture = fixture or self.fixture
         if self.window.stack.currentWidget() is self.window.welcome:
             QTest.mouseClick(self.window.welcome.start_button, Qt.MouseButton.LeftButton)
         connection = self.window.connection
-        connection.address.setText(self.fixture.url)
+        connection.address.setText(fixture.url)
         QTest.mouseClick(connection.connect_button, Qt.MouseButton.LeftButton)
         wait_for(lambda: self.window.stack.currentWidget() is self.window.login)
         login = self.window.login
@@ -129,6 +130,7 @@ class NativeClientTests(unittest.TestCase):
         self.window.reader.active_clock.timer.stop()
         self.window.reader.flush_progress()
         scope = self.window.reliability.scope
+        saved_profile = self.window.current_profile["id"]
         wait_for(lambda: not self.window.local_store.events(scope))
         self.window.download_current()
         wait_for(lambda: not self.window.downloads.active, timeout=10000)
@@ -145,6 +147,18 @@ class NativeClientTests(unittest.TestCase):
         self.window.deleteLater(); APP.processEvents()
         self.window = MainWindow(QSettings(str(self.settings_path), QSettings.Format.IniFormat), vault=self.vault)
         self.window.show()
+        other_server = Fixture()
+        self.addCleanup(other_server.close)
+        other_server.capabilities["durableProgress"] = 1
+        self.sign_in(remember=True, fixture=other_server)
+        wait_for(lambda: len(self.vault.entries) == 2 and not self.window.vault_tasks.pending)
+        self.assertEqual(self.window.user["id"], self.fixture.user["id"])
+        self.assertNotEqual(self.window.reliability.scope, scope)
+        self.window.show_offline()
+        self.assertEqual(self.window.offline_dialog.books.count(), 0)
+        self.assertEqual(self.window.offline_dialog.events.count(), 0)
+        self.window.change_server()
+        self.window.select_connection_profile(saved_profile)
         self.window.show_offline()
         wait_for(lambda: self.window.user is not None and self.window.api.offline)
         self.assertEqual(self.window.reliability.scope, scope)
@@ -156,6 +170,7 @@ class NativeClientTests(unittest.TestCase):
         self.window.reconnect_reading()
         wait_for(lambda: not self.window.local_store.events(scope), timeout=10000)
         self.assertEqual(self.fixture.saves[-1]["page"], 2)
+        self.assertEqual(other_server.saves, [])
 
     def test_revoked_access_closes_reader_and_purges_offline_and_note_surfaces(self):
         self.fixture.capabilities["durableProgress"] = 1

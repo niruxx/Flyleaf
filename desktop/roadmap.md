@@ -138,44 +138,59 @@ tested progress interoperability and documented limitations. Browser fallback do
 - [x] Configurable storage budget, pinning, cleanup previews and source invalidation;
   incomplete downloads and pending reading work cannot be silently evicted.
 - [x] Local/server conflict previews and explicit keep-local/keep-server resolution,
-  preserving sampled time. Uncertain receipts and revoked access cannot be blindly rebased.
+  using the latest local checkpoint and preserving sampled time for each day.
+  Time-only replay preserves the server position or unread state. Uncertain receipts
+  and revoked access cannot be blindly rebased.
+- [x] Automated stale-write and receipt-retry coverage across desktop, browser,
+  Kobo and KOReader server routes, including preservation of native device positions.
 - [ ] Physical concurrent desktop/browser/Kobo/KOReader interoperability matrix.
 - [x] Native position history and guarded restore with source-revision and expected-position
   checks; refuse restore while local work remains pending. Server source identity is mtime.
 - [x] Checkpoint positions/time across close, expiry, crash and network loss; schema-version
   checks refuse future stores without resetting data.
+- [x] Abrupt process exit recovers committed checkpoints and prepared receipts and
+  rolls back an interrupted SQLite transaction.
 - [ ] Released-version upgrade/downgrade migration corpus and power-loss testing.
 - [x] Test account/server namespaces, vault-scoped offline unlock, revoked-access quarantine
   and protected-response identity checks; sign-out never exposes another account's cached work.
-- [ ] Physical Linux vault and multi-profile end-to-end verification.
+- [x] Native restart and profile switching with two fixture servers sharing the
+  same account/book IDs and a test vault. Offline content and replay stay on their server.
+- [ ] Physical Linux Secret Service verification through restart and profile switching.
 - [x] Searchable cross-book/per-book highlights, bookmarks and notes; Markdown/CSV,
   Readwise CSV and Obsidian ZIP exports, plus explicit token-based Readwise submission.
   Offline notes support cached search/JSON export; editing requires the server.
 - [ ] External Readwise delivery with an authorized test account (no delivery performed locally).
 - [-] Dedicated per-book notebook and richer note features as the server/API implements them.
 
-Phase 3 **core workflows are implemented**. The Windows checkpoint passes 77 native
-tests (one Linux session-bus test skipped) and a real isolated-server journey through
-durable progress, offline download/read/reconnect, annotation exports and guarded
-position restore. Physical platform/device, power-loss and released-version migration
-checks above remain pending. Local caches are not application-encrypted; offline unlock
-requires the matching previously validated OS-vault session.
+Phase 3 **implementation and local verification are complete**. The Windows
+suite and the [isolated-server journey](tools/check_disposable_server.py) cover
+durable progress, offline download/read/reconnect, concurrent progress resolution,
+annotation exports and guarded position restore. Physical validation, released-version
+migration and live Readwise delivery remain open. Offline unlock requires the matching
+previously validated OS-vault session. Local cache files rely on OS user permissions.
 
 Exit: reconnect/restart/account-switch scenarios cannot silently lose progress,
 duplicate reading time or disclose cached personal data across accounts.
 
 ## Phase 4 — Library organization and personal reading parity
 
-- [ ] Collections, smart shelves, reading lists and their ordering/editor actions.
-- [ ] Personal tags, statuses, reviews/ratings and permission-aware bulk actions.
-- [ ] Recommendations, similar books and creator/genre exploration.
-- [ ] Customizable native Home with the server's account preferences and optional local layout.
-- [ ] Reading stats, goals, streaks, history and yearly review, with accessible native charts.
-- [ ] Fits tonight with format/time filters and transparent estimate explanations.
-- [ ] Private journal: reflections/moods, reading days, highlights, edit/delete and Markdown export.
-- [ ] E-ink/high-contrast presentation and complete spoiler-safe flows across supported views.
-- [ ] Notifications and activity center, including supported retry/cancel/history operations.
-- [ ] Profile, theme, language, keyboard bindings, font selection and accessibility preferences.
+- [x] Native collections and ordered reading lists with membership editing, plus ComicRack
+  import, export and rematching. Saved filters provide smart shelves in Library.
+- [x] Personal tags, statuses and reviews/ratings, with bulk mark-as-read/unread for selected series.
+- [x] Recommendations, similar books and creator/genre exploration in My reading.
+- [x] Customize Home's continue, want, recent and updated shelves via account preferences
+  or an account-scoped desktop override. Choose shelf order, visibility, sort and card density.
+- [x] Reading stats, goals, streaks and yearly review with native charts that expose exact values.
+- [x] Fits tonight with format, available time and listening-speed filters and estimate sources.
+- [x] Private journal with reflections, moods, reading days, highlights and Markdown export.
+- [x] High-contrast e-ink presentation and explicit reveal for future titles and unread summaries
+  in the catalog. Other readers' spoiler reviews remain hidden in the native review view.
+- [x] Notifications and server activity history, including supported task/download retry and
+  download cancellation.
+- [x] Profile, theme, interface sizing, reduced motion, shared page shortcuts and native ebook
+  font-family controls.
+- [ ] Additional web Home shelf types, complete spoiler masking across secondary views,
+  desktop translation, full reader shortcut coverage and uploaded font support.
 - [-] Edition grouping, reading memory/recaps and other planned server features after their APIs land.
 
 Exit: the desktop can perform ordinary non-admin reading/organization tasks without
@@ -193,15 +208,24 @@ opening the browser, and private data/preferences agree across clients.
 - [x] Chapter-update feed and manual download of newly discovered chapters.
 - [x] Folder-source browsing with parent navigation and paginated results; file selection
   helpers and guarded duplicate in-flight submissions.
-- [ ] Source-wide check schedules, follow-from-existing-downloads sync, recommendations,
-  bulk queue operations and richer source artwork/details parity.
-- [ ] Plugin and Mihon/Suwayomi integration through the server; do not run arbitrary plugins in the UI process.
-- [ ] Upload files/folders with progress, cancellation, quota errors and interrupted-transfer recovery.
-- [ ] Original downloads and send-to-device flows with native file dialogs and safe destination handling.
-- [ ] AniList/MAL/MangaUpdates/Kitsu tracking, account state and supported import/scrobble operations.
-- [ ] Open external authentication in the system browser with a verified return flow;
-  never embed browser login or request broader credentials than the integration requires.
-- [ ] OPDS/API keys, webhook settings and Kobo/KOReader connection/setup/status views.
+- [x] Source check schedules, follow-from-existing-downloads sync, recommendations and
+  bulk retry and history cleanup through server Finder APIs.
+- [x] Admin source catalog, plugin repositories and configuration, Mihon extension management,
+  and managed Suwayomi install/start/stop/restart. The server installs and runs all sources.
+- [x] Native Finder details with metadata and server-proxied cover artwork.
+- [x] Stream files/folders to server libraries with progress, cancel, quota errors and retry.
+  Acknowledged uploads survive restart until the server scan is requested. An interrupted
+  file with an unknown outcome requires a manual check before retry.
+- [x] Stream original book downloads to an atomic local destination and send selected books
+  or series to registered email devices through the server.
+- [x] Native tracking status, connect/disconnect, score and status import, and MAL file/stack
+  import. The server handles supported progress delivery.
+- [x] AniList and MAL authorization in the system browser, with provider and server callback
+  origin checks and server-confirmed connection status. The browser needs the same Flyleaf session.
+- [x] OPDS/API key management, Kobo collection and device setup, and admin webhook management.
+- [ ] Complete source artwork parity, Mihon repository/APK/bulk tools, managed runtime
+  diagnostics and broader device status. Verify configured integrations with authorized provider accounts,
+  SMTP, webhooks, Suwayomi and physical Kobo/KOReader clients.
 
 Exit: server-supported discovery and integration workflows are available natively,
 respect permissions and explain failures without exposing credentials in logs.
@@ -274,7 +298,7 @@ developer tools or losing user data. Publish an actual tested platform matrix.
 | Surface | Initial desktop status | Completion phase |
 |---|---|---|
 | Connect / session sign-in / sign-out | Implemented with optional OS-vault sessions; Linux physical QA pending | 1 |
-| Native Home, library, search, sort, paging | Catalog filters, saved searches, full-text snippets and reader-return state implemented; custom Home pending | 1, 4 |
+| Native Home, library, search, sort, paging | Catalog filters, saved searches, reader-return state and four customizable Home shelves implemented | 1, 4 |
 | Comic/image reading and page progress | Advanced layouts/filters, annotation badges, active time and durable progress implemented | 2, 3 |
 | EPUB/KEPUB/MOBI/AZW3/FB2/documents | Native canonical-EPUB foundation and verified CFIs; conversion/layout corpus gates pending | 2 |
 | PDF and audiobook playback | MuPDF PDF, VLC audio and native OS media adapters implemented; platform/runtime packaging gates pending | 2 |
@@ -282,12 +306,12 @@ developer tools or losing user data. Publish an actual tested platform matrix.
 | Offline books/outbox/conflicts/position recovery | Durable outbox, offline cache, conflict review and account-scoped recovery implemented; platform matrix pending | 1, 3 |
 | Bookmarks/highlights/notes and exports | Reader tools, cross-book search, cached notes and native export workflows implemented | 2, 3 |
 | Per-book notebook | Depends on planned server functionality | 3 |
-| Collections, reading lists, smart shelves and tags | Saved smart-filter CRUD/apply implemented; collection/list/tag management pending | 1, 4 |
-| Ratings, reviews, recommendations and statistics | Pending | 4 |
-| Custom Home, Fits tonight, journal, e-ink and full spoiler protection | Pending beyond basic title masking | 4 |
-| Notifications and unified activity | Pending | 4 |
-| Content Finder, follows, plugins, downloads and uploads | Native search/folder browsing, server downloads/retry/cancel, follows and chapter updates implemented; advanced source controls, plugin administration and uploads pending | 5 |
-| Tracking, send-to-device, OPDS/API keys and webhooks | Pending | 5 |
+| Collections, reading lists, smart shelves and tags | Native membership editing, list ordering, ComicRack exchange, saved smart filters and personal tags | 1, 4 |
+| Ratings, reviews, recommendations and statistics | Native My reading panels, yearly review and accessible reading-time charts | 4 |
+| Custom Home, Fits tonight, journal, e-ink and spoiler protection | Core workflows implemented. Additional Home shelves and secondary-view spoiler coverage pending | 4 |
+| Notifications and unified activity | Native notification history, server tasks and supported retry/cancel actions | 4 |
+| Content Finder, follows, plugins, downloads and uploads | Native discovery, scheduling, bulk queue actions, server plugin management and streaming transfers. Advanced Mihon and artwork workflows pending | 5 |
+| Tracking, send-to-device, OPDS/API keys and webhooks | Native controls and account status implemented. Live provider and device QA pending | 5 |
 | Metadata, libraries, users, quotas, backups and server settings | Pending | 6 |
 | Planned web/server features | Track as dependencies; do not count unfinished server features as implemented parity | 3–6 |
 | Standalone installers and verified OS support | Pending | 7 |

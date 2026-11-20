@@ -52,7 +52,7 @@ export async function finderView(view, params, stale) {
       isAdmin() && button(t('Plugins'), { variant: 'text', icon: 'tune', onclick: () => navigate('/settings/plugins') })));
 
   if (!sources.length) {
-    view.append(h('div.page', head, emptyState('extension_off', t('No sources yet'), isAdmin() ? t('Install a plugin to start finding books.') : t('The admin hasn’t installed any sources yet.'),
+    view.append(h('div.page.finder', head, emptyState('extension_off', t('No sources yet'), isAdmin() ? t('Install a plugin to start finding books.') : t('The admin hasn’t installed any sources yet.'),
       isAdmin() && button(t('Install plugins'), { icon: 'extension', onclick: () => navigate('/settings/plugins') }))));
     return;
   }

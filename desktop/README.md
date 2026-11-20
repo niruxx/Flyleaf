@@ -86,9 +86,21 @@ pinning; durable progress/time replay and conflict review; position history/guar
 restore; searchable notes and native Markdown/CSV/Readwise/Obsidian exports.
 Windows SMTC and Linux MPRIS adapters provide native audiobook media controls.
 
+**My reading** in the File menu opens collections, reading lists, recommendations,
+Fits tonight, the private journal, reading charts and activity. Choose **Organize /
+review** in a series to edit its personal tags, status or review. **Home and reading
+preferences** controls the native shelves, e-ink appearance, spoiler settings and shared
+page shortcuts. Home order and density can follow the account or stay local to this desktop.
+
+The File menu also has streaming **Upload files and folders**, **Save original book**,
+and **Send to device**. Upload acknowledgments stay pending until the server scans them.
+If the connection drops before acknowledgment, check the destination before retrying
+that file. **Connections and integrations** opens tracking and supported device/key
+setup. Admin accounts also see server source management and webhooks.
+
 **Still pending:** complex EPUB compatibility, verified Windows speech word callbacks,
-physical Linux/platform and long-session QA, standalone runtime packaging, journal UI
-and remaining library, integration and administration parity.
+physical Linux/platform and long-session QA, standalone runtime packaging,
+and the remaining library, integration and administration work in the roadmap.
 This is a development preview; see [the phased roadmap](roadmap.md) and
 [native dependencies and licensing](docs/dependencies.md). MuPDF is AGPL/commercial
 licensed; the application's MIT metadata does not override dependency terms.
@@ -159,10 +171,12 @@ not automatically replayed under a different account. Unsaved displayed pages su
 session expiry in memory: signing back into the same account/server offers a choice
 between the unsaved page and the server's latest position. File-version checks guard
 unsaved-page replay. On capable servers, verified positions and time are checkpointed locally across exit
-and crash. The offline sync dialog offers explicit conflict comparison and resolution
-when another device changes progress or the source file changes. An uncertain receipt
-must be retried before rebasing; time is never added again merely because an acknowledgment
-was lost. Local caches are protected by OS user permissions, not application encryption.
+and crash. The offline sync dialog compares your latest checkpoint with the server
+position after another device saves progress or the source file changes. Return to
+the library to finish checkpointing before applying a choice for the open book.
+Keeping the server position still syncs your sampled reading time for each day.
+Retry an uncertain receipt before resolving a conflict. The server records its reading
+time once even if the acknowledgment is lost. OS user permissions protect local caches.
 Sign-out locks offline access; reopening offline requires the matching OS-vault session.
 
 The initial reader requests page images up to 2000 pixels wide. Network responses,
@@ -230,7 +244,8 @@ The current Windows checkpoint passes the native tests, screenshot review, edita
 installation and local wheel build. It was also exercised against a real isolated
 Flyleaf server, including native administrator creation, profile/password changes,
 language/format and saved filters, comic scanning, page streaming, durable progress,
-offline download/read/reconnect, annotation exports, guarded history restore and sign-out. That live check is reproducible with
+offline download/read/reconnect, concurrent progress resolution, annotation exports,
+guarded history restore and sign-out. That live check is reproducible with
 `tools/check_disposable_server.py --initialize-disposable-server` after starting a
 **new, empty loopback server** on port 8299 with its own `FLYLEAF_DATA_DIR`. The tool
 creates a test administrator and library; it refuses already configured or remote

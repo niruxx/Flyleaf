@@ -19,6 +19,7 @@ class Appearance(QObject):
         self.ui_scale = max(1.0, min(2.0, settings.value("appearance/uiScale", 1.0, type=float)))
         install_font()
         self.reduce_motion = settings.value("appearance/reduceMotion", False, type=bool)
+        self.eink = False
         self.style_hints = QApplication.styleHints()
         self.accessibility_hints = self.style_hints.accessibility()
         self.style_hints.colorSchemeChanged.connect(self.apply)
@@ -31,7 +32,13 @@ class Appearance(QObject):
     @property
     def motion_enabled(self):
         preference = self.accessibility_hints.motionPreference()
-        return not self.reduce_motion and "Reduced" not in preference.name
+        return not self.eink and not self.reduce_motion and "Reduced" not in preference.name
+
+    def set_eink(self, enabled):
+        enabled = bool(enabled)
+        if enabled != self.eink:
+            self.eink = enabled
+            self.apply()
 
     def configure(self, theme=None, reduce_motion=None, preset=None, ui_scale=None):
         if theme in ("dark", "light", "system"):
@@ -52,6 +59,10 @@ class Appearance(QObject):
     def apply(self):
         dark = self.theme == "dark" or (self.theme == "system" and self.style_hints.colorScheme() == Qt.ColorScheme.Dark)
         c = scheme(dark, self.preset)
+        if self.eink:
+            c = {role: "#ffffff" if role.startswith("surface") or role == "onPrimary" else "#000000"
+                 if role.startswith("on") or role in ("outline", "primary") else "#eeeeee" for role in c}
+            c.update(surfaceHigh="#eeeeee", surfaceHighest="#eeeeee", outlineVariant="#555555")
         self.colors = c
         bg, surface, field = c["surfaceLow"], c["surface"], c["surfaceHighest"]
         fg, muted, border = c["onSurface"], c["onSurfaceVariant"], c["outlineVariant"]

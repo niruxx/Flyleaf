@@ -28,7 +28,7 @@ async function check(route) {
   });
   try {
     await send('Runtime.enable');
-    await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await send('Emulation.setDeviceMetricsOverride', { width: route === '/reader' ? 320 : 390, height: 844, deviceScaleFactor: 1, mobile: true });
     await send('Emulation.setTouchEmulationEnabled', { enabled: true });
     await send('Page.navigate', { url: `http://127.0.0.1:8198${route}` });
     for (let i = 0; i < 160; i++) {
@@ -67,6 +67,7 @@ async function check(route) {
     assert.equal(reader.centerWorks, true);
     assert.equal(reader.visible, true);
     assert.equal(reader.menuVisible, true);
+    assert.equal(reader.chromeFits, true);
   }
   assert.ok(results.every(response => !response.errors.length), JSON.stringify(results));
   console.log(JSON.stringify(results, null, 2));

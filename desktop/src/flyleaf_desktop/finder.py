@@ -1,10 +1,11 @@
 """Native, permission-aware Content Finder; all plugin work stays on the server."""
 from urllib.parse import quote
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLineEdit, QListWidget,
     QListWidgetItem, QPlainTextEdit, QPushButton, QSplitter, QVBoxLayout, QWidget,
     QTabWidget, QCheckBox, QScrollArea)
-from .widgets import label, text
+from .widgets import decode_image, label, text
 from .material import symbol
 from .finder_activity import FinderActivity
 
@@ -28,6 +29,7 @@ class FinderPage(QWidget):
         self.folders = []
         self._queue_pending = False
         self._follow_pending = False
+        self.recommending = False
         outer = QVBoxLayout(self)
         outer.setContentsMargins(20, 20, 20, 20)
         outer.addWidget(label("Content Finder", heading=True))
@@ -53,6 +55,9 @@ class FinderPage(QWidget):
         refresh = QPushButton("Refresh sources")
         refresh.clicked.connect(self.refresh_sources)
         toolbar.addWidget(refresh)
+        recommend = QPushButton("Recommendations")
+        recommend.clicked.connect(self.recommendations)
+        toolbar.addWidget(recommend)
         self.search_toolbar = QWidget()
         self.search_toolbar.setLayout(toolbar)
         toolbar.setContentsMargins(0, 0, 0, 0)
@@ -104,6 +109,11 @@ class FinderPage(QWidget):
         body = QVBoxLayout(detail)
         self.title = label("Choose a source", heading=True, wrap=True)
         body.addWidget(self.title)
+        self.artwork = label("")
+        self.artwork.setAccessibleName("Source title cover")
+        self.artwork.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        self.artwork.hide()
+        body.addWidget(self.artwork)
         self.summary = QPlainTextEdit()
         self.summary.setReadOnly(True)
         self.summary.setAccessibleName("Finder book details")
@@ -152,12 +162,15 @@ class FinderPage(QWidget):
         self.detail_generation += 1
         self.source_generation += 1
         self.user = None
+        self.artwork.clear()
+        self.artwork.hide()
         self.activity.clear_session()
         self.folders = []
         self.folder_back.hide()
         self._queue_pending = self._follow_pending = False
         self.source = self.details = None
         self._sources = []
+        self.recommending = False
         for widget in (self.sources, self.results, self.files):
             widget.clear()
         self.target.clear()
@@ -231,11 +244,14 @@ class FinderPage(QWidget):
         return "/api/finder/" + quote(str(self.source["id"]), safe="") + "/" + suffix
 
     def _source_selected(self, item, _previous=None):
+        self.recommending = False
         self.generation += 1
         self.source_generation += 1
         self.detail_generation += 1
         self.source = item.data(ROLE) if item else None
         self.details = None
+        self.artwork.clear()
+        self.artwork.hide()
         self.folders = []; self.folder_back.hide()
         self.results.clear(); self.files.clear(); self.summary.clear()
         self.download.setEnabled(False)
@@ -271,10 +287,13 @@ class FinderPage(QWidget):
             self.notice.setText(text(self.source.get("error"), "Configure this source on your Flyleaf server before searching."))
             return
         reset = reset is not False
+        self.recommending = False
         self.generation += 1
         token = self.generation
         self.detail_generation += 1
         if reset:
+            self.artwork.clear()
+            self.artwork.hide()
             self.page = 1
             self.results.clear(); self.files.clear()
             self.details = None; self.download.setEnabled(False)
@@ -319,14 +338,20 @@ class FinderPage(QWidget):
         self.api.json("GET", self._path(suffix), loaded, failed, params=params)
 
     def _result_selected(self, item, _previous=None):
-        if not item or not self.source:
+        if not item:
             return
         record = item.data(ROLE)
+        if self.recommending:
+            self.source = record.get("_finder_source")
+        if not self.source:
+            return
         self.detail_generation += 1
         token, generation = self.detail_generation, self.generation
         self.details = None; self.files.clear(); self.download.setEnabled(False)
         self.follow.setEnabled(False)
         self.title.setText(text(record.get("title"), "Untitled"))
+        self.artwork.clear()
+        self.artwork.hide()
         if record.get("folder"):
             self.summary.setPlainText("Open this folder with Enter or a double-click to browse its contents.")
             return
@@ -338,7 +363,21 @@ class FinderPage(QWidget):
                 self.summary.setPlainText("The source returned invalid details.")
                 return
             self.details = data
-            self.summary.setPlainText(text(data.get("summary")))
+            metadata = [text(data.get(key)) for key in ("author", "status", "language", "summary")]
+            self.summary.setPlainText("\n\n".join(part for part in metadata if part))
+            cover = data.get("cover") or record.get("cover")
+            mature = (data.get("ageRating") in (2, 3) or self.source.get("nsfw"))
+            if isinstance(cover, str) and cover.startswith("/api/finder/") and not mature:
+                def artwork_loaded(raw):
+                    if token != self.detail_generation or generation != self.generation:
+                        return
+                    try:
+                        image = decode_image(raw)
+                    except ValueError:
+                        return
+                    self.artwork.setPixmap(QPixmap.fromImage(image.scaledToHeight(95, Qt.TransformationMode.SmoothTransformation)))
+                    self.artwork.show()
+                self.api.image(cover, artwork_loaded, lambda _error: None)
             for file in data["files"]:
                 if not isinstance(file, dict) or file.get("id") is None:
                     continue
@@ -349,6 +388,33 @@ class FinderPage(QWidget):
                 self.files.addItem(entry)
             self._actions()
         self.api.json("GET", self._path("details"), loaded, lambda error: self.summary.setPlainText(error.message) if token == self.detail_generation and generation == self.generation else None, params={"id": record["id"]})
+
+    def recommendations(self):
+        if not self.user:
+            return
+        self.sources.setCurrentRow(-1)
+        self._source_selected(None)
+        token = self.generation
+        self.notice.setText("Loading recommendations from your sources…")
+        def loaded(data):
+            if token != self.generation:
+                return
+            if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+                self.notice.setText("The server returned invalid recommendations.")
+                return
+            self.recommending = True
+            for row in data["items"]:
+                if not isinstance(row, dict):
+                    continue
+                item, source = row.get("item"), row.get("source")
+                if not isinstance(item, dict) or item.get("id") is None or not isinstance(source, dict) or not source.get("id"):
+                    continue
+                result = QListWidgetItem(text(item.get("title"), "Untitled") + "\n" + text(row.get("reason"), text(source.get("name"))))
+                result.setData(ROLE, {**item, "_finder_source": source})
+                self.results.addItem(result)
+            self.notice.setText(f"{self.results.count()} recommendations. Select a title for available files." if self.results.count() else "No source recommendations are available.")
+        self.api.json("GET", "/api/finder/recommendations", loaded,
+                      lambda error: self.notice.setText(error.message) if token == self.generation else None)
 
     def queue_download(self):
         if not self.details or not self.source or self._queue_pending or self.target.currentData() is None:

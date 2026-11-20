@@ -3,7 +3,7 @@ from collections import deque
 from PySide6.QtCore import QSize, Qt, QTimer, Signal, QUrl, QSignalBlocker
 from PySide6.QtGui import QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QDialog, QHBoxLayout, QLineEdit, QListView, QListWidget, QMenu, QToolButton,
+    QAbstractItemView, QComboBox, QDialog, QHBoxLayout, QLineEdit, QListView, QListWidget, QMenu, QMessageBox, QToolButton,
     QListWidgetItem, QPlainTextEdit, QPushButton, QSplitter, QStyle, QVBoxLayout, QWidget, QFrame, QScrollArea, QStackedWidget,
 )
 
@@ -13,6 +13,7 @@ from .catalog_tools import CatalogTools
 from .reading_room import RoomHero, NavigationDelegate
 from .material import symbol, ui_px
 from .finder import FinderPage
+from .home_layout import SECTIONS, ordered_home, records_for_home
 
 ROLE = Qt.ItemDataRole.UserRole
 
@@ -20,11 +21,13 @@ ROLE = Qt.ItemDataRole.UserRole
 class LibraryPage(QWidget):
     book_requested = Signal(dict)
     account_requested = Signal()
+    personal_requested = Signal()
 
-    def __init__(self, api: FlyleafApi, appearance=None):
+    def __init__(self, api: FlyleafApi, appearance=None, home_layout=lambda: {}):
         super().__init__()
         self.api = api
         self.appearance = appearance
+        self.home_layout = home_layout
         self.user: dict = {}
         self._mode = "home"
         self._library: int | None = None
@@ -38,6 +41,8 @@ class LibraryPage(QWidget):
         self._cover_active = 0
         self._restore = None
         self._revealed_titles = set()
+        self._revealed_summaries = set()
+        self._bulk_busy = False
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 8, 16, 8)
         layout.setSpacing(12)
@@ -149,7 +154,7 @@ class LibraryPage(QWidget):
         self.grid.setSpacing(8)
         self.grid.setWordWrap(True)
         self.grid.setUniformItemSizes(True)
-        self.grid.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.grid.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.grid.currentItemChanged.connect(self._selection_changed)
         self.grid.itemActivated.connect(self._activate_item)
         shelf = QWidget()
@@ -157,6 +162,10 @@ class LibraryPage(QWidget):
         shelf_layout.setContentsMargins(0, 0, 0, 0)
         shelf_layout.setSpacing(16)
         shelf_layout.addWidget(self.hero)
+        self.home_section = QComboBox()
+        self.home_section.setAccessibleName("Home shelf")
+        self.home_section.currentIndexChanged.connect(self.refresh)
+        shelf_layout.addWidget(self.home_section)
         shelf_layout.addWidget(self.grid, 1)
         splitter.addWidget(shelf)
         detail = QFrame()
@@ -185,6 +194,10 @@ class LibraryPage(QWidget):
         self.summary.setAccessibleName("Series summary")
         self.summary.setMaximumHeight(95)
         details.addWidget(self.summary)
+        self.reveal_summary = QPushButton("Reveal unread summary")
+        self.reveal_summary.clicked.connect(self._reveal_summary)
+        self.reveal_summary.hide()
+        details.addWidget(self.reveal_summary)
         self.books = QListWidget()
         self.books.setObjectName("volumeList")
         self.books.setAccessibleName("Books and volumes in this series")
@@ -208,6 +221,10 @@ class LibraryPage(QWidget):
         self.finished_button.setEnabled(False)
         self.finished_button.clicked.connect(self._toggle_finished)
         details.addWidget(self.finished_button)
+        self.personal_button = QPushButton("Organize / review…")
+        self.personal_button.setEnabled(False)
+        self.personal_button.clicked.connect(self.personal_requested)
+        details.addWidget(self.personal_button)
         self.detail_notice = label("", wrap=True)
         details.addWidget(self.detail_notice)
         self.detail_scroll = QScrollArea()
@@ -224,7 +241,18 @@ class LibraryPage(QWidget):
         bottom = QHBoxLayout()
         self.count = label("")
         bottom.addWidget(self.count)
+        self.bulk_notice = label("", wrap=True)
+        bottom.addWidget(self.bulk_notice, 1)
         bottom.addStretch()
+        selection_menu = QToolButton()
+        selection_menu.setText("Selected series")
+        selection_menu.setToolTip("Select multiple series with Ctrl or Shift.")
+        selection_menu.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(selection_menu)
+        for title, finished in (("Mark selected series as read…", True), ("Mark selected series as unread…", False)):
+            menu.addAction(title, lambda checked=False, value=finished: self.bulk_finished(value))
+        selection_menu.setMenu(menu)
+        bottom.addWidget(selection_menu)
         self.more_button = QPushButton("Load more")
         self.more_button.clicked.connect(lambda: self._load_series(False))
         self.more_button.hide()
@@ -234,8 +262,10 @@ class LibraryPage(QWidget):
             appearance.changed.connect(self.sync_ui_scale)
 
     def sync_ui_scale(self):
-        self.grid.setGridSize(QSize(ui_px(184), ui_px(286)))
-        self.grid.setIconSize(QSize(ui_px(112), ui_px(160)))
+        compact_home = self._mode == "home" and self.home_layout().get("compact") is True
+        width, height, art_width, art_height = (148, 236, 90, 136) if compact_home else (184, 286, 112, 160)
+        self.grid.setGridSize(QSize(ui_px(width), ui_px(height)))
+        self.grid.setIconSize(QSize(ui_px(art_width), ui_px(art_height)))
         self.detail_scroll.setMinimumWidth(ui_px(240))
         self.detail_scroll.setMaximumWidth(ui_px(350))
         self.resizeEvent(None)
@@ -247,7 +277,7 @@ class LibraryPage(QWidget):
         self.rail.setFixedWidth(ui_px(76 if compact else 204))
         self.nav_caption.setVisible(not compact)
         self.account_button.setText("" if compact else "My account")
-        self.hero.setVisible(self._mode == "home" and self.height() >= ui_px(650))
+        self.hero.setVisible(self._mode == "home" and self.home_layout().get("hero") is not False and self.height() >= ui_px(650))
 
     def start_session(self, user: dict, capabilities=None) -> None:
         self.clear_session()
@@ -274,7 +304,13 @@ class LibraryPage(QWidget):
 
     def clear_session(self) -> None:
         self._revealed_titles.clear()
+        self._revealed_summaries.clear()
+        self._bulk_busy = False
+        self.bulk_notice.clear()
         self.reveal_title.hide()
+        self.reveal_summary.hide()
+        with QSignalBlocker(self.home_section):
+            self.home_section.clear()
         # Clearing navigation can emit a transient current-item change. Revoke
         # the account before any widget signals can start another request.
         self.user = {}
@@ -351,8 +387,9 @@ class LibraryPage(QWidget):
         if not self.user:
             return
         self.hero.hide()
+        self.home_section.hide()
         self._restore = None
-        if self._mode == "home":
+        if self._mode in ("home", "series"):
             self._mode, self._library = "library", None
             self.sidebar.blockSignals(True)
             self.sidebar.setCurrentRow(1)
@@ -374,6 +411,7 @@ class LibraryPage(QWidget):
 
     def _apply_saved_query(self, query):
         self.hero.hide()
+        self.home_section.hide()
         self._library = query.get("library")
         self._mode = "want" if query.get("want") else "library"
         with QSignalBlocker(self.search), QSignalBlocker(self.sort), QSignalBlocker(self.read_filter), QSignalBlocker(self.scope):
@@ -432,14 +470,40 @@ class LibraryPage(QWidget):
     def refresh(self) -> None:
         if not self.user:
             return
-        self.hero.setVisible(self._mode == "home" and self.height() >= ui_px(650))
+        self.sync_ui_scale()
+        self.home_section.setVisible(self._mode == "home")
         if self._mode == "finder":
             self.finder.refresh_sources()
+            return
+        if self._mode == "series":
+            series_id = self._library
+            generation = self._begin_load()
+            def loaded(data):
+                if generation != self._generation:
+                    return
+                if not isinstance(data, dict) or data.get("id") != series_id:
+                    self._load_error(ApiError("The server returned invalid series details."), generation)
+                    return
+                self.heading.setText(text(data.get("name"), "Series"))
+                self.notice.clear()
+                self._append_records([{"kind": "series", "data": data}], generation)
+                self.grid.setCurrentRow(0)
+            self.api.json("GET", f"/api/series/{series_id}", loaded, lambda error: self._load_error(error, generation))
             return
         if self._mode != "home":
             self._load_series(True)
             return
         self.heading.setText("Welcome back, " + text(self.user.get("displayName"), text(self.user.get("username"), "reader")))
+        home = self.home_layout()
+        with QSignalBlocker(self.home_section):
+            selected = self.home_section.currentData()
+            self.home_section.clear()
+            self.home_section.addItem("All Home shelves", None)
+            hidden = home.get("hidden") if isinstance(home.get("hidden"), list) else []
+            for key in ordered_home(home):
+                if key in SECTIONS and key not in hidden:
+                    self.home_section.addItem(SECTIONS[key][0], key)
+            self.home_section.setCurrentIndex(max(0, self.home_section.findData(selected)))
         generation = self._begin_load()
 
         def loaded(data: object) -> None:
@@ -448,13 +512,12 @@ class LibraryPage(QWidget):
             if not isinstance(data, dict) or not isinstance(data.get("continueReading"), list) or not isinstance(data.get("recentlyAdded"), list):
                 self._load_error(ApiError("The server returned an invalid home page."), generation)
                 return
-            self.notice.setText("Continue reading, followed by recently added series. Select an item for details.")
-            records = [{"kind": "book", "data": book} for book in data["continueReading"] if isinstance(book, dict)]
-            records += [{"kind": "series", "data": series} for series in data["recentlyAdded"] if isinstance(series, dict)]
+            self.notice.setText("Select an item for details.")
+            records = records_for_home(data, home, self.home_section.currentData())
             self._append_records(records, generation)
             self.count.setText(f"{len(records)} items")
             if not records:
-                self.notice.setText("No books yet. Add a library on your Flyleaf server, then refresh.")
+                self.notice.setText("No books in this Home selection.")
             self._has_more = False
             self._restore_selection()
         self.api.json("GET", "/api/home", loaded, lambda error: self._load_error(error, generation))
@@ -475,6 +538,53 @@ class LibraryPage(QWidget):
         self.count.clear()
         self.more_button.hide()
         return self._generation
+
+    @property
+    def selected_series(self):
+        return self._series
+
+    def inspect_series(self, series):
+        if not self.user or type(series.get("id")) is not int:
+            return
+        with QSignalBlocker(self.sidebar), QSignalBlocker(self.search):
+            self.sidebar.setCurrentRow(1)
+            self.search.clear()
+        self.content.setCurrentWidget(self.surface)
+        self._mode, self._library = "series", series["id"]
+        self._has_more = False
+        self._restore = None
+        self.refresh()
+
+    def bulk_finished(self, finished):
+        if not self.user or self._bulk_busy:
+            return
+        ids = [item.data(ROLE)["data"]["id"] for item in self.grid.selectedItems() if item.data(ROLE)["kind"] == "series"]
+        if not ids:
+            self.bulk_notice.setText("Select one or more series from the catalog.")
+            return
+        session = self._session
+        state = "read" if finished else "unread"
+        if QMessageBox.question(self, "Update reading state", f"Mark all books in {len(ids)} selected series as {state}?") != QMessageBox.StandardButton.Yes or session != self._session:
+            return
+        self._bulk_busy = True
+        self.bulk_notice.setText("Updating selected series…")
+        pending = deque(ids)
+        failed = []
+        def send_next():
+            if session != self._session:
+                return
+            if not pending:
+                self._bulk_busy = False
+                self.bulk_notice.setText(f"{len(ids) - len(failed)} series updated." + (f" {len(failed)} failed. {failed[0]}" if failed else ""))
+                self.refresh_preserving(self.capture_state())
+                return
+            def done(_data):
+                QTimer.singleShot(0, send_next)
+            def failure(error):
+                failed.append(error.message)
+                QTimer.singleShot(0, send_next)
+            self.api.json("POST", f"/api/series/{pending.popleft()}/finished", done, failure, {"finished": finished})
+        send_next()
 
     def _load_series(self, reset: bool) -> None:
         if self.scope.currentData() == "fulltext":
@@ -563,6 +673,8 @@ class LibraryPage(QWidget):
             self.api.image(path, done, lambda _error, callback=done: callback())
 
     def _selection_changed(self, item: QListWidgetItem | None, _previous=None) -> None:
+        self.personal_button.setEnabled(False)
+        self.reveal_summary.hide()
         self.detail_scroll.verticalScrollBar().setValue(0)
         self._detail_generation += 1
         token = self._detail_generation
@@ -597,17 +709,31 @@ class LibraryPage(QWidget):
                 self.detail_notice.setText("The server returned invalid series details.")
                 return
             self._series = series
+            self.personal_button.setEnabled(True)
             self.detail_title.setText(text(series.get("name"), "Untitled"))
             authors = series.get("authors") or []
             self.detail_meta.setText(" · ".join([text(author) for author in authors[:3]] + [f"{len(series['books'])} items"]))
-            self.summary.setPlainText(text(series.get("summary")))
             snippets = [text(hit.get("snippet")).replace("\x01", "").replace("\x02", "") for hit in record.get("hits", []) if isinstance(hit, dict)]
-            if snippets:
+            prefs = self.user.get("prefs") or {}
+            hidden = (prefs.get("spoilerSafe") or prefs.get("blurUnreadSummaries")) and not series.get("progress") and not series.get("readCount")
+            hidden = hidden and series_id not in self._revealed_summaries
+            self.reveal_summary.setVisible(bool(hidden and (series.get("summary") or snippets)))
+            if hidden:
+                self.summary.clear()
+            elif snippets:
                 self.summary.setPlainText("Matching passages\n\n" + "\n\n".join(snippets))
+            else:
+                self.summary.setPlainText(text(series.get("summary")))
             self._set_metadata_links(series.get("links", []))
             self._show_books(series["books"], data.get("id") if record["kind"] == "book" else series.get("nextBookId"))
         self.api.json("GET", f"/api/series/{series_id}", loaded,
                       lambda error: self.detail_notice.setText(error.message) if token == self._detail_generation else None)
+
+    def _reveal_summary(self):
+        if self._series.get("id"):
+            self._revealed_summaries.add(self._series["id"])
+            self.reveal_summary.hide()
+            self.summary.setPlainText(text(self._series.get("summary")))
 
     def _show_books(self, books: list[dict], selected: int | None) -> None:
         if self._restore and any(book.get("id") == self._restore["volume"] for book in books if isinstance(book, dict)):

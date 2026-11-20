@@ -2,7 +2,7 @@ from collections.abc import Callable
 from datetime import date
 
 from PySide6.QtCore import Qt, QTimer, QEvent
-from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QComboBox, QHBoxLayout, QInputDialog, QPushButton, QScrollArea, QVBoxLayout, QWidget, QFrame, QSizePolicy, QToolButton, QMenu,
 )
@@ -118,15 +118,22 @@ class ImageReader(QWidget):
         self.save_timer.setInterval(500)
         self.save_timer.timeout.connect(self.flush_progress)
         self.shortcuts: list[QShortcut] = []
-        for key, callback in [
-            (Qt.Key.Key_Right, lambda: self.move(-1 if self.direction.currentData() == "rtl" else 1)),
-            (Qt.Key.Key_Left, lambda: self.move(1 if self.direction.currentData() == "rtl" else -1)),
-            (Qt.Key.Key_PageDown, lambda: self.move(1)), (Qt.Key.Key_PageUp, lambda: self.move(-1)),
-            (Qt.Key.Key_Home, lambda: self.show_page(0)), (Qt.Key.Key_End, lambda: self.show_page(self.total - 1)),
-        ]:
-            shortcut = QShortcut(QKeySequence(key), self)
+        from .reader_keys import page_keys
+        motions = {
+            "pageRight": lambda: self.move(-1 if self.direction.currentData() == "rtl" else 1),
+            "pageLeft": lambda: self.move(1 if self.direction.currentData() == "rtl" else -1),
+            "next": lambda: self.move(1), "prev": lambda: self.move(-1),
+            "first": lambda: self.show_page(0), "last": lambda: self.show_page(self.total - 1),
+        }
+        used = set()
+        for action, sequence in page_keys(data.get("keybinds")):
+            key = sequence.toString()
+            if key in used:
+                continue
+            used.add(key)
+            shortcut = QShortcut(sequence, self)
             shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-            shortcut.activated.connect(callback)
+            shortcut.activated.connect(motions[action])
             self.shortcuts.append(shortcut)
         self._navigation()
         from .reader_tools import ReaderTools

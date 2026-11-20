@@ -85,7 +85,10 @@ class Reliability(QObject):
             self.changed.emit()
             return
         clocks = self.store.db.execute("SELECT 1 FROM clocks WHERE scope=? AND book=? AND seconds>0", (self.scope, reader.book["id"])).fetchone()
-        if reader._pending is None and not clocks:
+        if reader._pending is None:
+            if clocks:
+                self.store.enqueue(self.scope, reader.book["id"], {})
+                self.changed.emit()
             return
         if reader.book.get("format") == "audio":
             reader.queue_position()
@@ -98,7 +101,7 @@ class Reliability(QObject):
         else:
             if reader._image is None or not reader.total:
                 return
-            body = reader.progress_body(reader._pending if reader._pending is not None else reader.page)
+            body = reader.progress_body(reader._pending)
         if body:
             self.store.enqueue(self.scope, reader.book["id"], body)
             reader._pending = None
@@ -117,13 +120,9 @@ class Reliability(QObject):
             return None
         if suffix == "reader":
             data = json.loads(row["data"])
-            bodies = [json.loads(e["body"]) for e in self.store.events(self.scope) if e["book"] == book]
-            draft = self.store.db.execute("SELECT body FROM drafts WHERE scope=? AND book=?", (self.scope, book)).fetchone()
-            if draft:
-                bodies.append(json.loads(draft["body"]))
-            latest = next((body for body in reversed(bodies) if any(k in body for k in ("position", "page", "percent"))), None)
+            latest = self.store.pending_position(self.scope, book)
             if latest:
-                data["book"]["progress"] = {k: latest[k] for k in ("position", "page", "percent") if k in latest}
+                data["book"]["progress"] = latest
             return data
         raw = self.store.get_asset(self.scope, book, path)
         return json.loads(raw) if raw is not None and json_response else raw
@@ -171,7 +170,10 @@ class Reliability(QObject):
             if epoch != self.epoch:
                 return
             self.busy = False
-            if not isinstance(result, dict) or not isinstance(result.get("progress"), dict) or not isinstance(result["progress"].get("updatedAt"), int):
+            progress = result.get("progress") if isinstance(result, dict) else None
+            has_revision = isinstance(progress, dict) and type(progress.get("updatedAt")) is int
+            no_position = isinstance(result, dict) and "progress" in result and progress is None and body.get("timeOnly") is True
+            if not (has_revision or no_position):
                 self.store.fail(event, "The server did not acknowledge a durable progress revision.", {"reason": "unsupported"})
             else:
                 self.store.acknowledge(event, result)
@@ -248,9 +250,11 @@ class ActiveClock(QObject):
             reader = self.reader
             if reader.book.get("format") == "audio":
                 reader.queue_position()
-            elif not getattr(reader, "_reflowable", False) or getattr(reader, "_writes_enabled", False) and reader.current_locator():
-                reader._pending = reader.page
-            reader.flush_progress()
+            if reader._pending is not None:
+                reader.flush_progress()
+            elif not reader._saving:
+                self.service.capture(reader)
+                self.service.pump()
 
     def stop(self):
         self.tick()

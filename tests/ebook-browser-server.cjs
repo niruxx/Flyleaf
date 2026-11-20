@@ -31,6 +31,7 @@ http.createServer(async (req,res)=>{
   if(p==='/race'||p==='/reader'||p==='/reader-slide'){res.setHeader('Content-Type','text/html');res.end(html(p.startsWith('/reader')?p.slice(1):url.searchParams.has('raw')?'raw':'patched'));return;}
   if(p==='/vendor/foliate/paginator.js'||p==='/vendor/raw/paginator.js'){res.setHeader('Content-Type','text/javascript');res.end(p.includes('/raw/')?upstream:patched);return;}
   if(/^\/api\/books\/[12]\/file$/.test(p)){res.setHeader('Content-Type','application/epub+zip');res.end(await book);return;}
+  if(p==='/api/series/1'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({books:[{id:1},{id:2,progress:{finished:true}}]}));return;}
   if(p.startsWith('/api/')){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(/^\/api\/books\/[12]\/reader$/.test(p)?{book:{id:p.includes('/2/')?2:1,title:'Mobile reader regression',label:'Test book',format:'epub',engine:'text',kind:'books',version:1,seriesId:1},settings:{...defaults,pageTurn:p.includes('/2/')?'slide':'book'},annotations:[],keybinds:null,profile:{name:'Test'}}:p==='/api/fonts'?[]:{ok:true}));return;}
   let file;
   if(p==='/tests/ebook-browser-fixture.js')file=path.join(__dirname,'ebook-browser-fixture.js');

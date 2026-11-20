@@ -46,5 +46,10 @@ export async function run(mode) {
   }
   // Finish concurrent taps before checking the restored page and menu.
   await wait(700);if(root.classList.contains('chrome-hidden'))tap(.5);
-  return {mode,calls,chapters:[...chapters],centerWorks,visible,menuVisible:!root.classList.contains('chrome-hidden'),text:view.renderer.getContents()[0]?.doc?.body?.textContent.slice(0,100)};
+  const titleWidth = root.querySelector('.chrome-top .titles').getBoundingClientRect().width;
+  const chromeFits = titleWidth >= 90 && [...root.querySelectorAll('.chrome-top button:not([hidden])')].every(button => {
+    const { left, right } = button.getBoundingClientRect();
+    return left >= 0 && right <= innerWidth;
+  });
+  return {mode,calls,chapters:[...chapters],centerWorks,visible,chromeFits,menuVisible:!root.classList.contains('chrome-hidden'),text:view.renderer.getContents()[0]?.doc?.body?.textContent.slice(0,100)};
 }

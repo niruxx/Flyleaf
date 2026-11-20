@@ -11,7 +11,7 @@ function setup(t, dataDir) {
   const cache = new Map();
   const events = [];
   const user = { id: 1, username: 'reader', role: 'admin', visibleLibraryIds: [1], permissions: { download: true, apiAccess: true }, prefs: { koboCollectionId: 1 }, apiKey: { id: 1, scope: 'full' } };
-  const auth = { userFromApiKey: (key) => key === 'full-access-key-123456789' ? user : key === 'read-access-key-123456789' ? { ...user, apiKey: { id: 2, scope: 'read' } } : null,
+  const auth = { toUser: () => user, userFromApiKey: (key) => key === 'full-access-key-123456789' ? user : key === 'read-access-key-123456789' ? { ...user, apiKey: { id: 2, scope: 'read' } } : null,
     requireAdmin: (req, res, next) => req.user.role === 'admin' ? next() : res.status(403).json({ error: 'Admin only' }), requirePermission: () => (req, res, next) => next() };
   function load(file) {
     file = path.resolve(file);
@@ -82,6 +82,77 @@ test('durable desktop progress receipts deduplicate time and reject concurrent o
   assert.equal(q('SELECT SUM(seconds) AS n FROM reading_log').get().n, 45);
   const denied = await request(router, 'PUT', '/books/1/progress', body, {}, { ...user, role: 'guest', visibleLibraryIds: [] });
   assert.equal(denied.status, 404, 'revoked permission is checked even for accepted receipts');
+});
+
+test('desktop retries and time-only conflict resolution preserve browser, Kobo and KOReader positions', async t => {
+  const { load, q, request, events } = setup(t);
+  q('UPDATE books SET mtime=77 WHERE id=1').run();
+  const reading = load('server/routes/reading.js').router;
+  const { router: kobo, uuid } = load('server/kobo.js');
+  const kosync = load('server/kosync.js').router;
+  const path = '/books/1/progress';
+  const key = 'full-access-key-123456789';
+  const koboPath = '/' + key + '/v1/library/' + uuid(1) + '/state';
+  const headers = { 'x-auth-user': 'reader', 'x-auth-key': crypto.createHash('md5').update(key).digest('hex') };
+  const document = crypto.createHash('md5').update('1.epub').digest('hex');
+  const deviceBookmark = { Value: 'native', Type: 'KoboSpan', Source: 'Kobo' };
+  const nativePosition = '/body/DocFragment[1]/body/p[1]/text().0';
+  const writers = [
+    () => request(reading, 'PUT', path, { percent: .35 }),
+    () => request(kobo, 'PUT', koboPath, { ReadingStates: [{ CurrentBookmark: { ProgressPercent: 35, Location: deviceBookmark } }] }),
+    () => request(kosync, 'PUT', '/syncs/progress', { document, progress: nativePosition, percentage: .35, device_id: 'test-reader' }, headers),
+  ];
+  let revision = null;
+  for (const write of writers) {
+    const durable = { eventId: crypto.randomUUID(), accountId: 1, version: 77, baseUpdatedAt: revision, day: '2026-11-18' };
+    const accepted = { ...durable, percent: .15, seconds: 10 };
+    const saved = await request(reading, 'PUT', path, accepted);
+    assert.equal(saved.status, 200);
+    assert.equal((await write()).status, 200);
+    const stale = await request(reading, 'PUT', path, { ...accepted, eventId: crypto.randomUUID(), baseUpdatedAt: saved.body.progress.updatedAt });
+    assert.equal(stale.status, 409);
+    assert.equal(stale.body.reason, 'positionChanged');
+    assert.equal(stale.body.progress.percent, .35);
+    assert.deepEqual((await request(reading, 'PUT', path, accepted)).body, saved.body);
+
+    revision = stale.body.progress.updatedAt;
+    const timeOnly = { ...durable, eventId: crypto.randomUUID(), baseUpdatedAt: revision, seconds: 20 };
+    const eventCount = events.length;
+    const merged = await request(reading, 'PUT', path, timeOnly);
+    assert.deepEqual(merged.body.progress, stale.body.progress);
+    assert.deepEqual((await request(reading, 'PUT', path, timeOnly)).body, merged.body);
+    assert.equal(events.length, eventCount);
+    if (write === writers[1]) {
+      const state = await request(kobo, 'GET', koboPath);
+      assert.deepEqual({ ...state.body[0].CurrentBookmark.Location }, deviceBookmark);
+    }
+  }
+  const native = await request(kosync, 'GET', '/syncs/progress/' + document, {}, headers);
+  assert.equal(native.body.progress, nativePosition);
+  assert.equal(native.body.device_id, 'test-reader');
+  assert.equal(q('SELECT SUM(seconds) AS n FROM reading_log').get().n, 90);
+
+  const prior = Date.now() + 60_000;
+  const series = load('server/routes/series.js').router;
+  for (const [router, finishPath] of [[reading, '/books/1/finished'], [series, '/series/1/finished']]) {
+    q('UPDATE progress SET updated_at = ? WHERE book_id = 1').run(prior);
+    assert.equal((await request(router, 'POST', finishPath, { finished: true })).status, 200);
+    const stale = await request(reading, 'PUT', path, { eventId: crypto.randomUUID(), accountId: 1, version: 77,
+      baseUpdatedAt: prior, percent: .15 });
+    assert.equal(stale.body.reason, 'positionChanged');
+    assert.equal(stale.body.progress.updatedAt, prior + 1);
+    assert.equal(stale.body.progress.finished, true);
+  }
+
+  assert.equal((await request(reading, 'POST', '/books/1/finished', { finished: false })).status, 200);
+  const timeOnly = { eventId: crypto.randomUUID(), accountId: 1, version: 77, baseUpdatedAt: null,
+    day: '2026-11-18', seconds: 15, timeOnly: true };
+  const saved = await request(reading, 'PUT', path, timeOnly);
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.progress, null);
+  assert.deepEqual((await request(reading, 'PUT', path, timeOnly)).body, saved.body);
+  assert.equal(q('SELECT COUNT(*) AS n FROM progress').get().n, 0);
+  assert.equal(q('SELECT SUM(seconds) AS n FROM reading_log').get().n, 105);
 });
 
 test('book languages come from each file, including mixed-language series', (t) => {

@@ -318,7 +318,8 @@ function setSeriesFinished(userId, seriesId, finished) {
     for (const id of ids) {
       if (finished) {
         q(`INSERT INTO progress (user_id, book_id, percent, finished, started_at, updated_at) VALUES (?, ?, 1, 1, ?, ?)
-           ON CONFLICT (user_id, book_id) DO UPDATE SET finished = 1, percent = 1, updated_at = excluded.updated_at`).run(userId, id, now, now);
+           ON CONFLICT (user_id, book_id) DO UPDATE SET finished = 1, percent = 1,
+           updated_at = MAX(progress.updated_at + 1, excluded.updated_at)`).run(userId, id, now, now);
       } else {
         q('DELETE FROM progress WHERE user_id = ? AND book_id = ?').run(userId, id);
       }

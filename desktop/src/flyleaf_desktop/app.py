@@ -4,11 +4,12 @@ import argparse
 import json
 import sqlite3
 from pathlib import Path
+import re
 import sys
 
 from PySide6.QtCore import QEvent, QSettings, QTimer, QUrl, Qt, QStandardPaths
 from PySide6.QtGui import QActionGroup, QDesktopServices, QIcon, QImageReader, QKeySequence, QShortcut
-from PySide6.QtWidgets import QApplication, QMainWindow, QMenu, QMessageBox, QPushButton
+from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMainWindow, QMenu, QMessageBox, QPushButton, QTabWidget, QVBoxLayout
 
 from . import __version__
 from .api import ApiError, FlyleafApi
@@ -31,6 +32,10 @@ from .local_store import LocalStore
 from .reliability import Reliability, ActiveClock
 from .offline import Downloads, OfflineDialog
 from .personal_data import AnnotationsDialog
+from .personal_workspace import PersonalWorkspace
+from .transfers import DevicesPanel, UploadPanel
+from .integrations import KeysPanel, SourcesPanel, TrackingPanel, WebhooksPanel
+from .home_layout import HomeLayoutPanel
 
 
 class MainWindow(QMainWindow):
@@ -68,8 +73,40 @@ class MainWindow(QMainWindow):
         self.personalize = PersonalizePage(self.appearance)
         self.connection = ConnectionPage(self.settings)
         self.login = LoginPage()
-        self.library = LibraryPage(self.api, self.appearance)
+        self.library = LibraryPage(self.api, self.appearance, self.home_layout_value)
         self.annotations_dialog = AnnotationsDialog(self.api, self)
+        self.personal_dialog = QDialog(self)
+        self.personal_dialog.setWindowTitle("My reading")
+        self.personal_dialog.resize(930, 730)
+        self.personal = PersonalWorkspace(self.api)
+        QVBoxLayout(self.personal_dialog).addWidget(self.personal)
+        self.personal.book_requested.connect(self._open_personal_book)
+        self.personal.series_requested.connect(self._open_personal_series)
+        self.personal.sync_requested.connect(self.show_offline)
+        self.library.personal_requested.connect(lambda: self.show_personal("series"))
+        self.transfer_dialog = QDialog(self)
+        self.transfer_dialog.resize(780, 580)
+        self.upload_panel = UploadPanel(self.api, self.settings, lambda: self.reliability.scope)
+        self.devices_panel = DevicesPanel(self.api)
+        layout = QVBoxLayout(self.transfer_dialog)
+        layout.addWidget(self.upload_panel)
+        layout.addWidget(self.devices_panel)
+        self.original_download = None
+        self.integrations_dialog = QDialog(self)
+        self.integrations_dialog.setWindowTitle("Connections and integrations")
+        self.integrations_dialog.resize(810, 560)
+        self.integration_tabs = QTabWidget()
+        QVBoxLayout(self.integrations_dialog).addWidget(self.integration_tabs)
+        self.integration_panels = (TrackingPanel(self.api), KeysPanel(self.api), SourcesPanel(self.api), WebhooksPanel(self.api))
+        for caption, panel in zip(("Tracking", "OPDS & devices", "Sources & Mihon", "Webhooks"), self.integration_panels):
+            self.integration_tabs.addTab(panel, caption)
+        self.integration_tabs.currentChanged.connect(self._reload_integration)
+        self.home_dialog = QDialog(self)
+        self.home_dialog.setWindowTitle("Home and reading preferences")
+        self.home_dialog.resize(700, 620)
+        self.home_panel = HomeLayoutPanel(self.api, self.settings, self.home_layout_key)
+        QVBoxLayout(self.home_dialog).addWidget(self.home_panel)
+        self.home_panel.preferences_changed.connect(self.apply_personal_preferences)
         self.create_account = CreateAccountPage()
         self.account = AccountPage()
         self.recovery = RecoveryPage()
@@ -109,6 +146,15 @@ class MainWindow(QMainWindow):
         file_menu.addAction("Offline library & sync…", self.show_offline)
         file_menu.addAction("Download current book for offline…", self.download_current)
         file_menu.addAction("Highlights, bookmarks & notes…", self.show_annotations)
+        self.personal_action = file_menu.addAction("My reading…", self.show_personal)
+        self.personal_action.setEnabled(False)
+        self.upload_action = file_menu.addAction("Upload files and folders…", lambda: self.show_transfer(self.upload_panel))
+        self.original_action = file_menu.addAction("Save original book…", self.save_original)
+        self.cancel_original_action = file_menu.addAction("Cancel original download", self.cancel_original)
+        self.devices_action = file_menu.addAction("Send to device…", lambda: self.show_transfer(self.devices_panel))
+        self.integrations_action = file_menu.addAction("Connections and integrations…", self.show_integrations)
+        self.home_action = file_menu.addAction("Home and reading preferences…", self.show_home_preferences)
+        self._transfer_actions()
         quit_action = file_menu.addAction("&Quit", self.close)
         quit_action.setShortcut(QKeySequence.StandardKey.Quit)
         view_menu = self.app_menu.addMenu("&View")
@@ -486,6 +532,15 @@ class MainWindow(QMainWindow):
         name = text(user.get("displayName"), text(user.get("username"), "Reader"))
         self.setWindowTitle("Flyleaf Desktop — " + name)
         self.library.start_session(user, self._capabilities)
+        self.appearance.set_eink((user.get("prefs") or {}).get("einkMode"))
+        self.home_panel.start_session(user)
+        self.personal.start_session(user)
+        self.personal_action.setEnabled(True)
+        self.upload_panel.start_session(user)
+        self.devices_panel.start_session(user)
+        for panel in self.integration_panels:
+            panel.start_session(user)
+        self._transfer_actions()
         self.statusBar().showMessage(f"{name} · {self.api.base}")
         same = self._recovery and self._recovery["identity"] == (self.api.base, user["id"])
         if same:
@@ -523,6 +578,18 @@ class MainWindow(QMainWindow):
         self.offline_dialog.refresh()
         self.annotations_dialog.hide()
         self.annotations_dialog.clear()
+        self.personal_dialog.hide()
+        self.personal.clear_session()
+        self.personal_action.setEnabled(False)
+        self.transfer_dialog.hide()
+        self.upload_panel.clear_session()
+        self.devices_panel.clear_session()
+        self.cancel_original()
+        self.integrations_dialog.hide()
+        for panel in self.integration_panels:
+            panel.clear_session()
+        self.home_dialog.hide()
+        self.home_panel.clear_session()
         self.api.reset()
         self.library.clear_session()
         self._browse_state = None
@@ -530,6 +597,8 @@ class MainWindow(QMainWindow):
         self.create_account.clear()
         self.recovery.clear()
         self.user = None
+        self.appearance.set_eink(False)
+        self._transfer_actions()
         self.sign_out_action.setEnabled(False)
         self.account_action.setEnabled(False)
         self.setWindowTitle("Flyleaf Desktop")
@@ -690,6 +759,146 @@ class MainWindow(QMainWindow):
         if not self.user:
             return
         self.annotations_dialog.load(); self.annotations_dialog.show()
+
+    def show_personal(self, tab=None):
+        if not self.user:
+            return
+        volume = self.library.books.currentItem()
+        book = self.reader.book if self.reader else volume.data(Qt.ItemDataRole.UserRole) if volume else None
+        series = self.library.selected_series
+        if book and book.get("seriesId") != series.get("id"):
+            series = {"id": book.get("seriesId"), "name": book.get("series") or book.get("title")}
+        self.personal.set_context(series, book)
+        index = {"series": 1, "activity": 6}.get(tab, self.personal.tabs.currentIndex())
+        if index == self.personal.tabs.currentIndex():
+            self.personal.activate()
+        else:
+            self.personal.tabs.setCurrentIndex(index)
+        self.personal_dialog.show()
+        self.personal_dialog.raise_()
+
+    def _transfer_actions(self):
+        user = self.user or {}
+        permissions = user.get("permissions") or {}
+        admin = user.get("role") == "admin"
+        self.upload_action.setEnabled(admin or bool(permissions.get("upload")))
+        download = admin or bool(permissions.get("download"))
+        self.original_action.setEnabled(download and self.original_download is None)
+        self.cancel_original_action.setEnabled(self.original_download is not None)
+        self.devices_action.setEnabled(download)
+        self.integrations_action.setEnabled(bool(self.user))
+        self.home_action.setEnabled(bool(self.user))
+
+    def home_layout_key(self):
+        scope = self.reliability.scope
+        return "homeLayouts/" + scope if scope else None
+
+    def home_layout_value(self):
+        key = self.home_layout_key()
+        value = self.settings.value(key) if key else None
+        if not isinstance(value, dict):
+            value = ((self.user or {}).get("prefs") or {}).get("home")
+        return value if isinstance(value, dict) else {}
+
+    def show_home_preferences(self):
+        if self.user:
+            self.home_panel.reload()
+            self.home_dialog.show()
+
+    def apply_personal_preferences(self, prefs):
+        if not self.user or not isinstance(prefs, dict):
+            return
+        if prefs:
+            self.user["prefs"] = prefs
+            self.library.user = self.user
+            self.appearance.set_eink(prefs.get("einkMode"))
+        self.library.refresh_preserving(self.library.capture_state())
+
+    def show_integrations(self):
+        if not self.user:
+            return
+        admin = self.user.get("role") == "admin"
+        self.integration_tabs.setTabVisible(1, admin or bool((self.user.get("permissions") or {}).get("apiAccess")))
+        for index in (2, 3):
+            self.integration_tabs.setTabVisible(index, admin)
+        self._reload_integration(self.integration_tabs.currentIndex())
+        self.integrations_dialog.show()
+
+    def _reload_integration(self, index):
+        if not self.user or not 0 <= index < len(self.integration_panels):
+            return
+        admin = self.user.get("role") == "admin"
+        if index == 0 or admin or (index == 1 and (self.user.get("permissions") or {}).get("apiAccess")):
+            self.integration_panels[index].reload()
+
+    def selected_book(self):
+        volume = self.library.books.currentItem()
+        return self.reader.book if self.reader else volume.data(Qt.ItemDataRole.UserRole) if volume else None
+
+    def show_transfer(self, panel):
+        action = self.upload_action if panel is self.upload_panel else self.devices_action
+        if not action.isEnabled():
+            return
+        self.upload_panel.setVisible(panel is self.upload_panel)
+        self.devices_panel.setVisible(panel is self.devices_panel)
+        panel.context(self.library.selected_series, self.selected_book())
+        self.transfer_dialog.setWindowTitle("Upload to Flyleaf" if panel is self.upload_panel else "Send to device")
+        panel.reload()
+        self.transfer_dialog.show()
+
+    def cancel_original(self):
+        reply, self.original_download = self.original_download, None
+        if reply:
+            reply.abort()
+        self._transfer_actions()
+
+    def save_original(self):
+        book = self.selected_book()
+        if not self.original_action.isEnabled() or not book:
+            self.statusBar().showMessage("Choose a book you can download.")
+            return
+        volume = self.library.books.currentItem()
+        title = "Book" if not self.reader and volume and volume.data(int(Qt.ItemDataRole.UserRole) + 1) else text(book.get("title"), "Book")
+        filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", title).strip(" .")[:140] or "Book"
+        extension = {"folder": "cbz", "audio": ""}.get(book.get("format"), book.get("format"))
+        if extension and re.fullmatch(r"[a-z0-9]{1,8}", extension):
+            filename += "." + extension
+        epoch = self._connection_epoch
+        target, _ = QFileDialog.getSaveFileName(self, "Save the original book", filename)
+        if not target or epoch != self._connection_epoch:
+            return
+        def report(message):
+            if epoch != self._connection_epoch:
+                return
+            self.original_download = None
+            self._transfer_actions()
+            self.statusBar().showMessage(message)
+        def progress(done, total):
+            if epoch == self._connection_epoch and total > 0:
+                self.statusBar().showMessage(f"Saving original book · {done * 100 // total}%")
+        self.original_download = self.api.download_file(
+            f"/api/books/{book['id']}/download", target,
+            lambda _path: report("Original book saved."), lambda error: report(error.message), progress)
+        self._transfer_actions()
+
+    def _open_personal_book(self, book):
+        self.personal_dialog.hide()
+        if self.reader and self.reader.has_unsaved_changes:
+            self.reader.request_leave(lambda: self.open_book(book))
+        else:
+            self.open_book(book)
+
+    def _open_personal_series(self, series):
+        self.personal_dialog.hide()
+        def show():
+            if self.reader:
+                self._return_to_library()
+            self.stack.setCurrentWidget(self.library)
+            self.library.inspect_series(series)
+        if self.reader and self.reader.has_unsaved_changes:
+            self.reader.request_leave(show)
+        else:
+            show()
 
     def download_current(self):
         book = self.reader.book if self.reader else self.library.books.currentItem().data(Qt.ItemDataRole.UserRole) if self.library.books.currentItem() else None

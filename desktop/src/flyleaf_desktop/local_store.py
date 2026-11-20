@@ -182,22 +182,27 @@ class LocalStore:
         if "version" in body and body["version"] != json.loads(row["version"]):
             raise ValueError("The displayed file revision differs from pending reading work. Resolve it in Offline library & sync.")
         with self.transaction():
-            clocks = self.db.execute("SELECT day,seconds FROM clocks WHERE scope=? AND book=? AND seconds>0 ORDER BY day", (scope, book)).fetchall()
-            if not clocks:
-                clocks = [{"day": body.get("day", date.today().isoformat()), "seconds": 0}]
-            for clock in clocks:
-                remaining = clock["seconds"]
-                while True:
-                    seconds = min(600, remaining)
-                    event = {**body, "eventId": str(uuid.uuid4()), "version": json.loads(row["version"]), "day": clock["day"], "accountId": self.db.execute("SELECT user_id FROM accounts WHERE scope=?", (scope,)).fetchone()[0]}
-                    if seconds:
-                        event["seconds"] = seconds
-                    self.db.execute("INSERT INTO events(scope,book,event_id,body) VALUES(?,?,?,?)", (scope, book, event["eventId"], json.dumps(event)))
-                    remaining -= seconds
-                    if remaining <= 0:
-                        break
-            self.db.execute("DELETE FROM clocks WHERE scope=? AND book=?", (scope, book))
-            self.db.execute("DELETE FROM drafts WHERE scope=? AND book=?", (scope, book))
+            self._queue_checkpoint(scope, book, json.loads(row["version"]), body)
+
+    def _queue_checkpoint(self, scope, book, version, body):
+        clocks = self.db.execute("SELECT day,seconds FROM clocks WHERE scope=? AND book=? AND seconds>0 ORDER BY day", (scope, book)).fetchall()
+        if not clocks and body:
+            clocks = [{"day": body.get("day", date.today().isoformat()), "seconds": 0}]
+        payload = body or {"timeOnly": True}
+        account_id = self.db.execute("SELECT user_id FROM accounts WHERE scope=?", (scope,)).fetchone()[0]
+        for clock in clocks:
+            remaining = clock["seconds"]
+            while True:
+                seconds = min(600, remaining)
+                event = {**payload, "eventId": str(uuid.uuid4()), "version": version, "day": clock["day"], "accountId": account_id}
+                if seconds:
+                    event["seconds"] = seconds
+                self.db.execute("INSERT INTO events(scope,book,event_id,body) VALUES(?,?,?,?)", (scope, book, event["eventId"], json.dumps(event)))
+                remaining -= seconds
+                if remaining <= 0:
+                    break
+        self.db.execute("DELETE FROM clocks WHERE scope=? AND book=?", (scope, book))
+        self.db.execute("DELETE FROM drafts WHERE scope=? AND book=?", (scope, book))
 
     def events(self, scope):
         return self.db.execute("SELECT * FROM events WHERE scope=? ORDER BY id", (scope,)).fetchall()
@@ -225,37 +230,43 @@ class LocalStore:
         attempts = event["attempts"] + 1
         self.db.execute("UPDATE events SET attempts=?,retry_at=?,error=?,conflict=? WHERE id=? AND scope=?", (attempts, time.time() + min(300, 2 ** min(attempts, 8)), message[:1000], json.dumps(conflict) if conflict is not None else None, event["id"], event["scope"]))
 
-    def resolve(self, scope, book, remote, keep_local):
+    def pending_position(self, scope, book):
+        draft = self.db.execute("SELECT body FROM drafts WHERE scope=? AND book=?", (scope, book)).fetchone()
+        bodies = [json.loads(row["body"]) for row in self.db.execute(
+            "SELECT body FROM events WHERE scope=? AND book=? ORDER BY id DESC", (scope, book))]
+        if draft:
+            bodies.insert(0, json.loads(draft["body"]))
+        keys = ("position", "page", "percent")
+        latest = next((body for body in bodies if any(key in body for key in keys)), {})
+        return {key: latest[key] for key in keys if key in latest}
+
+    def resolve(self, scope, book, remote, keep_local, *, expected_local=None):
         # Resolution creates new event IDs; an already accepted uncertain receipt
         # is always retried before a conflict is offered by the sync controller.
         with self.transaction():
             row = self.book(scope, book)
             data = json.loads(row["data"])
-            changed = data["book"].get("version") != remote["book"].get("version")
+            version = remote["book"].get("version")
+            if version is None:
+                raise ValueError("The server did not verify the source revision.")
+            changed = data["book"].get("version") != version
             if changed and keep_local:
                 raise ValueError("The source revision changed. Export pending work and choose a new position in the new file.")
             events = [e for e in self.events(scope) if e["book"] == book]
-            if any(event["prepared"] and not event["conflict"] for event in events):
+            if any(event["prepared"] and (json.loads(event["conflict"] or "{}").get("reason")
+                   not in ("positionChanged", "sourceChanged")) for event in events):
                 raise ValueError("Retry uncertain saves before resolving a conflict; their reading time may already be accepted.")
-            bodies = [json.loads(event["body"]) for event in events]
-            latest = next((body for body in reversed(bodies) if any(key in body for key in ("position", "page", "percent"))), {})
-            seconds = {}
+            latest = self.pending_position(scope, book)
+            if expected_local is not None and expected_local != latest:
+                raise ValueError("The local position changed. Compare positions again before choosing which one to keep.")
             for event in events:
                 body = json.loads(event["body"])
-                seconds[body["day"]] = seconds.get(body["day"], 0) + body.get("seconds", 0)
+                self.add_seconds(scope, book, body["day"], body.get("seconds", 0))
             if changed:
                 self.db.execute("DELETE FROM assets WHERE scope=? AND book=?", (scope, book))
-            self.db.execute("UPDATE books SET data=?,version=?,complete=CASE WHEN ? THEN 0 ELSE complete END WHERE scope=? AND book=?", (json.dumps(remote), json.dumps(remote["book"].get("version")), int(changed), scope, book))
+            self.db.execute("UPDATE books SET data=?,version=?,complete=CASE WHEN ? THEN 0 ELSE complete END WHERE scope=? AND book=?", (json.dumps(remote), json.dumps(version), int(changed), scope, book))
             self.db.execute("DELETE FROM events WHERE scope=? AND book=?", (scope, book))
-            for day, duration in (seconds or {date.today().isoformat(): 0}).items():
-                while True:
-                    body = {k: latest[k] for k in ("position", "page", "percent") if keep_local and k in latest}
-                    event_id = str(uuid.uuid4())
-                    body.update(eventId=event_id, version=remote["book"]["version"], day=day, seconds=min(600, duration), accountId=self.db.execute("SELECT user_id FROM accounts WHERE scope=?", (scope,)).fetchone()[0])
-                    self.db.execute("INSERT INTO events(scope,book,event_id,body) VALUES(?,?,?,?)", (scope, book, event_id, json.dumps(body)))
-                    duration -= min(600, duration)
-                    if duration <= 0:
-                        break
+            self._queue_checkpoint(scope, book, version, latest if keep_local else {})
         if changed:
             self.collect_garbage(scope)
 

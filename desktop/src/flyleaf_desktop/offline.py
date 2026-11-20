@@ -290,21 +290,25 @@ class OfflineDialog(QDialog):
         def loaded(data):
             if epoch != self.service.epoch or not self.events.currentItem() or self.events.currentItem().data(ROLE)["id"] != event["id"]:
                 return
-            self.remote = (event, data)
-            self.detail.setPlainText("LOCAL\n" + json.dumps(json.loads(event["body"]), indent=2) + "\nSERVER\n" + json.dumps(data["book"].get("progress"), indent=2) + "\nSource revision: " + str(data["book"].get("version")))
+            local = self.store.pending_position(self.service.scope, event["book"])
+            self.remote = (event, data, local)
+            self.detail.setPlainText("LOCAL\n" + (json.dumps(local, indent=2) if local else "Sampled time only") + "\nSERVER\n" + json.dumps(data["book"].get("progress"), indent=2) + "\nSource revision: " + str(data["book"].get("version")))
         self.service.api.json("GET", f"/api/books/{event['book']}/reader", loaded, lambda error: self.notice.setText(error.message))
 
     def resolve(self, keep_local):
         if not self.remote:
             self.notice.setText("Compare the current server position before choosing a resolution."); return
-        event, remote = self.remote
+        event, remote, local = self.remote
+        reader = self.parent().reader
+        if reader and reader.book["id"] == event["book"]:
+            self.notice.setText("Return to the library to finish checkpointing this book, then compare positions and resolve the conflict."); return
         current = next((e for e in self.store.events(self.service.scope) if e["id"] == event["id"]), None)
         if not current or not current["conflict"] or self.service.busy:
             self.notice.setText("Only a server-rejected conflict can be replaced. Retry uncertain saves first to avoid duplicate time."); return
         if json.loads(current["conflict"]).get("reason") not in ("positionChanged", "sourceChanged"):
             self.notice.setText("This save cannot be replaced safely. Restore access and retry its existing receipt, or export pending work for review."); return
         try:
-            self.store.resolve(self.service.scope, event["book"], remote, keep_local)
+            self.store.resolve(self.service.scope, event["book"], remote, keep_local, expected_local=local)
             self.refresh(); self.service.pump()
         except ValueError as error:
             self.notice.setText(str(error))

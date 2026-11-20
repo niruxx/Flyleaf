@@ -1,7 +1,7 @@
 """Native server-side transfers, followed series and chapter updates."""
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
-    QListWidget, QListWidgetItem, QPushButton, QComboBox, QCheckBox, QMessageBox)
+    QListWidget, QListWidgetItem, QPushButton, QComboBox, QCheckBox, QInputDialog, QMessageBox)
 from .widgets import label, text
 
 ROLE = Qt.ItemDataRole.UserRole
@@ -44,6 +44,16 @@ class FinderActivity(QWidget):
         self.remove.clicked.connect(self.remove_download)
         buttons.addWidget(self.retry); buttons.addWidget(self.remove)
         self.tabs.widget(0).layout().addLayout(buttons)
+        bulk = QHBoxLayout()
+        for title, callback in (
+            ("Retry all failed", self.retry_all),
+            ("Clear failed", lambda: self.clear_downloads("failed")),
+            ("Clear history", lambda: self.clear_downloads("history")),
+        ):
+            control = QPushButton(title)
+            control.clicked.connect(callback)
+            bulk.addWidget(control)
+        self.tabs.widget(0).layout().addLayout(bulk)
         options = QHBoxLayout()
         self.target = QComboBox(); self.target.setAccessibleName("Followed series destination library")
         self.auto = QCheckBox("Download new chapters automatically")
@@ -58,6 +68,16 @@ class FinderActivity(QWidget):
         self.unfollow.clicked.connect(self.remove_follow)
         for button in (self.save, self.check, self.unfollow): buttons.addWidget(button)
         self.tabs.widget(1).layout().addLayout(buttons)
+        sources = QHBoxLayout()
+        for title, callback in (
+            ("Check all", lambda: self._act("POST", "follows/check")),
+            ("Source schedule…", self.schedule),
+            ("Follow downloaded titles…", self.sync_downloads),
+        ):
+            control = QPushButton(title)
+            control.clicked.connect(callback)
+            sources.addWidget(control)
+        self.tabs.widget(1).layout().addLayout(sources)
         self.get_update = QPushButton("Download selected chapter")
         self.get_update.clicked.connect(self.download_update)
         self.tabs.widget(2).layout().addWidget(self.get_update)
@@ -182,6 +202,19 @@ class FinderActivity(QWidget):
         row = self._current(self.downloads)
         if row and row.get("status") == "failed": self._act("POST", f"downloads/{row['id']}/retry")
 
+    def retry_all(self):
+        epoch = self.epoch
+        owner = "all users" if self.user and self.user.get("role") == "admin" else "your account"
+        if self.user and QMessageBox.question(self, "Retry downloads", f"Retry every failed download for {owner}?") == QMessageBox.StandardButton.Yes and epoch == self.epoch:
+            self._act("POST", "downloads/retry")
+
+    def clear_downloads(self, which):
+        epoch = self.epoch
+        owner = "all users" if self.user and self.user.get("role") == "admin" else "your account"
+        group = "failed entries" if which == "failed" else "finished and cancelled entries"
+        if self.user and QMessageBox.question(self, "Clear downloads", f"Remove {group} for {owner}? Downloaded books remain in their libraries.") == QMessageBox.StandardButton.Yes and epoch == self.epoch:
+            self._act("DELETE", f"downloads?what={which}")
+
     def remove_download(self):
         row = self._current(self.downloads)
         if not row: return
@@ -198,6 +231,23 @@ class FinderActivity(QWidget):
     def check_follow(self):
         row = self._current(self.follows)
         if row: self._act("POST", f"follows/{row['id']}/check")
+
+    def schedule(self):
+        row = self._current(self.follows)
+        if not row or not row.get("plugin"):
+            self.notice.setText("Select a followed series to configure its source.")
+            return
+        epoch = self.epoch
+        hours, ok = QInputDialog.getInt(self, "Source schedule", "Hours between checks for this source. 0 pauses; −1 restores the server default.",
+                                         int(row.get("checkHours") or 0), -1, 8760)
+        if ok and epoch == self.epoch:
+            self._act("PUT", "source-schedules", {"plugin": row["plugin"], "hours": None if hours == -1 else hours})
+
+    def sync_downloads(self):
+        epoch = self.epoch
+        if self.user and QMessageBox.question(self, "Follow downloaded titles",
+                "Follow titles from your earlier Finder downloads? New chapters will require manual downloads.") == QMessageBox.StandardButton.Yes and epoch == self.epoch:
+            self._act("POST", "follows/sync", {"autoDownload": False})
 
     def remove_follow(self):
         row = self._current(self.follows)

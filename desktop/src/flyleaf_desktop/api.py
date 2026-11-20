@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 from urllib.parse import urlencode
 
-from PySide6.QtCore import QByteArray, QObject, QUrl, Signal, QTimer
+from PySide6.QtCore import QByteArray, QFile, QIODevice, QObject, QSaveFile, QUrl, Signal, QTimer
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkCookie, QNetworkCookieJar, QNetworkReply, QNetworkRequest
 
 from . import __version__
@@ -94,11 +94,29 @@ class FlyleafApi(QObject):
     def binary(self, path, success, failure, maximum=128 * 1024 * 1024):
         return self._request("GET", path, success, failure, b"", False, maximum, "application/octet-stream, */*")
 
+    def upload_file(self, path, source, success, failure, progress=None, *, method="PUT"):
+        device = QFile(str(source))
+        if not device.open(QIODevice.OpenModeFlag.ReadOnly):
+            failure(ApiError(device.errorString()))
+            return None
+        reply = self._request(method, path, success, failure, device, True, 1024 * 1024,
+                              content_type="application/octet-stream", progress=progress)
+        if reply:
+            device.setParent(reply)
+        else:
+            device.close()
+        return reply
+
+    def download_file(self, path, destination, success, failure, progress):
+        return self._request("GET", path, success, failure, b"", False, 1024 * 1024,
+                             "*/*", destination=str(destination), progress=progress)
+
     def _request(self, method: str, path: str, success: Success,
-                 failure: Callable[[ApiError], None], payload: bytes,
-                 expect_json: bool, maximum: int, accept=None) -> QNetworkReply | None:
+                 failure: Callable[[ApiError], None], payload: bytes | QFile,
+                 expect_json: bool, maximum: int, accept=None, *, content_type=None, destination=None,
+                 progress=None) -> QNetworkReply | None:
         if self.offline:
-            cached = self.reliability.cached(path, expect_json) if method == "GET" and self.reliability else None
+            cached = self.reliability.cached(path, expect_json) if method == "GET" and not destination and self.reliability else None
             generation = self._generation
             def deliver_cached():
                 if generation == self._generation:
@@ -120,18 +138,40 @@ class FlyleafApi(QObject):
         request.setRawHeader(b"X-Flyleaf", b"1")
         request.setRawHeader(b"User-Agent", f"FlyleafDesktop/{__version__}".encode("ascii"))
         request.setRawHeader(b"Accept", accept.encode("ascii") if accept else b"application/json" if expect_json else b"image/*")
-        if payload:
-            request.setHeader(QNetworkRequest.KnownHeaders.ContentTypeHeader, "application/json")
-        reply = self.manager.sendCustomRequest(request, method.encode("ascii"), QByteArray(payload))
+        if payload or content_type:
+            request.setHeader(QNetworkRequest.KnownHeaders.ContentTypeHeader, content_type or "application/json")
+        if isinstance(payload, QFile):
+            request.setHeader(QNetworkRequest.KnownHeaders.ContentLengthHeader, payload.size())
+        reply = self.manager.sendCustomRequest(request, method.encode("ascii"), payload if isinstance(payload, QFile) else QByteArray(payload))
         self._active.add(reply)
         generation = self._generation
         buffer = bytearray()
         too_large = False
         tls_failed = False
+        output = QSaveFile(destination) if destination else None
+        write_error = None
+
+        def response_identity():
+            status = int(reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute) or 0)
+            account = bytes(reply.rawHeader("X-Flyleaf-Account")).decode("ascii", errors="replace")
+            service = self.reliability
+            mismatch = service and service.scope and service.user and account and account != str(service.user["id"])
+            return status, account, mismatch
 
         def consume() -> None:
-            nonlocal too_large
+            nonlocal too_large, write_error
+            if generation != self._generation or write_error or too_large:
+                return
             chunk = bytes(reply.readAll())
+            if output:
+                status, account, mismatch = response_identity()
+                if 200 <= status < 300:
+                    if mismatch or (self.reliability and self.reliability.enabled and not account):
+                        return
+                    if (not output.isOpen() and not output.open(QIODevice.OpenModeFlag.WriteOnly)) or output.write(chunk) != len(chunk):
+                        write_error = output.errorString()
+                        reply.abort()
+                    return
             if len(buffer) + len(chunk) > maximum:
                 too_large = True
                 reply.abort()
@@ -145,17 +185,21 @@ class FlyleafApi(QObject):
         def finished() -> None:
             self._active.discard(reply)
             if generation != self._generation:
+                if output and output.isOpen():
+                    output.cancelWriting()
                 reply.deleteLater()
                 return
             consume()
-            status = int(reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute) or 0)
+            status, account, mismatch = response_identity()
             error_code = reply.error()
             error_text = reply.errorString()
-            account = bytes(reply.rawHeader("X-Flyleaf-Account")).decode("ascii", errors="replace")
             raw = bytes(buffer)
             reply.deleteLater()
             service = self.reliability
-            if service and service.scope and service.user and account and account != str(service.user["id"]):
+            if output and output.isOpen() and (write_error or mismatch or not 200 <= status < 300
+                                               or error_code != QNetworkReply.NetworkError.NoError):
+                output.cancelWriting()
+            if mismatch:
                 self.session_expired.emit()
                 return
             public = path.split("?", 1)[0] in ("/api/status", "/api/login", "/api/logout", "/api/register", "/api/setup")
@@ -164,6 +208,9 @@ class FlyleafApi(QObject):
                 return
             if too_large:
                 failure(ApiError("The server response exceeded this client's size limit.", status))
+                return
+            if write_error:
+                failure(ApiError("Could not save the download: " + write_error))
                 return
             if 300 <= status < 400:
                 failure(ApiError("The server redirected this request. Enter its final Flyleaf address, including any HTTPS or proxy base path.", status))
@@ -209,10 +256,17 @@ class FlyleafApi(QObject):
                         failure(ApiError("The local reading state could not be stored: " + str(error)))
                         return
                 success(data)
+            elif output:
+                if output.isOpen() and output.commit():
+                    success(destination)
+                else:
+                    failure(ApiError("Could not save the download: " + output.errorString()))
             else:
                 success(raw)
 
         reply.readyRead.connect(consume)
+        if progress:
+            (reply.uploadProgress if isinstance(payload, QFile) else reply.downloadProgress).connect(progress)
         reply.sslErrors.connect(ssl_errors)
         reply.finished.connect(finished)
         return reply

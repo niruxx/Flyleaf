@@ -67,6 +67,92 @@ def main():
         if not condition():
             raise RuntimeError("The native live-server journey did not become ready")
 
+    def verify_personal_and_transfers():
+        window.show_personal("series")
+        workspace = window.personal
+        if not workspace.personal.series.get("id"):
+            raise AssertionError("The selected series did not reach My reading")
+        workspace.personal.tags.setText("disposable-test")
+        workspace.personal.save_state()
+        wait(lambda: "state saved" in workspace.personal.notice.text())
+        workspace.tabs.setCurrentWidget(workspace.organize)
+        shelves = workspace.organize
+        wait(lambda: not shelves.notice.text().startswith("Loading"))
+        shelves.name.setText("Native collection")
+        shelves.create()
+        wait(lambda: shelves.shelves.count() == 1)
+        shelves.shelves.setCurrentRow(0)
+        wait(lambda: shelves.add.isEnabled())
+        shelves.add_context()
+        wait(lambda: shelves.items.count() == 1)
+        shelves.kind.setCurrentIndex(1)
+        wait(lambda: not shelves.notice.text().startswith("Loading"))
+        shelves.name.setText("Native reading list")
+        shelves.create()
+        wait(lambda: shelves.shelves.count() == 1)
+        shelves.shelves.setCurrentRow(0)
+        wait(lambda: shelves.add.isEnabled())
+        shelves.add_context()
+        wait(lambda: shelves.items.count() == 1)
+        workspace.tabs.setCurrentWidget(workspace.journal)
+        journal = workspace.journal
+        wait(lambda: bool(journal.snapshot))
+        journal.reflection.setPlainText("A fictional reflection from the native test.")
+        journal.save()
+        wait(lambda: journal.items.count() == 1)
+        if "fictional reflection" not in journal.markdown():
+            raise AssertionError("The native journal export did not include the saved entry")
+        workspace.tabs.setCurrentWidget(workspace.insights)
+        wait(lambda: bool(workspace.insights.summary.text()))
+        workspace.insights.year_review()
+        wait(lambda: workspace.insights.days.rowCount() == 12)
+        workspace.tabs.setCurrentWidget(workspace.activity)
+        workspace.activity.stream.setCurrentIndex(1)
+        wait(lambda: "tasks" in workspace.activity.notice.text())
+        window.personal_dialog.hide()
+        window.show_integrations()
+        wait(lambda: window.integration_panels[0].items.count() == 4)
+        window.integration_tabs.setCurrentIndex(1)
+        wait(lambda: not window.integration_panels[1].notice.text().startswith("Loading"))
+        window.integrations_dialog.hide()
+        local = root.parent / (root.name + "-original.cbz")
+        with patch("flyleaf_desktop.app.QFileDialog.getSaveFileName", return_value=(str(local), "")):
+            window.save_original()
+            wait(local.is_file)
+        if local.read_bytes() != (series_folder / "Desktop Sample v01.cbz").read_bytes():
+            raise AssertionError("Native original download changed the file")
+        errors = []
+        window.api.download_file("/api/books/999999/download", local,
+                                 lambda _path: errors.append("unexpected success"), errors.append, None)
+        wait(lambda: bool(errors))
+        if errors[0] == "unexpected success" or local.read_bytes() != (series_folder / "Desktop Sample v01.cbz").read_bytes():
+            raise AssertionError("A failed original download replaced an existing file")
+        window.show_transfer(window.upload_panel)
+        wait(lambda: window.upload_panel.library.count() == 1)
+        window.upload_panel.queue_files([(local, "Uploaded Sample/Uploaded Sample.cbz"),
+                                        (root / "missing.cbz", "missing.cbz")])
+        window.upload_panel.start()
+        wait(lambda: bool(window.upload_panel.uploaded) and window.upload_panel.reply is None)
+        window.upload_panel.clear_session()
+        window.upload_panel.start_session(window.user)
+        if len(window.upload_panel.uploaded) != 1:
+            raise AssertionError("The native upload acknowledgment was lost during recovery")
+        window.upload_panel.finish()
+        wait(lambda: "handed to the server scanner" in window.upload_panel.notice.text())
+        window.transfer_dialog.hide()
+        if not (root / "Uploaded Sample" / "Uploaded Sample.cbz").is_file():
+            raise AssertionError("Native streamed upload did not reach the test library")
+        window.show_home_preferences()
+        wait(lambda: window.home_panel.items.count() == 4)
+        window.home_panel.compact.setChecked(True)
+        window.home_panel.key_fields["next"].setText("J")
+        window.home_panel.save()
+        wait(lambda: "preferences saved" in window.home_panel.notice.text())
+        prefs = request("/me")["prefs"]
+        if not prefs["home"]["compact"] or prefs["keybinds"]["next"] != ["J"]:
+            raise AssertionError("The native Home or shortcut settings did not round-trip")
+        window.home_dialog.hide()
+
     try:
         window.connect_server(base)
         wait(lambda: window.stack.currentWidget() is window.create_account)
@@ -142,9 +228,43 @@ def main():
         actual = request(f"/books/{reader.book['id']}")
         if actual["progress"]["page"] != 2:
             raise AssertionError("Offline progress did not reach the actual server after reconnect")
-        reader.active_clock.stop()
-        window.reliability.capture(reader); window.reliability.pump()
-        wait(lambda: not window.local_store.events(window.reliability.scope))
+        book_id = reader.book["id"]
+        scope = window.reliability.scope
+        reader.active_clock.timer.stop()
+        window.api.offline = True
+        window.local_store.add_seconds(scope, book_id, "2026-11-19", 31)
+        reader.show_page(0)
+        wait(lambda: reader._image is not None and reader.page == 0)
+        reader.request_leave(window._return_to_library)
+        wait(lambda: window.reader is None and bool(window.local_store.events(scope)))
+        remote = request(f"/books/{book_id}/progress", "PUT", {"page": 1, "percent": 2 / 3})["progress"]
+        logged = request("/stats")["totalSeconds"]
+        window.reconnect_reading()
+        def conflicted():
+            pending = window.local_store.events(scope)
+            return bool(pending) and json.loads(pending[0]["conflict"] or "{}").get("reason") == "positionChanged"
+        wait(conflicted)
+        window.show_offline()
+        dialog = window.offline_dialog
+        dialog.tabs.setCurrentIndex(1)
+        dialog.events.setCurrentRow(0)
+        dialog.compare()
+        wait(lambda: dialog.remote is not None)
+        dialog.resolve(False)
+        wait(lambda: not window.local_store.events(scope))
+        if request(f"/books/{book_id}")["progress"]["updatedAt"] != remote["updatedAt"]:
+            raise AssertionError("Keeping the server position changed its revision")
+        if request("/stats")["totalSeconds"] != logged + 31:
+            raise AssertionError("Conflict resolution did not record the sampled time exactly once")
+        dialog.hide()
+        window.open_book(actual)
+        wait(lambda: window.reader is not None and window.reader._image is not None)
+        reader = window.reader
+        if reader.page != 1:
+            raise AssertionError("The native reader did not reopen at the retained server position")
+        reader.active_clock.timer.stop()
+        reader.flush_progress()
+        wait(lambda: not reader.has_unsaved_changes and not window.local_store.events(scope))
         request(f"/books/{reader.book['id']}/annotations", "POST", {"kind": "highlight", "locator": "2", "page": 2, "text": "Native reading sample", "note": "Fictional private note for the live test."})
         window.show_annotations()
         wait(lambda: window.annotations_dialog.items.count() == 1)
@@ -180,9 +300,24 @@ def main():
         window.grab().save(str(screenshot))
         reader.request_leave(window._return_to_library)
         wait(lambda: window.reader is None)
+        wait(lambda: window.library.grid.count() > 0)
+        window.library.grid.setCurrentRow(0)
+        wait(lambda: window.library.books.count() > 0)
+        verify_personal_and_transfers()
+        guest = request("/users", "POST", {"username": "desktopguest", "password": password,
+                      "permissions": {"upload": False, "download": False, "contentFinder": False, "apiAccess": False}})
         window.sign_out()
         wait(lambda: window.user is None)
-        print("Live Flyleaf server passed: native admin setup, profile/password updates, filters, archive reading, durable progress, offline download/read/reconnect, searchable notes, Markdown/CSV/Readwise/Obsidian exports, guarded position restore and sign-out.")
+        window.sign_in("desktopguest", password)
+        wait(lambda: (window.user or {}).get("id") == guest["id"])
+        window.show_integrations()
+        if any(window.integration_tabs.isTabVisible(index) for index in (1, 2, 3)):
+            raise AssertionError("A restricted account saw privileged integration tabs")
+        if window.original_action.isEnabled() or window.upload_action.isEnabled() or window.upload_panel.uploaded:
+            raise AssertionError("Transfer permissions or recovery state crossed accounts")
+        if window.personal.journal.snapshot or window.personal.organize.shelves.count():
+            raise AssertionError("Personal workspace data crossed accounts")
+        print("Live Flyleaf server passed: admin setup, filters, reading, offline sync, native shelves, journal, yearly stats, tasks, tracking status, original download, upload recovery, Home and shortcut settings, and restricted account switching.")
     finally:
         if window.reader:
             window.reader.dispose()

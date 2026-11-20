@@ -77,7 +77,7 @@ function translateStatic() {
   if (skip) skip.textContent = t('Skip to content');
   const labels = { home: t('Home'), library: t('Library'), want: t('Want to read'), bookmarks: t('Bookmarks') };
   for (const a of document.querySelectorAll('.bottom-nav a[data-nav]')) {
-    const text = [...a.childNodes].find((n) => n.nodeType === Node.TEXT_NODE);
+    const text = a.querySelector('.nav-label');
     if (text && labels[a.dataset.nav]) text.textContent = labels[a.dataset.nav];
   }
   document.querySelector('.menu-toggle')?.setAttribute('aria-label', t('Open navigation'));

@@ -1,10 +1,10 @@
 """Account-scoped native organization and personal reading workspace."""
 from datetime import datetime
-from PySide6.QtCore import Qt, Signal, QDate, QSaveFile, QIODevice
+from PySide6.QtCore import Qt, Signal, QDate, QSaveFile, QIODevice, QSignalBlocker
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QTabWidget, QListWidget, QListWidgetItem, QPushButton, QComboBox, QLineEdit,
     QPlainTextEdit, QSpinBox, QDoubleSpinBox, QDateEdit, QCheckBox, QMessageBox,
-    QFileDialog, QSplitter, QScrollArea)
+    QFileDialog, QHeaderView, QProgressBar, QScrollArea, QTableWidget, QTableWidgetItem)
 from .widgets import label, text
 
 ROLE = Qt.ItemDataRole.UserRole
@@ -23,7 +23,7 @@ def fill(listing, rows, caption):
     for row in rows:
         if not isinstance(row, dict): continue
         item = QListWidgetItem(caption(row)); item.setData(ROLE, row); listing.addItem(item)
-        if previous and row.get('id') == previous.get('id'): selected = item
+        if previous and row.get('id') is not None and row.get('id') == previous.get('id'): selected = item
     if selected: listing.setCurrentItem(selected)
     listing.blockSignals(False)
 
@@ -61,7 +61,7 @@ class PersonalPanel(QWidget):
     def request(self, method, path, done, body=None, params=None, key='load'):
         if not self.user: return
         if method != 'GET' and self.busy: return
-        token = self.requests.get(key, 0) + 1; self.requests[key] = token
+        token = object(); self.requests[key] = token
         epoch = self.epoch
         writing = method != 'GET'
         if writing: self.busy = True; self.body.setEnabled(False)
@@ -111,7 +111,15 @@ class OrganizationPanel(PersonalPanel):
         self.up = button(row, 'Move up', lambda: self.move(-1))
         self.down = button(row, 'Move down', lambda: self.move(1))
         self.layout.addLayout(row)
+        self.list_tools = QWidget()
+        tools = QHBoxLayout(self.list_tools)
+        tools.setContentsMargins(0, 0, 0, 0)
+        button(tools, "Import ComicRack…", self.import_list)
+        button(tools, "Export ComicRack…", self.export_list)
+        button(tools, "Rematch imported entries", self.rematch)
+        self.layout.addWidget(self.list_tools)
         self.detail = None; self.select()
+        self.loaded_kind = self.kind.currentData()
 
     def clear_session(self):
         super().clear_session(); self.detail = None
@@ -120,7 +128,9 @@ class OrganizationPanel(PersonalPanel):
     def endpoint(self): return '/api/' + self.kind.currentData()
 
     def reload(self, *_args):
-        self.requests['detail'] = self.requests.get('detail', 0) + 1
+        if self.loaded_kind != self.kind.currentData():
+            self.loaded_kind = self.kind.currentData()
+            self.shelves.clear()
         self.detail = None; self.items.clear(); self.select()
         self.request('GET', self.endpoint(), self.loaded)
 
@@ -136,7 +146,8 @@ class OrganizationPanel(PersonalPanel):
 
     def select(self, *_args):
         self.detail = None; self.items.clear()
-        self.requests['detail'] = self.requests.get('detail', 0) + 1
+        self.requests.pop('detail', None)
+        self.requests.pop('contents', None)
         row = current(self.shelves)
         self.name.setText(text(row.get('name')) if row else '')
         self.description.setText(text(row.get('summary')) if row else '')
@@ -161,11 +172,12 @@ class OrganizationPanel(PersonalPanel):
 
     def select_controls(self):
         row = current(self.shelves) or {}
-        owned = bool(row.get('owned'))
+        owned = bool(row.get('owned') and self.detail and self.detail.get('id') == row.get('id'))
         for control in (self.save, self.delete, self.remove): control.setEnabled(owned)
         self.name.setReadOnly(bool(row) and not owned); self.description.setReadOnly(bool(row) and not owned)
         self.add.setEnabled(owned and bool(self.series.get('id')))
         for control in (self.up, self.down): control.setEnabled(owned and self.kind.currentData() == 'reading-lists')
+        self.list_tools.setVisible(self.kind.currentData() == "reading-lists")
 
     def create(self):
         if not self.name.text().strip(): self.notice.setText('Give the new shelf a name.'); return
@@ -178,7 +190,8 @@ class OrganizationPanel(PersonalPanel):
 
     def delete_shelf(self):
         row = current(self.shelves)
-        if row and row.get('owned') and QMessageBox.question(self, 'Delete shelf', 'Delete this shelf? Books stay in your library.') == QMessageBox.StandardButton.Yes:
+        epoch = self.epoch
+        if row and row.get('owned') and QMessageBox.question(self, 'Delete shelf', 'Delete this shelf? Books stay in your library.') == QMessageBox.StandardButton.Yes and epoch == self.epoch:
             self.request('DELETE', self.endpoint() + '/' + str(row['id']), lambda _data: self.reload(), key='write')
 
     def add_context(self):
@@ -195,12 +208,55 @@ class OrganizationPanel(PersonalPanel):
     def move(self, delta):
         row = current(self.shelves); index = self.items.currentRow(); target = index + delta
         if not row or not row.get('owned') or self.kind.currentData() != 'reading-lists' or index < 0 or not 0 <= target < self.items.count(): return
+        if self.detail and self.detail.get('count', self.items.count()) > self.items.count():
+            self.notice.setText('Reordering requires access to all entries in this reading list.')
+            return
         ids = [self.items.item(i).data(ROLE)['id'] for i in range(self.items.count())]
         ids[index], ids[target] = ids[target], ids[index]
         self.request('PATCH', self.endpoint() + f"/{row['id']}", lambda _data: self.select(), {'order': ids}, key='write')
 
     def open_item(self, item):
         (self.book_requested if self.kind.currentData() == 'reading-lists' else self.series_requested).emit(item.data(ROLE))
+
+    def import_list(self):
+        if not self.user or self.busy:
+            return
+        epoch = self.epoch
+        path, _ = QFileDialog.getOpenFileName(self, "Import reading list", "", "ComicRack reading lists (*.cbl)")
+        if not path or epoch != self.epoch:
+            return
+        self.busy = True
+        self.body.setEnabled(False)
+        self.notice.setText("Importing reading list…")
+        def completed(message, reload=False):
+            if epoch == self.epoch:
+                self.busy = False
+                self.body.setEnabled(True)
+                if reload:
+                    self.reload()
+                else:
+                    self.notice.setText(message)
+        self.api.upload_file("/api/reading-lists/import", path, lambda _data: completed("", True),
+                             lambda error: completed(error.message), method="POST")
+
+    def export_list(self):
+        row = current(self.shelves)
+        if not row:
+            return
+        epoch = self.epoch
+        path, _ = QFileDialog.getSaveFileName(self, "Export reading list", "flyleaf-reading-list.cbl", "ComicRack reading lists (*.cbl)")
+        if not path or epoch != self.epoch:
+            return
+        def status(message):
+            if epoch == self.epoch:
+                self.notice.setText(message)
+        self.api.download_file(f"/api/reading-lists/{row['id']}/export.cbl", path,
+                               lambda _path: status("Reading list saved."), lambda error: status(error.message), None)
+
+    def rematch(self):
+        row = current(self.shelves)
+        if row and row.get("owned"):
+            self.request("POST", f"/api/reading-lists/{row['id']}/rematch", lambda _data: self.select())
 
 
 class TonightPanel(PersonalPanel):
@@ -262,20 +318,31 @@ class JournalPanel(PersonalPanel):
 
     def reload(self):
         if not self.discard(): return
+        self.dirty = False
         date = self.month.date(); start = datetime(date.year(), date.month(), 1)
         end = datetime(date.year() + (date.month() == 12), date.month() % 12 + 1, 1)
         def loaded(data):
             if not isinstance(data, dict): self.notice.setText('Invalid journal response.'); return
-            self.snapshot = data; self.entry = None
+            self.snapshot = data
+            if self.dirty:
+                self.notice.setText('The month loaded. Finish editing before changing the selected reflection.')
+                return
+            self.entry = None
             fill(self.items, data.get('entries', []), lambda row: text(row.get('day')) + ' · ' + text(row.get('mood'), 'Reflection') + '\n' + text(row.get('body'))[:150])
+            with QSignalBlocker(self.items):
+                self.items.setCurrentRow(-1)
             lines = [f"{row.get('day')}: {round(row.get('seconds', 0) / 60)} min · {row.get('pages', 0)} pages" for row in data.get('reading', []) if isinstance(row, dict)]
             lines += ['Highlight: ' + text(row.get('text')) for row in data.get('highlights', []) if isinstance(row, dict)]
-            self.reading.setPlainText('\n'.join(lines)); self.reflection.clear(); self.dirty = False
+            self.reading.setPlainText('\n'.join(lines)); self.reset_editor()
             self.notice.setText(f"{len(data.get('entries', []))} reflections · {len(data.get('reading', []))} reading records")
         self.request('GET', '/api/journal', loaded, params={'month': start.strftime('%Y-%m'), 'from': round(start.timestamp() * 1000), 'until': round(end.timestamp() * 1000)})
 
     def select(self, item, _previous=None):
-        if not item or not self.discard(): return
+        if not item: return
+        if not self.discard():
+            with QSignalBlocker(self.items):
+                self.items.setCurrentItem(_previous)
+            return
         row = item.data(ROLE); self.entry = row
         self.day.setDate(QDate.fromString(row['day'], 'yyyy-MM-dd'))
         self.mood.setCurrentIndex(max(0, self.mood.findData(row.get('mood'))))
@@ -284,7 +351,17 @@ class JournalPanel(PersonalPanel):
 
     def new(self):
         if not self.discard(): return
-        self.entry = None; self.items.clearSelection(); self.reflection.clear(); self.day.setDate(QDate.currentDate()); self.mood.setCurrentIndex(0); self.link_book.setChecked(False); self.dirty = False
+        with QSignalBlocker(self.items):
+            self.items.setCurrentRow(-1)
+        self.reset_editor()
+
+    def reset_editor(self):
+        self.entry = None
+        self.reflection.clear()
+        self.day.setDate(QDate.currentDate())
+        self.mood.setCurrentIndex(0)
+        self.link_book.setChecked(False)
+        self.dirty = False
 
     def save(self):
         content = self.reflection.toPlainText()
@@ -292,13 +369,17 @@ class JournalPanel(PersonalPanel):
         linked = (self.entry or {}).get('book') or self.book
         if self.link_book.isChecked() and not linked: self.notice.setText('Select a volume in Library first.'); return
         body = {'day': self.day.date().toString('yyyy-MM-dd'), 'mood': self.mood.currentData(), 'body': content, 'bookId': linked.get('id') if self.link_book.isChecked() else None}
-        def saved(_data): self.dirty = False; self.reload()
+        def saved(_data):
+            self.month.setDate(self.day.date())
+            self.dirty = False
+            self.reload()
         self.request('PUT' if self.entry else 'POST', '/api/journal' + (f"/{self.entry['id']}" if self.entry else ''), saved, body, key='write')
 
     def delete(self):
-        if self.entry and QMessageBox.question(self, 'Delete reflection', 'Permanently delete this private reflection?') == QMessageBox.StandardButton.Yes:
+        entry, epoch = self.entry, self.epoch
+        if entry and QMessageBox.question(self, 'Delete reflection', 'Permanently delete this private reflection?') == QMessageBox.StandardButton.Yes and epoch == self.epoch:
             def deleted(_data): self.dirty = False; self.reload()
-            self.request('DELETE', f"/api/journal/{self.entry['id']}", deleted, key='write')
+            self.request('DELETE', f"/api/journal/{entry['id']}", deleted, key='write')
 
     def markdown(self):
         lines = ['# Reading journal — ' + text(self.snapshot.get('month')), '']
@@ -312,8 +393,9 @@ class JournalPanel(PersonalPanel):
 
     def export(self):
         if not self.snapshot: self.notice.setText('Load a month first.'); return
+        epoch = self.epoch
         path, _filter = QFileDialog.getSaveFileName(self, 'Export private journal', 'flyleaf-journal.md', 'Markdown (*.md)')
-        if not path: return
+        if not path or epoch != self.epoch: return
         file = QSaveFile(path); data = self.markdown().encode('utf-8')
         if not file.open(QIODevice.OpenModeFlag.WriteOnly) or file.write(data) != len(data) or not file.commit(): self.notice.setText('Could not save the journal export.')
 
@@ -344,6 +426,8 @@ class SeriesPersonalPanel(PersonalPanel):
             self.title.setText('Select a series in Library first.'); self.status.setCurrentIndex(0); self.rating.setCurrentIndex(0); self.spoiler.setChecked(False); self.want.setChecked(False)
 
     def context(self, series, book):
+        if self.busy:
+            return
         super().context(series, book)
         self.requests.clear()
         self.title.setText(text(series.get('name'), 'Select a series in Library first.'))
@@ -427,12 +511,32 @@ class InsightsPanel(PersonalPanel):
         form = QFormLayout(); form.addRow('Yearly books goal (0 removes)', self.goal_books); form.addRow('Yearly pages goal (0 removes)', self.goal_pages); form.addRow('Daily reading goal', self.daily)
         self.layout.addLayout(form)
         row = QHBoxLayout(); button(row, 'Save yearly goals', self.save_goals); button(row, 'Save daily goal', self.save_daily); self.layout.addLayout(row)
-        self.days = QListWidget(); self.days.setAccessibleName('Reading time by day or month'); self.layout.addWidget(self.days, 1)
+        self.days = QTableWidget(0, 3)
+        self.days.setHorizontalHeaderLabels(['Period', 'Minutes', 'Reading time'])
+        self.days.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.days.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.days.setAccessibleName('Reading time by day or month')
+        self.layout.addWidget(self.days, 1)
 
     def clear_session(self):
         super().clear_session()
         if hasattr(self, 'summary'):
             self.summary.clear(); self.goal_books.setValue(0); self.goal_pages.setValue(0); self.daily.setValue(0)
+            self.days.setRowCount(0)
+
+    def chart(self, rows):
+        maximum = max((seconds for _period, seconds in rows), default=0) or 1
+        self.days.setRowCount(len(rows))
+        for index, (period, seconds) in enumerate(rows):
+            minutes = round(seconds / 60)
+            self.days.setItem(index, 0, QTableWidgetItem(period))
+            self.days.setItem(index, 1, QTableWidgetItem(str(minutes)))
+            bar = QProgressBar()
+            bar.setRange(0, 100)
+            bar.setValue(round(seconds * 100 / maximum))
+            bar.setTextVisible(False)
+            bar.setAccessibleName(f"{period}, {minutes} minutes")
+            self.days.setCellWidget(index, 2, bar)
 
     def reload(self):
         def loaded(data):
@@ -440,7 +544,7 @@ class InsightsPanel(PersonalPanel):
             self.summary.setText(f"{round(data.get('totalSeconds', 0) / 60)} minutes read · {data.get('activeDays', 0)} active days\n{data.get('finished', 0)} books finished · streak {data.get('streak', 0)} days · best {data.get('longestStreak', 0)} days")
             goal = data.get('goal') or {}
             self.year.setValue(goal.get('year') or QDate.currentDate().year()); self.goal_books.setValue(goal.get('books') or 0); self.goal_pages.setValue(goal.get('pages') or 0); self.daily.setValue(data.get('dailyGoalMinutes') or 0)
-            fill(self.days, data.get('daily', []), lambda row: text(row.get('day')) + f" · {round(row.get('seconds', 0) / 60)} minutes")
+            self.chart([(text(row.get('day')), row.get('seconds', 0)) for row in data.get('daily', []) if isinstance(row, dict)])
         self.request('GET', '/api/stats', loaded, params={'today': QDate.currentDate().toString('yyyy-MM-dd'), 'days': 90})
 
     def year_review(self):
@@ -448,7 +552,7 @@ class InsightsPanel(PersonalPanel):
             if not isinstance(data, dict): self.notice.setText('Invalid yearly review.'); return
             self.summary.setText(f"Your {data.get('year')} in books\n{data.get('finished', 0)} finished · {data.get('pages', 0)} pages · {round(data.get('totalSeconds', 0) / 3600, 1)} hours · {data.get('activeDays', 0)} active days\nLongest streak: {data.get('longestStreak', 0)} days · {data.get('highlights', 0)} highlights")
             self.goal_books.setValue(data.get('goal') or 0); self.goal_pages.setValue(data.get('pagesGoal') or 0)
-            fill(self.days, data.get('byMonth', []), lambda row: text(row.get('month')) + f" · {round(row.get('seconds', 0) / 60)} minutes")
+            self.chart([(QDate(2000, month, 1).toString('MMM'), seconds) for month, seconds in enumerate(data.get('byMonth', [])[:12], 1)])
         self.request('GET', '/api/stats/year', loaded, params={'year': self.year.value()})
 
     def save_goals(self):
@@ -462,17 +566,61 @@ class NotificationsPanel(PersonalPanel):
 
     def __init__(self, api):
         super().__init__(api)
-        row = QHBoxLayout(); button(row, 'Refresh notifications', self.reload); button(row, 'Reading sync / offline activity', self.sync_requested.emit); self.layout.addLayout(row)
+        row = QHBoxLayout(); button(row, 'Refresh', self.reload); button(row, 'Reading sync / offline activity', self.sync_requested.emit); self.layout.addLayout(row)
+        self.stream = QComboBox()
+        self.stream.addItem('Notifications', 'notifications')
+        self.stream.addItem('Server activity', 'tasks')
+        self.stream.currentIndexChanged.connect(self.reload)
+        self.layout.addWidget(self.stream)
         self.items = QListWidget(); self.items.setAccessibleName('Notifications'); self.layout.addWidget(self.items, 1)
-        row = QHBoxLayout(); button(row, 'Mark selected read', self.mark_read); button(row, 'Mark all read', self.mark_all); button(row, 'Clear history', self.clear_history); self.layout.addLayout(row)
+        row = QHBoxLayout()
+        self.notification_controls = [button(row, 'Mark selected read', self.mark_read), button(row, 'Mark all read', self.mark_all),
+                                      button(row, 'Clear notification history', self.clear_history)]
+        self.task_controls = [button(row, 'Retry selected task', lambda: self.task_action(False)),
+                              button(row, 'Cancel selected download…', lambda: self.task_action(True))]
+        self.items.currentItemChanged.connect(self.actions)
+        self.layout.addLayout(row)
         self.layout.addWidget(label('Server downloads and chapter updates are in Content Finder → Downloads and following. Reading sync opens pending local saves, conflicts and offline downloads.', wrap=True))
+        self.actions()
 
-    def reload(self):
+    def reload(self, *_args):
+        self.items.clear()
+        self.actions()
+        mode = self.stream.currentData()
         def loaded(data):
             if not isinstance(data, dict): self.notice.setText('Invalid notification response.'); return
-            fill(self.items, data.get('items', []), lambda row: ('' if row.get('read') else 'Unread · ') + text(row.get('title')) + '\n' + text(row.get('body')))
-            self.notice.setText(f"{data.get('unread', 0)} unread · latest {self.items.count()} notifications")
-        self.request('GET', '/api/notifications', loaded, params={'limit': 300})
+            if mode == "tasks":
+                fill(self.items, data.get("items", []), lambda row: " · ".join(filter(None, (
+                    text(row.get("title"), "Task"), text(row.get("kind")), text(row.get("status")),
+                    f"{round(row['done'] * 100 / row['total'])}%" if row.get("total") and row.get("done") is not None else ""))) +
+                    ("\n" + text(row.get("error")) if row.get("error") else ""))
+                self.notice.setText(f"{self.items.count()} current and historical tasks.")
+            else:
+                fill(self.items, data.get('items', []), lambda row: ('' if row.get('read') else 'Unread · ') + text(row.get('title')) + '\n' + text(row.get('body')))
+                self.notice.setText(f"{data.get('unread', 0)} unread · latest {self.items.count()} notifications")
+            self.actions()
+        self.request('GET', '/api/' + mode, loaded, params={'limit': 300} if mode == 'notifications' else None)
+
+    def actions(self, *_args):
+        tasks = self.stream.currentData() == "tasks"
+        for control in self.notification_controls:
+            control.setVisible(not tasks)
+        for control in self.task_controls:
+            control.setVisible(tasks)
+        row = current(self.items) or {}
+        self.task_controls[0].setEnabled(tasks and bool(row.get("retry")))
+        self.task_controls[1].setEnabled(tasks and bool(row.get("downloadId") and row.get("cancel")))
+
+    def task_action(self, cancel):
+        row = current(self.items) or {}
+        epoch = self.epoch
+        download_id = row.get("downloadId")
+        if cancel:
+            if download_id and row.get("cancel") and QMessageBox.question(self, "Cancel download", "Cancel this server download?") == QMessageBox.StandardButton.Yes and epoch == self.epoch:
+                self.request("DELETE", f"/api/finder/downloads/{download_id}", lambda _data: self.reload())
+        elif row.get("retry"):
+            route = f"/api/finder/downloads/{download_id}/retry" if download_id else f"/api/tasks/{row['taskId']}/retry"
+            self.request("POST", route, lambda _data: self.reload())
     def mark_read(self):
         row = current(self.items)
         if row: self.request('POST', '/api/notifications/read', lambda _data: self.reload(), {'ids': [row['id']]}, key='write')

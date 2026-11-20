@@ -1106,6 +1106,16 @@ dialog .tabs button {
   display: grid;
   place-items: center;
 }
+@media (min-width: 600px) {
+  .series-hero {
+    grid-template-columns: clamp(128px, 24vw, 200px) minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+  .series-hero > .cover-col {
+    width: 100%;
+  }
+}
 @media (min-width: 840px) {
   .series-hero {
     grid-template-columns: 260px 1fr;
@@ -1118,7 +1128,22 @@ dialog .tabs button {
     top: calc(var(--bar-h) + 16px);
   }
 }
-@media (max-width: 839px) {
+@media (max-width: 599px) {
+  .series-hero {
+    padding-top: 0;
+    gap: 16px;
+  }
+  .series-hero > .cover-col {
+    width: clamp(108px, 36vw, 172px);
+  }
+  .series-hero .actions > .btn.large {
+    height: auto;
+    min-height: 44px;
+    max-width: 100%;
+    padding: 8px 14px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
   .series-hero .info {
     align-items: center;
     text-align: center;
@@ -4694,14 +4719,18 @@ span.plugin-icon {
   row-gap: 8px;
 }
 .page.finder .page-head h1 {
-  flex: 1 0 auto;
-  overflow-wrap: normal;
-  word-break: normal;
+  flex: 1 1 auto;
 }
 .finder-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+@media (max-width: 599px) {
+  .page.finder .page-head h1 {
+    flex-basis: 100%;
+  }
 }
 
 /* ---------------------------------------------------------------------------
