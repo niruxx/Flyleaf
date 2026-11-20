@@ -378,6 +378,27 @@ body.bare #view {
   margin-left: 0;
 }
 
+.storage-migration-banner {
+  position: fixed;
+  z-index: 55;
+  inset-inline-end: max(16px, var(--safe-right));
+  bottom: calc(16px + var(--snackbar-offset, 0px) + var(--safe-bottom));
+  max-width: calc(100vw - 32px);
+  padding: 12px 16px;
+  border-radius: var(--shape-m);
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+  box-shadow: var(--shadow-2);
+}
+.storage-migration-banner progress {
+  display: block;
+  min-width: 180px;
+  margin-top: 6px;
+}
+.storage-migration-banner[hidden], .storage-migration-banner progress[hidden] {
+  display: none;
+}
+
 /* ===================================================================== */
 /* Pages                                                                  */
 /* ===================================================================== */

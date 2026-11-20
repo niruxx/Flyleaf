@@ -603,6 +603,9 @@ export async function finderView(view, params, stale) {
   }
 
   run(true);
+  const linkedEntry = params.query.get('item');
+  const linkedSource = linkedEntry && ready.find(src => src.id === params.query.get('source') && health.allows(src.id));
+  if (linkedSource) openDetails(linkedSource, { id: linkedEntry });
 
   // Links from recommendations open an item straight away.
   const openId = params.query.get('open');

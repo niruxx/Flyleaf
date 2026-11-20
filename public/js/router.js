@@ -11,10 +11,25 @@ let leaveHandlers = [];
 let renderToken = 0;
 let currentPath = null;
 let prevPath = null;
+let readReturnPath = null;
 const listeners = new Set();
+const viewStates = new Map();
+let viewAccount;
+
+export function rememberView(key, snapshot) {
+  const account = session.user?.id;
+  onLeave(() => {
+    if (account == null || session.user?.id !== account) return;
+    viewStates.delete(key);
+    viewStates.set(key, snapshot());
+    if (viewStates.size > 40) viewStates.delete(viewStates.keys().next().value);
+  });
+  return viewStates.get(key);
+}
 
 /** The route shown before the current one (null on first load). */
 export const previousPath = () => prevPath;
+export const readerReturnPath = () => readReturnPath;
 export const currentRoute = () => currentPath;
 /** Called after every route render with the matched route info. */
 export const onRoute = (fn) => listeners.add(fn);
@@ -74,7 +89,15 @@ export async function render() {
         console.error(e);
       }
     }
+    if (viewAccount !== session.user?.id) {
+      viewStates.clear();
+      readReturnPath = null;
+      viewAccount = session.user?.id;
+    }
     if (match.full !== currentPath) {
+      if (match.path.startsWith('/read/') && !currentPath?.startsWith('/read/')) {
+        readReturnPath = currentPath && routes.some(r => r.auth && !r.bare && r.re.test(currentPath.split('?')[0])) ? currentPath : null;
+      }
       prevPath = currentPath;
       currentPath = match.full;
     }
@@ -120,3 +143,4 @@ export async function render() {
 }
 
 addEventListener('popstate', render);
+history.scrollRestoration = 'manual';

@@ -49,11 +49,13 @@ const state = {
   finishedAt: null,
 };
 const queue = [];
+const scanWaiters = new Map();
 
 async function walk(lib) {
   const root = lib.path;
   const results = [];
   const seen = new Set();
+  const unavailable = [];
 
   async function visit(dir, depth) {
     if (depth > 12) return;
@@ -61,6 +63,7 @@ async function walk(lib) {
     try {
       real = await fsp.realpath(dir);
     } catch {
+      unavailable.push(dir);
       return;
     }
     if (seen.has(real)) return;
@@ -70,6 +73,7 @@ async function walk(lib) {
     try {
       entries = await fsp.readdir(dir, { withFileTypes: true });
     } catch {
+      unavailable.push(dir);
       return;
     }
     let images = 0;
@@ -88,6 +92,7 @@ async function walk(lib) {
           isDir = st.isDirectory();
           isFile = st.isFile();
         } catch {
+          unavailable.push(full);
           continue;
         }
       }
@@ -101,17 +106,17 @@ async function walk(lib) {
       // Loose documents only count as books in ebook libraries (comic folders often hold readme files).
       if (['txt', 'docx', 'rtf'].includes(format) && (lib.kind !== 'books' || IGNORED_TXT.test(ent.name))) format = null;
       if (format) {
-        const st = await fsp.stat(full).catch(() => null);
+        const st = await fsp.stat(full).catch(() => { unavailable.push(full); return null; });
         if (!st || !st.size) continue;
         bookFiles++;
         results.push({ path: full, format, isDir: false, size: st.size, mtime: Math.floor(st.mtimeMs) });
         state.found = results.length;
       } else if (archive.IMAGE_EXT.has(ext)) {
         images++;
-        const st = await fsp.stat(full).catch(() => null);
+        const st = await fsp.stat(full).catch(() => { unavailable.push(full); return null; });
         if (st) newestImage = Math.max(newestImage, Math.floor(st.mtimeMs));
       } else if (lib.kind === 'books' && AUDIO_EXT.has(ext)) {
-        const st = await fsp.stat(full).catch(() => null);
+        const st = await fsp.stat(full).catch(() => { unavailable.push(full); return null; });
         if (st?.size) audioFiles.push({ path: full, size: st.size, mtime: Math.floor(st.mtimeMs) });
       }
     }
@@ -135,7 +140,7 @@ async function walk(lib) {
   }
 
   await visit(root, 0);
-  return results;
+  return { results, unavailable };
 }
 
 async function resolveFormat(f) {
@@ -150,10 +155,18 @@ async function resolveFormat(f) {
 
 async function scanLibrary(lib, stats) {
   const stat = await fsp.stat(lib.path).catch(() => null);
-  if (!stat?.isDirectory()) throw new Error(`Library folder not found: ${lib.path}`);
+  if (!stat?.isDirectory() || (lib.storage_device != null && lib.storage_device !== String(stat.dev))) {
+    q('UPDATE libraries SET storage_unavailable = 1 WHERE id = ?').run(lib.id);
+    throw new Error('Library storage is unavailable. Reconnect the drive or check folder permissions and scan again.');
+  }
 
   state.phase = 'walking';
-  const found = await walk(lib);
+  const { results: found, unavailable } = await walk(lib);
+  const current = await fsp.stat(lib.path).catch(() => null);
+  if (unavailable.length || !current?.isDirectory() || current.dev !== stat.dev || current.ino !== stat.ino) {
+    q('UPDATE libraries SET storage_unavailable = 1 WHERE id = ?').run(lib.id);
+    throw new Error('Part of the library storage is unavailable. Existing catalogue entries were kept.');
+  }
   const existing = new Map(q('SELECT id, path, size, mtime, missing, format FROM books WHERE library_id = ?').all(lib.id).map((b) => [b.path, b]));
   const now = Date.now();
 
@@ -192,7 +205,7 @@ async function scanLibrary(lib, stats) {
         stats.missing++;
       }
     }
-    q('UPDATE libraries SET last_scan_at = ? WHERE id = ?').run(now, lib.id);
+    q('UPDATE libraries SET last_scan_at = ?, storage_unavailable = 0, storage_device = ? WHERE id = ?').run(now, String(stat.dev), lib.id);
   });
   stats.total += found.filter((f) => f.format).length;
 }
@@ -492,14 +505,16 @@ function announce(lib, stats) {
 }
 
 async function runQueue() {
-  if (state.running) return;
+  if (state.running || require('./storage-migration').busy()) return;
   state.running = true;
   state.lastError = null;
   try {
-    while (queue.length) {
+    while (queue.length && !require('./storage-migration').busy()) {
       const libraryId = queue.shift();
       const libs = libraryId ? q('SELECT * FROM libraries WHERE id = ?').all(libraryId) : q('SELECT * FROM libraries').all();
       for (const lib of libs) {
+        const waiters = libraryId ? scanWaiters.get(lib.id) || [] : [];
+        if (libraryId) scanWaiters.delete(lib.id);
         state.libraryId = lib.id;
         state.found = 0;
         const stats = { total: 0, added: 0, changed: 0, missing: 0, errors: 0 };
@@ -522,11 +537,17 @@ async function runQueue() {
           tasks.progress(task, stats.total, stats.total);
           tasks.finish(task, stats.errors ? `${stats.errors} unreadable files. See the server log for details.` : null);
           if (lib.auto_metadata) require('./metadata-service').queueAuto(lib.id);
+          for (const waiter of waiters) waiter.resolve();
         } catch (err) {
           tasks.finish(task, err.message);
           state.lastError = err.message;
           log.warn(`"${lib.name}": ${err.message}`);
+          for (const waiter of waiters) waiter.reject(err);
         }
+      }
+      if (libraryId && !libs.length) {
+        for (const waiter of scanWaiters.get(libraryId) || []) waiter.reject(new Error('Library no longer exists.'));
+        scanWaiters.delete(libraryId);
       }
     }
   } finally {
@@ -542,4 +563,12 @@ function requestScan(libraryId = null) {
   runQueue();
 }
 
-module.exports = { requestScan, state, processBook, assignSeries, seedSeriesFromFiles, FILE_FORMATS };
+function scanAndWait(libraryId) {
+  return new Promise((resolve, reject) => {
+    if (!scanWaiters.has(libraryId)) scanWaiters.set(libraryId, []);
+    scanWaiters.get(libraryId).push({ resolve, reject });
+    requestScan(libraryId);
+  });
+}
+
+module.exports = { requestScan, scanAndWait, resumeQueue: runQueue, state, processBook, assignSeries, seedSeriesFromFiles, FILE_FORMATS };

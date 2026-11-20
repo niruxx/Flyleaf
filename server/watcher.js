@@ -111,15 +111,25 @@ function unwatch(id) {
 /** Start, stop or restart watchers so they match the libraries table. */
 function sync() {
   if (!ENABLED) return;
-  const libs = q('SELECT id, name, path FROM libraries').all();
+  const libs = q('SELECT id, name, path, storage_device, storage_unavailable FROM libraries').all();
   const ids = new Set(libs.map((l) => l.id));
   for (const id of [...watchers.keys()]) if (!ids.has(id)) unwatch(id);
   for (const lib of libs) {
+    if (lib.storage_device != null) {
+      let stat;
+      try { stat = fs.statSync(lib.path); } catch { /* The drive or its folder is unreachable. */ }
+      if (!stat?.isDirectory() || String(stat.dev) !== lib.storage_device) {
+        if (!lib.storage_unavailable) q('UPDATE libraries SET storage_unavailable = 1 WHERE id = ?').run(lib.id);
+        unwatch(lib.id);
+        continue;
+      }
+    }
     const w = watchers.get(lib.id);
-    if (w && path.resolve(w.path) === path.resolve(lib.path) && (w.watcher || Date.now() - w.since < 10 * 60_000)) continue;
+    if (w && path.resolve(w.path) === path.resolve(lib.path) && (w.watcher || (!lib.storage_unavailable && Date.now() - w.since < 10 * 60_000))) continue;
     // New library, a moved folder, or a watcher that failed a while ago (try again).
     unwatch(lib.id);
     watch(lib);
+    if (lib.storage_unavailable && watchers.get(lib.id)?.watcher) require('./scanner').requestScan(lib.id);
   }
 }
 

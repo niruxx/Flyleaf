@@ -3,11 +3,14 @@ import { t } from '../i18n.js';
 // admin gave them. Only they (and the admin) can see these, and their downloads and
 // uploads go here.
 
-import { api } from '../api.js';
+import { api, can } from '../api.js';
 import { session, navigate } from '../router.js';
 import { h, icon, iconButton, button, field, snackbar, confirmDialog, formDialog, loading, menu, timeAgo, emptyState } from '../ui.js';
 import { refreshShell } from '../shell.js';
 import { MODE_LABEL, modeCards, storageLine } from './settings-admin.js';
+import { movePersonalFolderDialog } from '../components/storage-migration.js';
+import { storageNotice } from '../components/library-storage.js';
+import { rescanFinderLinks } from '../components/finder-links.js';
 
 const KIND_ICON = { books: 'menu_book', manga: 'auto_stories', comics: 'photo_library' };
 const KIND_OPTIONS = [
@@ -30,6 +33,7 @@ export async function mylibsPanel(panel, stale) {
   const rows = libraries.map((l) => {
     const more = iconButton('more_vert', t('Library options'), () => menu(more, [
       { label: t('Scan now'), icon: 'sync', onClick: async () => { await api.scanMyLibrary(l.id); snackbar(t('Scanning {name}…', { name: l.name })); } },
+      ...(can(session.user, 'contentFinder') ? [{ label: t('Rescan Content Finder links'), icon: 'link', onClick: () => rescanFinderLinks(l) }] : []),
       { label: t('Edit'), icon: 'edit', onClick: () => libraryDialog(l) },
       { label: t('Upload into it'), icon: 'upload', onClick: () => navigate(`/upload?library=${l.id}`) },
       '-',
@@ -46,6 +50,7 @@ export async function mylibsPanel(panel, stale) {
       h('div.text',
         h('div', h('a', { href: `#/library/${l.id}`, style: { color: 'inherit' } }, l.name)),
         h('div.s.mono', l.path || '~'),
+        l.storageUnavailable && storageNotice(l, reload),
         h('div.s', t('{seriesCount} series · {bookCount} files · {value} · {value2}', { seriesCount: l.seriesCount, bookCount: l.bookCount, value: MODE_LABEL[l.mode] || l.mode, value2: l.lastScanAt ? t('scanned {value}', { value: timeAgo(l.lastScanAt) }) : t('not scanned yet') }))),
       more);
   });
@@ -55,7 +60,8 @@ export async function mylibsPanel(panel, stale) {
       icon('folder_special', 'filled'),
       h('div', h('div.title-small', t('Your personal folder')), h('div.body-small.mono', home),
         h('div.body-small.muted', t('Libraries you create here are private to you. Books you download with Content Finder or upload go into them.')),
-        storage && storageLine(storage))),
+        storage && storageLine(storage),
+        button(t('Move personal folder'), { variant: 'text', icon: 'drive_file_move', onclick: () => movePersonalFolderDialog().catch(e => snackbar(e.message)) }))),
     libraries.length
       ? h('div.settings-group', ...rows)
       : h('p.note', t('You don’t have a library yet. Create one to start adding books.')),

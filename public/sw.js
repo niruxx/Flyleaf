@@ -19,6 +19,7 @@ const SHELL = [
   '/js/ui.js',
   '/js/router.js',
   '/js/shell.js',
+  '/js/components/storage-migration.js',
   '/js/theme.js',
   '/css/reader.css',
   '/manifest.webmanifest',

@@ -17,6 +17,7 @@ from .onboarding import WelcomePage, PersonalizePage
 from .motion import MotionFeedback
 from .image_reader import IMAGE_FORMATS, ImageReader
 from .library import LibraryPage
+from .storage import PersonalStorage
 from .widgets import text
 
 
@@ -55,6 +56,9 @@ class MainWindow(QMainWindow):
         self.change_action = file_menu.addAction("Change &server…", self.change_server)
         self.sign_out_action = file_menu.addAction("Sign &out", self.sign_out)
         self.sign_out_action.setEnabled(False)
+        self.storage = PersonalStorage(self, self.api)
+        self.storage_action = file_menu.addAction("Personal &storage…", self.storage.open_settings)
+        self.storage_action.setEnabled(False)
         file_menu.addSeparator()
         quit_action = file_menu.addAction("&Quit", self.close)
         quit_action.setShortcut(QKeySequence.StandardKey.Quit)
@@ -162,6 +166,8 @@ class MainWindow(QMainWindow):
                 return
             self.user = data["user"]
             self.sign_out_action.setEnabled(True)
+            self.storage_action.setEnabled(True)
+            self.storage.set_user(self.user)
             self.setWindowTitle(f"Flyleaf Desktop — {text(self.user.get('displayName'), username)}")
             self.library.start_session(self.user)
             if self.settings.value("onboarding/completed", False, type=bool):
@@ -185,9 +191,11 @@ class MainWindow(QMainWindow):
             self.stack.removeWidget(reader)
             reader.deleteLater()
         self.api.reset()
+        self.storage.set_user(None)
         self.library.clear_session()
         self.user = None
         self.sign_out_action.setEnabled(False)
+        self.storage_action.setEnabled(False)
         self.setWindowTitle("Flyleaf Desktop")
         self.login.password.clear()
 
@@ -269,14 +277,14 @@ class MainWindow(QMainWindow):
                       lambda error: self.statusBar().showMessage(error.message) if generation == self._open_generation else None)
 
     def _return_to_library(self) -> None:
+        book_id = self.reader.book.get("id") if self.reader else None
         if self.reader:
             reader, self.reader = self.reader, None
             reader.dispose()
             self.stack.removeWidget(reader)
             reader.deleteLater()
         self.stack.setCurrentWidget(self.library)
-        self.library.refresh()
-        self.library.search.setFocus()
+        self.library.return_from_reader(book_id)
 
     def toggle_fullscreen(self) -> None:
         self.showNormal() if self.isFullScreen() else self.showFullScreen()

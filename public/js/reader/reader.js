@@ -2,7 +2,7 @@
 // Engines: pages.js (manga, comics, PDF) and text.js (EPUB, MOBI/AZW3, FB2, TXT).
 
 import { api } from '../api.js';
-import { onLeave, navigate, previousPath } from '../router.js';
+import { onLeave, navigate, readerReturnPath } from '../router.js';
 import { h, icon, iconButton, button, sheet, syncThemeColor, snackbar, segmented } from '../ui.js';
 import { displaySettings } from '../reading-display.js';
 import { Tracker } from './tracker.js';
@@ -150,9 +150,9 @@ function createShell(data, tracker) {
   function exit() {
     // Without a connection the series page can't load; go back to the saved books.
     if (!navigator.onLine || document.body.classList.contains('is-offline')) return navigate('/offline', { replace: true });
-    const back = `/series/${book.seriesId}`;
-    if (previousPath()?.startsWith(back)) history.back();
-    else navigate(back, { replace: true });
+    const back = readerReturnPath();
+    if (back) history.back();
+    else navigate(book.seriesId ? `/series/${book.seriesId}` : '/library', { replace: true });
   }
 
   async function openBook(b) {

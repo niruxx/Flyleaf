@@ -2,12 +2,13 @@ import { api, can } from '../api.js';
 import { homeLayout, sortHomeItems } from '../home-layout.js';
 import { customizeHome } from '../components/home-customize.js';
 import { prefs } from '../prefs.js';
-import { isAdmin, session, render } from '../router.js';
+import { isAdmin, session, render, rememberView, currentRoute } from '../router.js';
 import { h, icon, skeleton, emptyState, stagger, pageHeader, cover, formatDuration, button } from '../ui.js';
 import { t, plural, currentLanguage } from '../i18n.js';
 import { seriesCard, resumeCard } from '../components/cards.js';
 import { scanIndicator } from './scan.js';
 import { refreshShell } from '../shell.js';
+import { storageNotice } from '../components/library-storage.js';
 
 const KIND_ICON = { books: 'menu_book', manga: 'auto_stories', comics: 'photo_library' };
 
@@ -26,7 +27,10 @@ export async function homeView(view, params, stale) {
 
   const data = await api.home();
   if (stale()) return;
+  const remembered = rememberView(currentRoute(), () => ({ scroll: window.scrollY }));
+  if (remembered) requestAnimationFrame(() => { if (!stale()) window.scrollTo(0, remembered.scroll); });
   page.replaceChildren();
+  for (const library of data.libraries.filter(library => library.storageUnavailable)) page.append(storageNotice(library, render));
 
   const hour = new Date().getHours();
   const greet = hour < 5 ? t('Good night') : hour < 12 ? t('Good morning') : hour < 18 ? t('Good afternoon') : t('Good evening');

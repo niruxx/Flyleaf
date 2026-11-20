@@ -15,6 +15,7 @@ function finish(id, error = null) {
     .run(error ? 'failed' : 'done', error ? String(error).slice(0, 500) : null, Date.now(), id);
 }
 function recover() {
+  q("UPDATE background_tasks SET status = 'failed', error = TRIM('Interrupted by a server restart. ' || COALESCE(error, 'The original folder is still in use.')), finished_at = ? WHERE status = 'running' AND kind = 'storage-migration'").run(Date.now());
   q("UPDATE background_tasks SET status = 'failed', error = 'Interrupted by a server restart. Start the task again.', finished_at = ? WHERE status = 'running'").run(Date.now());
 }
 function list(user) {

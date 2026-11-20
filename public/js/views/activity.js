@@ -1,10 +1,11 @@
 import { api } from '../api.js';
 import { onLeave, isAdmin } from '../router.js';
-import { h, icon, button, field, pageHeader, emptyState, snackbar, formatBytes } from '../ui.js';
+import { h, icon, button, field, pageHeader, emptyState, snackbar, formatBytes, copyText } from '../ui.js';
 import { t } from '../i18n.js';
+import { migrationStage, movePersonalFolderDialog } from '../components/storage-migration.js';
 
-const KINDS = { download: 'Download', upload: 'Upload', scan: 'Library scan', metadata: 'Metadata', index: 'Search indexing', backup: 'Backup' };
-const ICONS = { download: 'download', upload: 'upload', scan: 'sync', metadata: 'auto_awesome', index: 'manage_search', backup: 'backup' };
+const KINDS = { download: 'Download', upload: 'Upload', scan: 'Library scan', metadata: 'Metadata', index: 'Search indexing', backup: 'Backup', 'storage-migration': 'Personal folder migration', 'finder-relink': 'Content Finder source scan' };
+const ICONS = { download: 'download', upload: 'upload', scan: 'sync', metadata: 'auto_awesome', index: 'manage_search', backup: 'backup', 'storage-migration': 'drive_file_move' };
 const STATUS = { queued: 'Queued', running: 'In progress', done: 'Completed', failed: 'Failed', cancelled: 'Cancelled', retried: 'Retried' };
 export async function activityView(view, params, stale) {
   const page = h('div.page.activity-page');
@@ -24,7 +25,7 @@ export async function activityView(view, params, stale) {
   filters.append(statusField, kindField, refresh);
   page.append(pageHeader(t('Activity center')), h('p.muted', isAdmin()
     ? t('Background work across your server. Active tasks appear first; recent history stays available after a restart.')
-    : t('Your uploads and Content Finder downloads.')), filters, summary, message, body);
+    : t('Your uploads, Content Finder downloads, and personal folder migrations.')), filters, summary, message, body);
   view.append(page);
 
   const act = async (item, action, btn) => {
@@ -52,8 +53,20 @@ export async function activityView(view, params, stale) {
       const progress = total > 0 ? Math.min(100, Math.round(done / total * 100)) : null;
       const details = ['download', 'upload'].includes(item.kind)
         ? total ? `${formatBytes(done)} / ${formatBytes(total)}` : done ? formatBytes(done) : ''
-        : total ? `${done} / ${total}` : '';
+        : item.kind === 'storage-migration' ? `${progress ?? 0}%` : total ? `${done} / ${total}` : '';
       const controls = h('div.task-actions');
+      if (item.destination) controls.append(button(t('Copy destination path'), { variant: 'text', icon: 'content_copy', dataset: { focus: `${item.id}-copy-destination` }, onclick: async () => {
+        try { await copyText(item.destination); }
+        catch (e) { snackbar(e.message); }
+      } }));
+      if (item.retryMove) controls.append(button(t('Retry move'), { variant: 'text', icon: 'refresh', dataset: { focus: `${item.id}-retry-move` }, onclick: async () => {
+        try {
+          const user = isAdmin() ? (await api.users()).find(user => user.id === item.userId) : undefined;
+          if (isAdmin() && !user?.homeDir) return snackbar(t('This account no longer has a personal folder.'));
+          await movePersonalFolderDialog(user, item.destination);
+          await poll();
+        } catch (e) { snackbar(e.message); }
+      } }));
       for (const action of ['retry', 'cancel']) if (item[action]) {
         const btn = button(t(action === 'retry' ? 'Retry' : 'Cancel'), { variant: 'text', icon: action === 'retry' ? 'refresh' : 'close', dataset: { focus: `${item.id}-${action}` }, 'aria-label': t(action === 'retry' ? 'Retry {title}' : 'Cancel {title}', { title: item.title }) });
         btn.addEventListener('click', () => act(item, action, btn));
@@ -63,9 +76,11 @@ export async function activityView(view, params, stale) {
         h('div.task-icon', icon(ICONS[item.kind] || 'pending_actions')),
         h('div.task-content', h('div.task-heading', h('h2.title-medium', item.title), h('span.task-status', t(STATUS[item.status] || item.status))),
           h('p.body-small.muted', `${t(KINDS[item.kind] || item.kind)} · ${new Date(item.createdAt).toLocaleString()}`),
-          item.phase && h('p.body-small', t(({ walking: 'Finding files', metadata: 'Reading metadata', grouping: 'Grouping series' })[item.phase] || 'Scanning…')),
+          item.phase && h('p.body-small', item.kind === 'storage-migration' ? migrationStage(item.phase)
+            : t(({ walking: 'Finding files', metadata: 'Reading metadata', grouping: 'Grouping series' })[item.phase] || 'Scanning…')),
           active && h('progress.task-progress', { max: 100, value: progress ?? undefined, 'aria-label': t('Task progress') }),
           details && h('p.body-small', details),
+          item.destination && h('p.body-small.mono', item.destination),
           item.error && h('p.task-error', item.error)), controls);
     }) : [emptyState('task_alt', t('No activity to show'), t('Tasks will appear here when they run. Try another filter to see more history.'))]));
     if (focused) [...body.querySelectorAll('[data-focus]')].find(node => node.dataset.focus === focused)?.focus({ preventScroll: true });

@@ -1,7 +1,8 @@
 import { api, setUnauthorizedHandler } from './api.js';
-import { route, render, session, navigate } from './router.js';
+import { route, render, session, navigate, onRoute } from './router.js';
 import { syncThemeColor } from './ui.js';
-import { initShell, afterSignIn } from './shell.js';
+import { initShell, afterSignIn, refreshShell } from './shell.js';
+import { watchStorageMigration } from './components/storage-migration.js';
 import { initMotion } from './motion.js';
 import { setupView, loginView, registerView } from './views/auth.js';
 import { welcomeView } from './views/welcome.js';
@@ -68,6 +69,10 @@ async function boot() {
   // The language: your setting (remembered from last time), else the browser's.
   await initLanguage(lastUser()?.prefs?.language || null);
   initShell();
+  onRoute(watchStorageMigration(homeChanged => {
+    if (homeChanged) refreshShell();
+    if (location.hash === '#/settings/mylibs' || (session.user?.role === 'admin' && location.hash === '#/settings/users')) render();
+  }));
   initMotion();
   let status;
   try {

@@ -10,9 +10,16 @@ router.get('/tasks', (req, res) => {
   const admin = req.user.role === 'admin';
   const items = tasks.list(req.user).map(row => ({
     id: `task-${row.id}`, taskId: row.id, kind: row.kind, title: row.title, status: row.status,
+    ...(row.kind === 'storage-migration' && { destination: row.destination, userId: row.user_id,
+      retryMove: row.status === 'failed' && Boolean(row.destination) && !req.user.apiKey }),
     done: row.done, total: row.total, error: row.error, createdAt: row.created_at, finishedAt: row.finished_at,
     retry: admin && row.status === 'failed' && retryable.has(row.kind) && (!['scan', 'metadata'].includes(row.kind) || Boolean(q('SELECT id FROM libraries WHERE id = ?').get(row.library_id))),
   }));
+  if (items.some(item => item.kind === 'storage-migration')) {
+    const migration = require('../storage-migration').live();
+    const moving = migration && items.find(item => item.taskId === migration.id);
+    if (moving) Object.assign(moving, { status: 'running', phase: migration.phase, done: migration.percent, finishedAt: null, error: null, retryMove: false });
+  }
   // Reuse the existing durable queue and its owner boundary; never copy queue state.
   if (admin || req.user.permissions?.contentFinder) {
     const scope = admin ? '' : 'AND user_id = ?';

@@ -40,7 +40,7 @@ approved dependency inventory with no hidden browser runtime.
 - [ ] Multiple named server profiles and deterministic reconnect behavior.
 - [ ] Optional remembered sessions in Windows Credential Manager and a Linux secret service;
   handle a missing/locked vault without falling back to plaintext credentials.
-- [ ] Preserve filters, selected volume, layout and scroll position when returning from a reader.
+- [x] Keep the catalog view, filters, scroll position and selected volume when returning from a reader.
 - [ ] Genre/tag/creator/language/format filters, metadata links, full-text results and saved filters.
 - [ ] Native account registration, first-run server setup, profile editing and password changes.
 - [ ] Resume prompts after expired sessions without losing pending positions or exposing another account's data.
@@ -94,6 +94,8 @@ tested progress interoperability and documented limitations. Browser fallback do
 - [ ] Account-scoped durable outbox with idempotent replay, retry backoff and visible failures.
 - [ ] Offline books, covers, metadata and reader assets, with atomic downloads and integrity checks.
 - [ ] Storage budget, pinning, eviction/cleanup previews and invalidation after source changes.
+- [x] Preview and move per-account personal folders, with progress, recovery details and updated library paths.
+- [x] Show unavailable library storage and check it again after reconnecting the drive.
 - [ ] Conflict previews between desktop, browser, Kobo, KOReader and other clients.
 - [ ] Native reading-position history and guarded restore UI with robust content revisions.
 - [ ] Preserve pending work on close, session expiry, crash, upgrade and network loss.
@@ -122,6 +124,8 @@ Exit: the desktop can perform ordinary non-admin reading/organization tasks with
 opening the browser, and private data/preferences agree across clients.
 
 ## Phase 5 — Discovery, transfers and integrations
+
+- [x] Rescan library files for Content Finder links and confirm a source for imported series.
 
 - [ ] Native Content Finder sources, kind/genre filters, catalog search and source diagnostics.
 - [ ] Download queues, followed series, chapter updates, retry/cancel and target-library selection.

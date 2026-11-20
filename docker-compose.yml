@@ -18,8 +18,10 @@ services:
       # TRUST_PROXY: "true"
       # SECURE_COOKIES: "true"
       # SCAN_INTERVAL_MINUTES: "60"
+      # FLYLEAF_USER_STORAGE_ROOTS: "/personal-ssd"
     volumes:
       - ./data:/data
       - /path/to/your/books:/books
+      # - /path/on/ssd/flyleaf-users:/personal-ssd
     # The container runs as uid 1000. If your folders belong to someone else, set it here:
     # user: "1000:1000"

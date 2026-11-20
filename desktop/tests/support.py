@@ -50,6 +50,8 @@ class Fixture:
         self.fail_page: int | None = None
         self.fail_page_list = False
         self.authorized = True
+        self.storage = None
+        self.moves: list[dict] = []
         self.png = image_bytes()
         self.user = {"id": 7, "username": "reader", "displayName": "Alex", "role": "guest", "permissions": {}, "prefs": {}}
         self.book = {"id": 1, "seriesId": 1, "title": "The Night Garden", "label": "Volume 1", "format": "cbz", "engine": "pages", "kind": "comics", "pageCount": 3, "progress": None, "coverUrl": "/api/books/1/cover"}
@@ -90,6 +92,13 @@ class Fixture:
                     self.respond(401, {"error": "Not signed in."})
                 elif path == "/api/libraries":
                     self.respond(200, [{"id": 1, "name": "Comics", "kind": "comics"}])
+                elif path == "/api/storage-migration" and fixture.storage is not None:
+                    self.respond(200, fixture.storage)
+                elif path == "/api/storage-migration/preview" and fixture.storage is not None:
+                    from urllib.parse import parse_qs
+                    destination = parse_qs(urlsplit(self.path).query)["destination"][0]
+                    self.respond(200, {"destination": destination, "files": 3, "bytes": 1048576,
+                                       "free": 1073741824, "fits": True})
                 elif path == "/api/home":
                     self.respond(200, {"continueReading": [], "recentlyAdded": fixture.catalog})
                 elif path == "/api/series":
@@ -121,6 +130,9 @@ class Fixture:
                         self.respond(401, {"error": "Incorrect username or password."})
                 elif self.path == "/api/logout":
                     self.respond(200, {"ok": True})
+                elif self.path == "/api/storage-migration" and fixture.storage is not None:
+                    fixture.moves.append(body)
+                    self.respond(202, {"id": 1})
                 elif self.path.endswith("/finished"):
                     self.respond(200, {"ok": True})
                 else:

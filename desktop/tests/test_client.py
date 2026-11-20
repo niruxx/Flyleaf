@@ -107,8 +107,15 @@ class NativeClientTests(unittest.TestCase):
         wait_for(lambda: bool(self.fixture.saves) and self.fixture.saves[-1]["page"] == 1 and not reader.has_unsaved_changes)
         self.assertAlmostEqual(self.fixture.saves[-1]["percent"], 2 / 3)
         self.assertNotIn("seconds", self.fixture.saves[-1], "position retries must not fabricate or duplicate active reading time")
+        selected_series = self.window.library.grid.currentItem()
+        self.window.library.search.blockSignals(True)
+        self.window.library.search.setText("Night Garden")
+        self.window.library.search.blockSignals(False)
         reader.request_leave(self.window._return_to_library)
-        wait_for(lambda: self.window.reader is None)
+        wait_for(lambda: self.window.reader is None and self.window.library.books.count() == 1)
+        self.assertIs(self.window.library.grid.currentItem(), selected_series)
+        self.assertEqual(self.window.library.books.currentRow(), 0)
+        self.assertEqual(self.window.library.search.text(), "Night Garden")
         self.window.sign_out()
         wait_for(lambda: self.window.user is None)
         self.assertEqual(self.window.library.grid.count(), 0)
@@ -126,6 +133,40 @@ class NativeClientTests(unittest.TestCase):
         wait_for(lambda: "Incorrect" in self.window.login.notice.text())
         self.assertIsNone(self.window.user)
         self.assertTrue(self.window.login.login_button.isEnabled())
+
+    def test_personal_storage_move_and_live_progress(self):
+        source = "/data/content/reader"
+        destination = "/mnt/ssd/reader"
+        self.fixture.storage = {"homeDir": source, "canMove": True, "roots": ["/mnt/ssd"],
+                                "migration": None, "ownMigration": None}
+        self.sign_in()
+        self.window.storage_action.trigger()
+        settings = self.window.storage.dialog
+        wait_for(lambda: settings.home.text() == source)
+        settings.destination.setText(destination)
+        self.assertFalse(settings.move.isEnabled())
+        settings.preview_button.click()
+        wait_for(lambda: settings.move.isEnabled())
+        self.assertIn("3 files", settings.preview.text())
+        settings.move.click()
+        wait_for(lambda: self.fixture.moves == [{"destination": destination}])
+        running = {"id": 1, "status": "running", "phase": "copying", "percent": 42}
+        self.fixture.storage.update(migration=running, ownMigration=running)
+        wait_for(lambda: not self.window.storage.pending and not settings.submitting)
+        self.window.storage.poll()
+        wait_for(lambda: self.window.storage.indicator.isVisible() and settings.progress.value() == 42)
+        self.assertIn("Copying files", settings.status.text())
+        self.assertFalse(settings.move.isEnabled())
+        finished = {"id": 1, "status": "done", "percent": 100, "finishedAt": int(time.time() * 1000)}
+        self.fixture.storage.update(homeDir=destination, migration=finished, ownMigration=finished)
+        self.window.storage.poll()
+        wait_for(lambda: settings.home.text() == destination)
+        self.assertEqual(self.window.user["homeDir"], destination)
+        self.assertIn("100%", settings.status.text())
+        settings.close()
+        self.window.sign_out()
+        wait_for(lambda: self.window.user is None)
+        self.assertFalse(self.window.storage.indicator.isVisible())
 
     def test_first_run_personalization_is_saved_and_returning_launch_skips_welcome(self):
         self.assertIs(self.window.stack.currentWidget(), self.window.welcome)

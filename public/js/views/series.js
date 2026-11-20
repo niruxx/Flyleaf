@@ -3,7 +3,7 @@ import { t, plural } from '../i18n.js';
 // genres, people, publication info, summary, related series and volumes.
 
 import { api, can, seriesDownloadUrl } from '../api.js';
-import { isAdmin, navigate, render, session } from '../router.js';
+import { isAdmin, navigate, render, session, currentRoute, rememberView, previousPath } from '../router.js';
 import { spoilerHiddenIds } from '../spoilers.js';
 import { spoilerGuard } from '../components/spoiler-guard.js';
 import { prefs, setPref } from '../prefs.js';
@@ -12,6 +12,7 @@ import { volumeCard, seriesCard } from '../components/cards.js';
 import { seriesActions, bookActions, addToCollection, sendTo, download, canDownload } from '../components/actions.js';
 import { RELATION_LABEL } from '../components/editors.js';
 import { languageCodes, languageName } from '../languages.js';
+import { findSeriesSource } from '../components/finder-links.js';
 
 const LINK_ICON = { MyAnimeList: 'tv', AniList: 'stacks', MangaDex: 'auto_stories', MangaUpdates: 'update', ComicVine: 'local_library', Goodreads: 'reviews', 'Open Library': 'local_library', 'Google Books': 'book_2', Kitsu: 'pets', Amazon: 'shopping_bag', BookWalker: 'storefront', Wikipedia: 'public' };
 
@@ -251,8 +252,9 @@ export async function seriesView(view, params, stale) {
   ].filter(([, list]) => list.length);
   const single = groups.length === 1;
   // Grid of covers, or a detailed list with format, pages, size and progress.
-  let layout = readVolLayout();
-  let selectedLanguage = '';
+  const remembered = rememberView(currentRoute(), () => ({ scroll: window.scrollY, layout, language: selectedLanguage }));
+  let layout = remembered?.layout || readVolLayout();
+  let selectedLanguage = remembered?.language || '';
   const availableLanguages = [...new Set(s.books.flatMap((b) => languageCodes(b.language)))];
   const languageFilter = h('select', { 'aria-label': t('Filter by language'), onchange: (e) => {
     selectedLanguage = e.target.value;
@@ -279,6 +281,7 @@ export async function seriesView(view, params, stale) {
         ? stagger(h('div.vol-list', list.map((b) => guardedVolume(b, true))))
         : stagger(h('div.grid', list.map((b) => guardedVolume(b, false)))))));
   drawVolumes();
+  languageFilter.value = selectedLanguage;
   const layoutToggle = segmented([
     { value: 'grid', icon: 'grid_view', label: '', title: t('Covers') },
     { value: 'list', icon: 'view_list', label: '', title: t('Details') },
@@ -295,6 +298,12 @@ export async function seriesView(view, params, stale) {
       volumes,
     ),
   );
+  if (remembered) requestAnimationFrame(() => {
+    if (stale()) return;
+    window.scrollTo(0, remembered.scroll);
+    const lastBook = previousPath()?.match(/^\/read\/(\d+)/)?.[1];
+    if (lastBook) volumes.querySelector(`a[href="#/read/${lastBook}"]`)?.focus({ preventScroll: true });
+  });
 
   // ----- Ratings & reviews -----
   const reviews = h('section.section.reviews');
@@ -557,7 +566,6 @@ function followPanel(s) {
     } catch {
       return;
     }
-    if (!d.source) return (box.hidden = true);
     draw(d);
     // Poll while something is downloading; once it all finishes, offer to show the new files.
     if (d.active.length) timer = setTimeout(() => box.isConnected && load(), 3000);
@@ -566,8 +574,19 @@ function followPanel(s) {
   }
 
   function draw(d) {
+    const match = button(d.source?.sourceId ? t('Change source') : t('Find source'), { variant: 'text', icon: 'link',
+      onclick: () => findSeriesSource(s, load, d.source?.plugin).catch(e => snackbar(e.message)) });
+    if (!d.source) {
+      box.replaceChildren(h('div.section-head', h('h2', t('Content Finder source')), match));
+      box.hidden = false;
+      return;
+    }
     const f = d.follow;
-    const head = h('div.section-head', h('h2', t('New chapters')), h('span.mini-chip', icon('extension'), d.source.name));
+    const head = h('div.section-head', h('h2', t('New chapters')), h('span.mini-chip', icon('extension'), d.source.title || d.source.name),
+      d.source.sourceId && h('a.btn.text.state', { href: `#/finder?${new URLSearchParams({ source: d.source.plugin, item: d.source.sourceId })}` }, t('View source')), match,
+      d.source.linked && button(t('Remove source link'), { variant: 'text', icon: 'link_off', onclick: async () => {
+        try { await api.unlinkFinderSource(s.id); load(); } catch (e) { snackbar(e.message); }
+      } }));
     let body;
     if (!f) {
       let auto = true;
@@ -586,7 +605,7 @@ function followPanel(s) {
         icon('notifications_none'),
         h('div.text',
           h('div.body-large', t('Get new chapters automatically')),
-          h('div.body-small.muted', t('This series came from {name}. Follow it to check for new chapters every few hours.', { name: d.source.name })),
+          h('div.body-small.muted', t('Follow this entry to check for new chapters every few hours.')),
           h('label.follow-auto', toggleSwitch(true, (v) => (auto = v), t('Download new chapters automatically')), h('span.body-medium', t('Download them automatically')))),
         h('div.follow-actions', follow));
     } else {

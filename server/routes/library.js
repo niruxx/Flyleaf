@@ -10,7 +10,7 @@ const archive = require('../archive');
 const scanner = require('../scanner');
 const covers = require('../covers');
 const providers = require('../providers');
-const { accessFilter, listsLibrary, canWriteLibrary, likeArg, json } = require('../util');
+const { accessFilter, listsLibrary, canSeeLibrary, canWriteLibrary, likeArg, json } = require('../util');
 const { BOOK_SELECT, toBook, listSeries } = require('../serialize');
 
 const router = express.Router();
@@ -47,6 +47,7 @@ function libraryRow(l, user) {
     coverPolicy: l.cover_policy,
     sources: json(l.sources, null) || providers.DEFAULT_SOURCES[l.kind],
     lastScanAt: l.last_scan_at,
+    storageUnavailable: Boolean(l.storage_unavailable),
     // Admin only: the folder is a Calibre library (has metadata.db).
     calibre: admin ? require('../calibre').hasCalibre(l) : undefined,
     // Admin only: whether new files show up straight away (see watcher.js).
@@ -107,6 +108,32 @@ function ownerField(body, current, admin) {
 
 router.get('/libraries', (req, res) => {
   res.json(visibleLibraries(req.user, { all: req.query.scope === 'all' }));
+});
+
+router.post('/libraries/:id/storage', async (req, res) => {
+  const id = Number(req.params.id);
+  const lib = canSeeLibrary(req.user, id) && q('SELECT path, storage_unavailable, storage_device FROM libraries WHERE id = ?').get(id);
+  if (!lib) return res.status(404).json({ error: 'Library not found.' });
+  const stat = await fsp.stat(lib.path).catch(() => null);
+  const deviceChanged = stat?.isDirectory() && lib.storage_device != null && lib.storage_device !== String(stat.dev);
+  let recognized = !deviceChanged;
+  if (deviceChanged && canWriteLibrary(req.user, id)) {
+    // Device numbers can change after a reboot. Confirm indexed files before adopting the new device.
+    const sample = q('SELECT path, size FROM books WHERE library_id = ? AND missing = 0 ORDER BY id LIMIT 5').all(id);
+    const compared = await Promise.all(sample.map(async book => {
+      const file = await fsp.stat(book.path).catch(() => null);
+      return file?.isDirectory() || (file?.isFile() && file.size === book.size);
+    }));
+    recognized = compared.every(Boolean);
+  }
+  const dir = stat?.isDirectory() && recognized ? await fsp.opendir(lib.path).catch(() => null) : null;
+  if (!dir) q('UPDATE libraries SET storage_unavailable = 1 WHERE id = ?').run(id);
+  else {
+    await dir.close();
+    if (deviceChanged) q('UPDATE libraries SET storage_device = ?, storage_unavailable = 1 WHERE id = ?').run(String(stat.dev), id);
+    if (lib.storage_unavailable || deviceChanged) scanner.requestScan(id);
+  }
+  res.json({ available: Boolean(dir), needsScan: Boolean(dir && (lib.storage_unavailable || deviceChanged)) });
 });
 
 function validateLibrary(body, current = {}) {
@@ -211,6 +238,9 @@ router.get('/scan/status', (req, res) => res.json(scanner.state));
 
 router.post('/libraries/:id/cleanup', requireAdmin, async (req, res) => {
   const libId = Number(req.params.id);
+  if (q('SELECT storage_unavailable FROM libraries WHERE id = ?').get(libId)?.storage_unavailable) {
+    return res.status(409).json({ error: 'Reconnect the library storage and scan it before removing missing files.' });
+  }
   const ids = q('SELECT id FROM books WHERE library_id = ? AND missing = 1').all(libId).map((r) => r.id);
   tx(() => {
     for (const id of ids) q('DELETE FROM books WHERE id = ?').run(id);

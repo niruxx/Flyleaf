@@ -239,7 +239,7 @@ users.get('/', async (req, res) => {
   );
 });
 
-function ageFields(body) {
+function ageFields(body, userId) {
   const out = {};
   if (body.maxAgeRating !== undefined) {
     const v = body.maxAgeRating === null || body.maxAgeRating === '' ? null : Number(body.maxAgeRating);
@@ -269,6 +269,7 @@ function ageFields(body) {
       if (!path.isAbsolute(dir)) throw new Error('The personal folder must be an absolute path, e.g. /srv/books/alex.');
       const resolved = path.resolve(dir);
       if (resolved === path.parse(resolved).root) throw new Error('Pick a folder, not the whole disk.');
+      require('../storage-migration').checkPersonalFolder(resolved, userId);
       try {
         fs.mkdirSync(resolved, { recursive: true });
       } catch (e) {
@@ -325,9 +326,21 @@ async function createGuest({ username, password, displayName, email }, access = 
   const id = Number(lastInsertRowid);
   let home = access.home_dir ?? null;
   if (!home) {
-    home = require('node:path').join(config.contentDir, username);
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const { checkPersonalFolder } = require('../storage-migration');
+    home = path.join(config.contentDir, username);
     try {
-      require('node:fs').mkdirSync(home, { recursive: true });
+      fs.mkdirSync(config.contentDir, { recursive: true });
+      try {
+        checkPersonalFolder(home, id);
+        fs.mkdirSync(home);
+      } catch (e) {
+        if (e.code !== 'EEXIST' && e.status !== 409) throw e;
+        home = path.join(config.contentDir, `${username}-${require('node:crypto').randomUUID()}`);
+        checkPersonalFolder(home, id);
+        fs.mkdirSync(home);
+      }
     } catch (e) {
       require('../log').logger('users').warn(`Couldn't create ${home} for ${username}: ${e.message}`);
       home = null;
@@ -361,6 +374,9 @@ users.patch('/:id', (req, res) => {
   const id = Number(req.params.id);
   const user = q('SELECT * FROM users WHERE id = ?').get(id);
   if (!user) return res.status(404).json({ error: 'User not found.' });
+  if (user.home_dir && req.body?.homeDir !== undefined && req.body.homeDir !== user.home_dir) {
+    return res.status(409).json({ error: 'Use Move personal folder to change this account’s storage location.' });
+  }
   const { password, displayName, email, username } = req.body || {};
   if (username !== undefined && username !== user.username) {
     const err = auth.validateUsername(username);
@@ -383,7 +399,7 @@ users.patch('/:id', (req, res) => {
     q('UPDATE users SET email = ? WHERE id = ?').run(email || null, id);
   }
   try {
-    const age = ageFields(req.body || {});
+    const age = ageFields(req.body || {}, id);
     if (user.role === 'admin' && (age.max_age_rating != null || age.library_ids || age.home_dir)) return res.status(400).json({ error: 'The admin account can’t be restricted.' });
     applyAccess(id, age);
   } catch (e) {

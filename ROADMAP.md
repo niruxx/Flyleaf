@@ -80,6 +80,9 @@ is still being verified. [Setup, supported formats and limitations](docs/device-
 - ✅ **Unified activity center**: downloads, uploads, library scans, automatic
   metadata matching, search indexing, and stored backups, with progress, filters,
   durable history, and supported retry/cancel controls.
+- ✅ **Personal storage moves**: browse and validate destinations, track progress across signed-in sessions,
+  and recover failed moves or find original copies from Activity.
+- ✅ **Content Finder source links**: recover links from download history and review missing links on imported series.
   [Usage and current coverage](docs/home-and-activity.md)
 - ⬜ **Additional activity sources**: device sync, reader conversions, backup
   downloads, and restore operations.
@@ -117,9 +120,8 @@ These are focused review findings and hardening tasks, not a completed security 
 - ⬜ **Durable preference saves**: keep failed changes pending, show saving/saved/retry
   feedback, and flush or cancel queued saves safely on navigation and account changes.
   Review: [preferences](public/js/prefs.js).
-- ⬜ **Safe scans on unavailable storage**: distinguish an empty folder from permission
-  errors, disconnected SMB/NFS mounts and incomplete traversals. Preserve catalog entries
-  in unreadable subtrees; report degraded scans instead of marking their books missing.
+- 🟨 **Safe scans on unavailable storage**: catalog preservation and reconnect checks are implemented. Validate
+  behavior on disconnected SMB/NFS mounts and physical drive replacement.
   Review: [scanner](server/scanner.js).
 - ⬜ **Restore a green regression suite**: repair missing `server/metadata-match.js` and
   read-aloud test dependencies; resolve the previously observed MOBI DOM-profile and

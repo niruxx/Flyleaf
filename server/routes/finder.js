@@ -5,9 +5,11 @@
 //   /api/admin/plugins/…   admin: install, update, configure and remove plugins
 
 const express = require('express');
+const path = require('node:path');
 const { q } = require('../db');
 const { requirePermission, requireAdmin } = require('../auth');
-const { canWriteLibrary, json } = require('../util');
+const { canWriteLibrary, accessFilter, json } = require('../util');
+const { normalizeKey } = require('../parser');
 const manager = require('../plugins/manager');
 const downloads = require('../plugins/downloads');
 
@@ -253,9 +255,14 @@ router.post('/updates/:id/download', (req, res) => {
 
 /** The Content Finder source of a series (from downloads of its files), with those downloads' items. */
 function seriesSource(seriesId, userId) {
-  const paths = new Set(q('SELECT path FROM books WHERE series_id = ?').all(seriesId).map((b) => b.path));
-  const rows = q("SELECT user_id, plugin_id, library_id, item, file FROM downloads WHERE status = 'done' AND file IS NOT NULL ORDER BY id").all()
-    .filter((d) => paths.has(d.file));
+  const linked = q(`SELECT f.*, s.library_id FROM finder_series_links f JOIN series s ON s.id = f.series_id
+    WHERE f.series_id = ? AND f.user_id = ?`).get(seriesId, userId);
+  const rows = q(`SELECT d.user_id, d.plugin_id, d.library_id, d.item FROM books b JOIN downloads d ON d.file = b.path
+    WHERE b.series_id = ? AND d.status = 'done' ORDER BY d.id`).all(seriesId);
+  if (linked) return {
+    pluginId: linked.plugin_id, sourceId: linked.source_id, title: linked.title, libraryId: linked.library_id, linked: true,
+    items: [...json(linked.items, []), ...rows.filter(d => d.plugin_id === linked.plugin_id).map(d => json(d.item, {})).filter(i => i.sourceId === linked.source_id)],
+  };
   // Prefer the user's own downloads, and ones that remember the item's id at the source.
   const withSource = rows.filter((d) => json(d.item, {}).sourceId);
   const pick = withSource.find((d) => d.user_id === userId) || withSource[0] || rows.find((d) => d.user_id === userId) || rows[0];
@@ -265,6 +272,129 @@ function seriesSource(seriesId, userId) {
   return { pluginId: pick.plugin_id, sourceId: item.sourceId || null, title: item.series || item.bookTitle || item.title, items: same.map((d) => json(d.item, {})), libraryId: pick.library_id };
 }
 
+function saveSource(userId, seriesId, plugin, sourceId, title, items, replace = false) {
+  q(`INSERT INTO finder_series_links (user_id, series_id, plugin_id, source_id, title, items) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, series_id) DO ${replace ? 'UPDATE SET plugin_id = excluded.plugin_id, source_id = excluded.source_id, title = excluded.title, items = excluded.items' : 'NOTHING'}`)
+    .run(userId, seriesId, plugin, sourceId, title, JSON.stringify(items));
+}
+
+function localFiles(seriesId, details, files) {
+  const books = q('SELECT title, volume, chapter, format, embedded FROM books WHERE series_id = ? AND missing = 0').all(seriesId);
+  const found = new Map();
+  const language = value => typeof value === 'string' ? value.toLowerCase().split(/[-_]/)[0] : null;
+  for (const book of books) {
+    const bookLanguage = language(json(book.embedded, {}).language);
+    const candidates = files.filter(f => {
+      if (bookLanguage && f.language && bookLanguage !== language(f.language)) return false;
+      if (book.chapter != null) return f.chapter === book.chapter && (book.volume == null || f.volume == null || f.volume === book.volume);
+      if (book.volume != null) return f.chapter == null && f.volume === book.volume;
+      if (f.chapter != null || f.volume != null) return false;
+      return normalizeKey(f.title || details.title) === normalizeKey(book.title);
+    });
+    const sameFormat = candidates.filter(f => f.format === book.format);
+    const matches = sameFormat.length ? sameFormat : candidates;
+    if (matches.length === 1) found.set(matches[0].id, { fileId: matches[0].id, chapter: matches[0].chapter, volume: matches[0].volume,
+      bookTitle: details.title, author: details.author, series: details.series, ageRating: details.ageRating, layout: details.layout });
+  }
+  return [...found.values()];
+}
+
+router.put('/series/:id/source', async (req, res) => {
+  const id = Number(req.params.id);
+  const series = require('../serialize').getSeries(id, req.user);
+  if (!series) return res.status(404).json({ error: 'Series not found.' });
+  const plugin = str(req.body?.plugin, 250), sourceId = str(req.body?.sourceId, 2000);
+  if (!plugin || !sourceId) return res.status(400).json({ error: 'Choose a Content Finder entry.' });
+  const raw = await manager.run(plugin, 'details', [sourceId]);
+  if (!raw?.title) return res.status(404).json({ error: 'The source entry is unavailable.' });
+  const details = cleanDetails(raw, sourceId);
+  const items = localFiles(id, details, details.files);
+  saveSource(req.user.id, id, plugin, sourceId, details.series || details.title, items, true);
+  res.json({ matchedFiles: items.length });
+});
+
+router.delete('/series/:id/source', (req, res) => {
+  q('DELETE FROM finder_series_links WHERE user_id = ? AND series_id = ?').run(req.user.id, Number(req.params.id));
+  res.json({ ok: true });
+});
+
+const relinking = new Set();
+router.get('/libraries/:id/unlinked', (req, res) => {
+  const libraryId = Number(req.params.id);
+  if (!canWriteLibrary(req.user, libraryId)) return res.status(403).json({ error: 'Choose a library you can manage.' });
+  const access = accessFilter(req.user, 's', { direct: true });
+  const limit = 50, offset = (page(req) - 1) * limit;
+  const items = q(`SELECT s.id, s.name FROM series s WHERE s.library_id = ? AND ${access.sql}
+    AND EXISTS (SELECT 1 FROM books b WHERE b.series_id = s.id AND b.missing = 0)
+    AND NOT EXISTS (SELECT 1 FROM finder_series_links f WHERE f.user_id = ? AND f.series_id = s.id)
+    AND NOT EXISTS (SELECT 1 FROM books b JOIN downloads d ON d.file = b.path
+      WHERE b.series_id = s.id AND b.missing = 0 AND d.status = 'done'
+      AND CASE WHEN json_valid(d.item) THEN NULLIF(json_extract(d.item, '$.sourceId'), '') END IS NOT NULL)
+    ORDER BY s.name COLLATE NOCASE, s.id LIMIT ? OFFSET ?`).all(libraryId, ...access.args, req.user.id, limit + 1, offset);
+  res.json({ items: items.slice(0, limit), hasMore: items.length > limit });
+});
+
+router.post('/libraries/:id/relink', (req, res) => {
+  const libraryId = Number(req.params.id), user = req.user;
+  if (!canWriteLibrary(user, libraryId)) return res.status(403).json({ error: 'Choose a library you can manage.' });
+  const lib = q('SELECT id, name FROM libraries WHERE id = ?').get(libraryId);
+  if (!lib) return res.status(404).json({ error: 'Library not found.' });
+  const key = `${user.id}:${libraryId}`;
+  if (relinking.has(key)) return res.status(409).json({ error: 'A source-link scan is already running for this library.' });
+  const tasks = require('../tasks');
+  const task = tasks.start('finder-relink', lib.name, { userId: user.id, libraryId });
+  relinking.add(key);
+  setImmediate(async () => {
+    try {
+      await require('../scanner').scanAndWait(libraryId);
+      const access = accessFilter(user, 's', { direct: true });
+      const series = q(`SELECT s.id, s.name FROM series s WHERE s.library_id = ? AND ${access.sql}`).all(libraryId, ...access.args);
+      const books = q('SELECT path, size, series_id FROM books WHERE library_id = ? AND missing = 0').all(libraryId);
+      const active = new Map(books.map(book => [book.path, book]));
+      const byFile = new Map();
+      for (const book of books) {
+        const index = `${path.basename(book.path).toLowerCase()}\0${book.size}`;
+        byFile.set(index, byFile.has(index) ? null : book);
+      }
+      const names = new Map(series.map(s => [s.id, normalizeKey(s.name)]));
+      const candidates = new Map();
+      const history = q("SELECT plugin_id, item, file, total FROM downloads WHERE user_id = ? AND status = 'done' AND file IS NOT NULL").all(user.id);
+      for (const row of history) {
+        const item = json(row.item, {}), title = item.series || item.bookTitle || item.title;
+        if (!item.sourceId || !title) continue;
+        const exact = active.get(row.file);
+        const book = exact || (row.total != null && byFile.get(`${path.basename(row.file).toLowerCase()}\0${row.total}`));
+        if (!book || !names.has(book.series_id) || (!exact && names.get(book.series_id) !== normalizeKey(title))) continue;
+        if (!candidates.has(book.series_id)) candidates.set(book.series_id, new Map());
+        const sources = candidates.get(book.series_id);
+        const sourceKey = JSON.stringify([row.plugin_id, item.sourceId]);
+        if (!sources.has(sourceKey)) sources.set(sourceKey, { plugin: row.plugin_id, sourceId: item.sourceId, title, items: [] });
+        sources.get(sourceKey).items.push(item);
+      }
+      let processed = 0;
+      tasks.progress(task, processed, series.length);
+      for (const s of series) {
+        const sources = candidates.get(s.id);
+        if (sources?.size === 1) {
+          const src = sources.values().next().value;
+          saveSource(user.id, s.id, src.plugin, src.sourceId, src.title, src.items);
+        }
+        if (++processed % 50 === 0) {
+          tasks.progress(task, processed, series.length);
+          await new Promise(resolve => setImmediate(resolve));
+        }
+      }
+      tasks.progress(task, processed, series.length);
+      tasks.finish(task);
+    } catch (e) {
+      tasks.finish(task, e.message);
+    } finally {
+      relinking.delete(key);
+    }
+  });
+  res.status(202).json({ id: task });
+});
+
 router.get('/series/:id/follow', (req, res) => {
   const s = q('SELECT id, library_id FROM series WHERE id = ?').get(Number(req.params.id));
   if (!s || !require('../serialize').getSeries(s.id, req.user)) return res.status(404).json({ error: 'Series not found.' });
@@ -272,7 +402,7 @@ router.get('/series/:id/follow', (req, res) => {
   const f = src?.sourceId ? q('SELECT * FROM follows WHERE user_id = ? AND plugin_id = ? AND source_id = ?').get(req.user.id, src.pluginId, src.sourceId) : null;
   // Downloads in progress for this series, from anyone (so you can see it's on its way).
   const active = src
-    ? q("SELECT d.id, d.title, d.status, d.received, d.total, d.item, d.created_at, COALESCE(u.display_name, u.username) AS who FROM downloads d LEFT JOIN users u ON u.id = d.user_id WHERE d.plugin_id = ? AND d.status IN ('queued', 'downloading') ORDER BY d.id").all(src.pluginId)
+    ? q("SELECT d.id, d.title, d.status, d.received, d.total, d.item, d.created_at, COALESCE(u.display_name, u.username) AS who FROM downloads d LEFT JOIN users u ON u.id = d.user_id WHERE d.plugin_id = ? AND d.library_id = ? AND d.status IN ('queued', 'downloading') ORDER BY d.id").all(src.pluginId, s.library_id)
       .filter((d) => {
         const it = json(d.item, {});
         return src.sourceId ? it.sourceId === src.sourceId : (it.series || it.bookTitle || it.title) === src.title;
@@ -284,7 +414,7 @@ router.get('/series/:id/follow', (req, res) => {
     : [];
   const updates = f ? q('SELECT * FROM follow_updates WHERE follow_id = ? ORDER BY found_at DESC LIMIT 5').all(f.id).map((u) => ({ id: u.id, label: follows.fileLabel(json(u.file, {})), foundAt: u.found_at, queued: Boolean(u.queued) })) : [];
   res.json({
-    source: src ? { plugin: src.pluginId, sourceId: src.sourceId, name: src.pluginId.split('~').pop() } : null,
+    source: src ? { plugin: src.pluginId, sourceId: src.sourceId, name: src.pluginId.split('~').pop(), linked: Boolean(src.linked), title: src.title } : null,
     follow: f ? followRow(f) : null,
     active,
     updates,

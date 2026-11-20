@@ -625,6 +625,21 @@ const migrations = [
     DELETE FROM position_history WHERE user_id = NEW.user_id AND id NOT IN (SELECT id FROM position_history WHERE user_id = NEW.user_id ORDER BY id DESC LIMIT 10000);
   END;
   `,
+  `
+  ALTER TABLE libraries ADD COLUMN storage_unavailable INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE libraries ADD COLUMN storage_device TEXT;
+  ALTER TABLE background_tasks ADD COLUMN destination TEXT;
+  CREATE INDEX downloads_completed_file ON downloads(file) WHERE status = 'done' AND file IS NOT NULL;
+  CREATE TABLE finder_series_links (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    series_id INTEGER NOT NULL REFERENCES series(id) ON DELETE CASCADE,
+    plugin_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    items TEXT NOT NULL DEFAULT '[]',
+    PRIMARY KEY (user_id, series_id)
+  );
+  `,
 ];
 
 function migrate() {

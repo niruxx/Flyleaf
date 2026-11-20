@@ -531,6 +531,16 @@ What a personal folder changes for that user:
 
 The two folder settings work separately. *Settings → Users → Edit → libraries* picks which **shared** libraries a user can read, and the **personal folder** is where their own files go. Deleting a user removes their personal libraries from Flyleaf but leaves the files on disk. Users can't reach anything outside their folder: paths with `..` stay inside it, and libraries can't overlap.
 
+To move an existing personal folder, open **Settings → My libraries → Move personal folder**, or **File → Personal storage** in Flyleaf Desktop. Administrators can also select **Move personal folder** from a guest’s menu under **Settings → Users**. Enter the full server path for a new folder inside an existing parent, such as `E:\FlyleafUsers\alex` or `/mnt/ssd/flyleaf-users/alex`. The Flyleaf service needs read and write access. With Docker, mount the drive into the container and use its container path.
+
+Use **Browse storage folders** to choose an existing parent, then **Check destination** to review the final path, file count, move size, and available space. Activity keeps the destination and any cleanup details for the owner and administrators. **Retry move** opens the destination check again. If a restart left a partial copy, choose another destination or clear the partial folder on the server before retrying.
+
+Guests can move their own folders under the default `content` directory or under dedicated storage locations the server operator lists in `FLYLEAF_USER_STORAGE_ROOTS`. Separate absolute paths with `;` on Windows or `:` on Linux. Administrators can choose another server location directly. Flyleaf copies the complete personal folder, updates the account and its library paths, and then removes the original. Signed-in users see migration progress, and the owner and administrators can review the result in Activity. Library and storage writes pause while a move runs. Leave the source and destination alone until the move finishes.
+
+When a library drive becomes unavailable, Flyleaf keeps its catalog and reading progress. Reconnect the drive and select **Check again** on the library’s storage notice to check the folder and refresh the scan.
+
+Use **Rescan Content Finder links** on a library to restore links supported by your download history. **Review missing Content Finder links** lists titles that still need attention. On an imported series, choose **Find source**, search an enabled source, and confirm the matching entry. Flyleaf saves the link for your account and matches local volumes or chapters when it can identify a unique source file. Linking leaves your files in place and does not start downloads.
+
 If Flyleaf runs as a service and the folder is under `/home`, allow writes first: `flyleaf allow-write /home/…/alex`. Cloudflare Tunnel and Tailscale Funnel work too.
 
 🔒 Built in: scrypt password hashing, HttpOnly SameSite cookies, CSRF protection, login rate limiting, and server-side read-only enforcement for guests.

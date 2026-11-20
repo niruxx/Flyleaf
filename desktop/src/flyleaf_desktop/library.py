@@ -3,7 +3,7 @@ from collections import deque
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QHBoxLayout, QLineEdit, QListView, QListWidget,
+    QAbstractItemView, QComboBox, QHBoxLayout, QInputDialog, QLineEdit, QListView, QListWidget,
     QListWidgetItem, QPlainTextEdit, QPushButton, QSplitter, QStyle, QVBoxLayout, QWidget,
 )
 
@@ -27,6 +27,7 @@ class LibraryPage(QWidget):
         self._session = 0
         self._has_more = False
         self._series: dict = {}
+        self._libraries: dict = {}
         self._records: list[dict] = []
         self._covers: deque = deque()
         self._cover_active = 0
@@ -64,6 +65,18 @@ class LibraryPage(QWidget):
         self.refresh_button.clicked.connect(self.refresh)
         toolbar.addWidget(self.refresh_button)
         body.addLayout(toolbar)
+        storage = QHBoxLayout()
+        self.storage_notice = label("", wrap=True)
+        storage.addWidget(self.storage_notice, 1)
+        self.check_storage = QPushButton("Check storage again")
+        self.check_storage.clicked.connect(self._check_storage)
+        storage.addWidget(self.check_storage)
+        self.check_storage.hide()
+        self.rescan_links = QPushButton("Rescan Content Finder links")
+        self.rescan_links.clicked.connect(self._rescan_links)
+        storage.addWidget(self.rescan_links)
+        self.rescan_links.hide()
+        body.addLayout(storage)
         self.notice = label("", wrap=True)
         self.notice.setObjectName("libraryNotice")
         body.addWidget(self.notice)
@@ -120,6 +133,10 @@ class LibraryPage(QWidget):
         self.finished_button.setEnabled(False)
         self.finished_button.clicked.connect(self._toggle_finished)
         details.addWidget(self.finished_button)
+        self.find_source = QPushButton("Find Content Finder source…")
+        self.find_source.clicked.connect(self._find_source)
+        self.find_source.hide()
+        details.addWidget(self.find_source)
         self.detail_notice = label("", wrap=True)
         details.addWidget(self.detail_notice)
         splitter.addWidget(detail)
@@ -165,6 +182,9 @@ class LibraryPage(QWidget):
         self.books.clear()
         self.sidebar.clear()
         self._series = {}
+        self._libraries.clear()
+        self._library = None
+        self._library_controls()
         self.user = {}
         self.search.blockSignals(True)
         self.search.clear()
@@ -188,14 +208,115 @@ class LibraryPage(QWidget):
             if not isinstance(library, dict) or not isinstance(library.get("id"), int):
                 continue
             item = QListWidgetItem(text(library.get("name"), "Library"))
+            self._libraries[library["id"]] = library
             item.setData(ROLE, ("library", library["id"]))
             self.sidebar.addItem(item)
         self.sidebar.blockSignals(False)
+        self._library_controls()
+
+    def _library_controls(self):
+        library = self._libraries.get(self._library, {})
+        absent = bool(library.get("storageUnavailable"))
+        self.check_storage.setVisible(absent)
+        self.storage_notice.setText("Storage unavailable. Reconnect the drive or check folder permissions." if absent else "")
+        enabled = (self.user.get("permissions") or {}).get("contentFinder") or self.user.get("role") == "admin"
+        self.rescan_links.setVisible(bool(library.get("writable") and enabled))
+        self.find_source.setVisible(bool(self._series.get("id") and enabled))
+
+    def _check_storage(self):
+        library_id = self._library
+        if library_id is None:
+            return
+        self.check_storage.setEnabled(False)
+
+        def loaded(data):
+            self.check_storage.setEnabled(True)
+            if library_id != self._library:
+                return
+            if data.get("needsScan"):
+                self.storage_notice.setText("Drive reachable. Flyleaf is checking the library.")
+                QTimer.singleShot(1000, lambda: self._refresh_library_health(library_id, attempts=8))
+            elif data.get("available"):
+                self._libraries[library_id]["storageUnavailable"] = False
+                self._library_controls()
+            else:
+                self.storage_notice.setText("The server still cannot reach this library’s storage.")
+
+        def failed(error):
+            self.check_storage.setEnabled(True)
+            if library_id == self._library:
+                self.storage_notice.setText(error.message)
+
+        self.api.json("POST", f"/api/libraries/{library_id}/storage", loaded, failed, {})
+
+    def _refresh_library_health(self, library_id, attempts=1):
+        if self._library != library_id:
+            return
+
+        def loaded(data):
+            if self._library != library_id or not isinstance(data, list):
+                return
+            match = next((entry for entry in data if entry.get("id") == library_id), None)
+            if match and (not match.get("storageUnavailable") or attempts == 1):
+                self._libraries[library_id] = match
+                self._library_controls()
+            elif attempts > 1:
+                QTimer.singleShot(1000, lambda: self._refresh_library_health(library_id, attempts - 1))
+
+        self.api.json("GET", "/api/libraries", loaded, lambda _error: None)
+
+    def _rescan_links(self):
+        library_id = self._library
+        self.api.json("POST", f"/api/finder/libraries/{library_id}/relink",
+                      lambda _data: self.storage_notice.setText("Content Finder source scan started. Results are in the web Activity center.") if self._library == library_id else None,
+                      lambda error: self.storage_notice.setText(error.message) if self._library == library_id else None, {})
+
+    def _find_source(self):
+        series = self._series
+
+        def warning(error):
+            if self._series is series:
+                self.detail_notice.setText(error.message)
+
+        def sources_loaded(data):
+            if self._series is not series or not isinstance(data, list):
+                return
+            sources = {f"{source['name']} ({source['id']})": source['id'] for source in data
+                       if source.get('id') and source.get('name') and not source.get('error') and not source.get('needsSetup')}
+            if not sources:
+                self.detail_notice.setText("No Content Finder sources are ready to search.")
+                return
+            source, accepted = QInputDialog.getItem(self, "Content Finder", "Source", list(sources), 0, False)
+            if not accepted or self._series is not series:
+                return
+            title, accepted = QInputDialog.getText(self, "Content Finder", "Search title", text=text(series.get("name")))
+            if accepted and title.strip() and self._series is series:
+                from urllib.parse import quote
+                self.api.json("GET", f"/api/finder/{quote(sources[source], safe='')}/search",
+                              lambda found: choose(sources[source], found), warning, params={"q": title.strip()})
+
+        def choose(plugin, data):
+            if self._series is not series or not isinstance(data, dict):
+                return
+            candidates = [entry for entry in data.get("items", []) if entry.get("id") and not entry.get("folder")]
+            if not candidates:
+                self.detail_notice.setText("No entries found. Try another title or source.")
+                return
+            choices = {f"{index}. {entry.get('title')} · {entry.get('author') or 'Unknown author'}": entry['id']
+                       for index, entry in enumerate(candidates, 1)}
+            selected, accepted = QInputDialog.getItem(self, "Link Content Finder entry", "Choose the matching entry", list(choices), 0, False)
+            if accepted and self._series is series:
+                self.api.json("PUT", f"/api/finder/series/{series['id']}/source",
+                              lambda result: self.detail_notice.setText(f"Source linked · {result.get('matchedFiles', 0)} local files matched") if self._series is series else None,
+                              warning, {"plugin": plugin, "sourceId": choices[selected]})
+
+        self.api.json("GET", "/api/finder/sources", sources_loaded, warning)
 
     def _navigation_changed(self, item: QListWidgetItem | None, _previous=None) -> None:
         if not item or not self.user:
             return
         self._mode, self._library = item.data(ROLE)
+        self._library_controls()
         self.heading.setText(item.text())
         self.search.blockSignals(True)
         self.search.clear()
@@ -218,6 +339,8 @@ class LibraryPage(QWidget):
         if not self.user:
             return
         if self._mode != "home":
+            if self._library is not None:
+                self._refresh_library_health(self._library)
             self._load_series(True)
             return
         self.heading.setText("Home")
@@ -237,6 +360,12 @@ class LibraryPage(QWidget):
             if not records:
                 self.notice.setText("No books yet. Add a library on your Flyleaf server, then refresh.")
         self.api.json("GET", "/api/home", loaded, lambda error: self._load_error(error, generation))
+
+    def return_from_reader(self, book_id):
+        item = self.grid.currentItem()
+        if item:
+            self._selection_changed(item, preferred=book_id, volume_scroll=self.books.verticalScrollBar().value())
+            self.books.setFocus()
 
     def _begin_load(self) -> int:
         self._generation += 1
@@ -318,13 +447,14 @@ class LibraryPage(QWidget):
                 self._pump_covers()
             self.api.image(path, done, lambda _error, callback=done: callback())
 
-    def _selection_changed(self, item: QListWidgetItem | None, _previous=None) -> None:
+    def _selection_changed(self, item: QListWidgetItem | None, _previous=None, *, preferred=None, volume_scroll=None) -> None:
         self._detail_generation += 1
         token = self._detail_generation
         self.books.clear()
         self.summary.clear()
         self.detail_notice.clear()
         self._series = {}
+        self.find_source.hide()
         if not item:
             self.read_button.setEnabled(False)
             self.finished_button.setEnabled(False)
@@ -350,7 +480,11 @@ class LibraryPage(QWidget):
             authors = series.get("authors") or []
             self.detail_meta.setText(" · ".join([text(author) for author in authors[:3]] + [f"{len(series['books'])} items"]))
             self.summary.setPlainText(text(series.get("summary")))
-            self._show_books(series["books"], data.get("id") if record["kind"] == "book" else series.get("nextBookId"))
+            selected = preferred if preferred is not None else data.get("id") if record["kind"] == "book" else series.get("nextBookId")
+            self._show_books(series["books"], selected)
+            if volume_scroll is not None:
+                self.books.verticalScrollBar().setValue(volume_scroll)
+            self._library_controls()
         self.api.json("GET", f"/api/series/{series_id}", loaded,
                       lambda error: self.detail_notice.setText(error.message) if token == self._detail_generation else None)
 

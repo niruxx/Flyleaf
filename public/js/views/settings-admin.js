@@ -9,6 +9,9 @@ import {
 } from '../ui.js';
 import { refreshShell } from '../shell.js';
 import { scanIndicator } from './scan.js';
+import { movePersonalFolderDialog } from '../components/storage-migration.js';
+import { storageNotice } from '../components/library-storage.js';
+import { rescanFinderLinks } from '../components/finder-links.js';
 
 const KIND_ICON = { books: 'menu_book', manga: 'auto_stories', comics: 'photo_library' };
 const KIND_OPTIONS = [
@@ -33,6 +36,7 @@ export async function librariesPanel(panel, stale) {
     const more = iconButton('more_vert', t('Library options'), () =>
       menu(more, [
         { label: t('Scan now'), icon: 'sync', onClick: async () => { await api.scanLibrary(l.id); snackbar(t('Scanning {name}…', { name: l.name })); } },
+        { label: t('Rescan Content Finder links'), icon: 'link', onClick: () => rescanFinderLinks(l) },
         { label: t('Match metadata online'), icon: 'travel_explore', onClick: async () => { await api.matchLibrary(l.id); snackbar(t('Matching series against online sources…')); } },
         { label: t('Edit'), icon: 'edit', onClick: () => libraryDialog(l, providers) },
         l.calibre && { label: t('Import from Calibre'), icon: 'move_to_inbox', onClick: () => calibreImport(l) },
@@ -63,6 +67,7 @@ export async function librariesPanel(panel, stale) {
       h('div.text',
         h('div', h('a', { href: `#/library/${l.id}`, style: { color: 'inherit' } }, l.name)),
         h('div.s.mono', l.path),
+        l.storageUnavailable && storageNotice(l, () => reload('libraries')),
         h('div.s', t('{seriesCount} series · {bookCount} files · {value}{value2} · {value3}', { seriesCount: l.seriesCount, bookCount: l.bookCount, value: MODE_LABEL[l.mode] || l.mode, value2: l.autoMetadata ? t(' · auto metadata') : '', value3: l.lastScanAt ? t('scanned {value}', { value: timeAgo(l.lastScanAt) }) : t('not scanned yet') })),
         l.watch && l.watch.reason !== 'off' && h('div.s.watch-line', { class: l.watch.watching ? 'on' : 'off', title: l.watch.error || '' },
           icon(l.watch.watching ? 'visibility' : 'visibility_off'),
@@ -396,6 +401,7 @@ export async function usersPanel(panel, stale) {
     const more = !isSelf && u.role !== 'admin' && iconButton('more_vert', t('User options'), () =>
       menu(more, [
         { label: t('Edit'), icon: 'edit', onClick: () => userDialog(u) },
+        ...(u.homeDir ? [{ label: t('Move personal folder'), icon: 'drive_file_move', onClick: () => movePersonalFolderDialog(u).catch(e => snackbar(e.message)) }] : []),
         { label: t('Downloads & uploads'), icon: 'folder_open', onClick: () => navigate(`/admin/users/${u.id}/files`) },
         { label: t('Reset password'), icon: 'key', onClick: () => passwordDialog(u) },
         { label: t('Sign out everywhere'), icon: 'logout', onClick: async () => { await api.signOutUser(u.id); snackbar(t('{displayName} signed out', { displayName: u.displayName })); } },
@@ -580,8 +586,10 @@ export async function userDialog(user, { onSaved } = {}) {
   // Personal folder: their own libraries live here, and their downloads/uploads go only here.
   const homeField = field(t('Personal folder'), {
     value: user?.homeDir || '',
+    disabled: Boolean(user?.homeDir),
     support: user
-      ? t('Optional. An absolute folder on the server, e.g. /srv/flyleaf/alex. Created if it doesn’t exist.')
+      ? user.homeDir ? t('Use Move personal folder in the user options to change this location.')
+        : t('Optional. An absolute folder on the server, e.g. /srv/flyleaf/alex. Created if it doesn’t exist.')
       : t('Leave empty to use Flyleaf’s data folder (content/<username>), or enter an absolute folder on the server. Books, Comics and Manga libraries are created in it.'),
     autocomplete: 'off',
   });
@@ -625,7 +633,7 @@ export async function userDialog(user, { onSaved } = {}) {
       h('p.body-small.muted', { style: { marginBottom: '8px' } },
         t('Give this user a folder of their own. They can create their own libraries inside it (nobody else sees them), and their Content Finder downloads and uploads go only into those libraries. The shared libraries above stay read-only for them.')),
       homeField,
-      homeBrowse,
+      !user?.homeDir && homeBrowse,
       homeBrowser,
       user?.storage && storageLine(user.storage),
       quotaField,
@@ -644,7 +652,7 @@ export async function userDialog(user, { onSaved } = {}) {
         maxAgeRating: age.input.value === '' ? null : Number(age.input.value),
         ageIncludeUnknown: unknown.checked,
         libraryIds,
-        homeDir: homeField.input.value.trim() || null,
+        ...(!user?.homeDir && { homeDir: homeField.input.value.trim() || null }),
         quotaMb: quotaField.input.value === '' ? null : Math.round(Number(quotaField.input.value) * 1024),
         permissions: Object.fromEntries(permRows.map((r) => r.querySelector('input')).map((i) => [i.dataset.key, i.checked])),
       };

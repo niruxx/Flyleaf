@@ -2,12 +2,14 @@ import { t, plural } from '../i18n.js';
 // Series grids: a library, all series, Want to read, a genre, a person, a tag,
 // a collection, or search results – with filters, sorting and infinite scroll.
 
-import { api } from '../api.js';
-import { onLeave, isAdmin, navigate, render } from '../router.js';
+import { api, can } from '../api.js';
+import { onLeave, isAdmin, navigate, render, session, currentRoute, rememberView } from '../router.js';
 import { h, icon, iconButton, button, emptyState, menu, store, snackbar, stagger, pageBanner, confirmDialog, formDialog, field, STATUS_LABEL, USER_STATUS, skeleton, cover } from '../ui.js';
 import { seriesCard } from '../components/cards.js';
 import { refreshShell } from '../shell.js';
 import { scanIndicator } from './scan.js';
+import { storageNotice } from '../components/library-storage.js';
+import { rescanFinderLinks, reviewFinderLinks } from '../components/finder-links.js';
 
 const PAGE = 90;
 const SORTS = [
@@ -39,6 +41,7 @@ function browse(kind) {
     const headActions = [];
     let initial = {}; // a smart filter's saved choices
     let shelf = null;
+    let library = null;
 
     switch (kind) {
       case 'library': {
@@ -47,6 +50,7 @@ function browse(kind) {
           const libs = await api.libraries(isAdmin() ? 'all' : undefined);
           const lib = libs.find((l) => l.id === Number(params.id));
           if (!lib) return navigate('/library', { replace: true });
+          library = lib;
           fixed.library = lib.id;
           title = lib.name;
           sub = t('{value}{seriesCount} series · {value2} · {value3}', { value: lib.personal ? (lib.own ? t('Your library · ') : t('{ownerName}’s personal library · ', { ownerName: lib.ownerName })) : '', seriesCount: lib.seriesCount, value2: lib.kind === 'books' ? t('Books') : lib.kind === 'manga' ? t('Manga') : t('Comics'), value3: { books: t('Regular books'), kavita: t('Kavita-style (file names)'), komga: 'Komga-style (folders)' }[lib.mode] || lib.mode });
@@ -61,6 +65,9 @@ function browse(kind) {
               snackbar(t('Looking up metadata for unmatched series…'));
             }));
           }
+          if (lib.writable && can(session.user, 'contentFinder')) headActions.push(
+            iconButton('link', t('Rescan Content Finder links'), () => rescanFinderLinks(lib)),
+            iconButton('link_off', t('Review missing Content Finder links'), () => reviewFinderLinks(lib)));
         }
         break;
       }
@@ -138,6 +145,7 @@ function browse(kind) {
 
     const prefKey = `browse.${kind}`;
     const saved = JSON.parse(store.get(prefKey, 'null')) || {};
+    const restored = rememberView(currentRoute(), () => ({ state: { ...state }, scroll: window.scrollY, filtersOpen: filters.open }));
     const sorts = SORTS.filter((s) => !s.search || kind === 'search');
     const state = {
       // Search results start with the best matches; other lists remember the last sort.
@@ -148,6 +156,7 @@ function browse(kind) {
       userStatus: initial.userStatus || '',
       genres: initial.genres || [],
       offset: 0,
+      ...restored?.state,
     };
     const persist = () => kind !== 'search' && kind !== 'shelf' && store.set(prefKey, JSON.stringify({ sort: state.sort }));
 
@@ -164,6 +173,7 @@ function browse(kind) {
     // The eyebrow already names genres, people and tags, so their detail line is the count.
     const banner = pageBanner({ icon: BANNER[0], eyebrow: BANNER[1], title, sub: ['genre', 'person', 'tag'].includes(kind) ? null : sub, actions: headActions });
     page.append(banner);
+    if (library?.storageUnavailable) page.append(storageNotice(library, render));
 
     // Toolbar
     const readRow = h('div.chip-row', READ_FILTERS.map((f) =>
@@ -246,15 +256,15 @@ function browse(kind) {
     );
     const count = h('span.label-large.muted');
     const filterText = h('span', t('Filters'));
-    const filters = h('details.library-filters', { open: Boolean(state.status || state.userStatus || state.genres.length) },
+    const filters = h('details.library-filters', { open: restored?.filtersOpen ?? Boolean(state.status || state.userStatus || state.genres.length) },
       h('summary', icon('tune'), filterText, icon('expand_more')),
       h('div.library-filter-options', statusChip, userStatusChip, kind !== 'genre' && genreChip));
     page.append(h('div.library-controls', h('div.toolbar.enter', readRow, h('div.spacer'), count, sortBtn, saveShelf), filters));
 
     // A–Z jump bar, shown while sorted by title.
     const letterBar = h('nav.letter-bar.enter', { 'aria-label': t('Jump to letter') },
-      h('button.letter.state', { type: 'button', 'aria-pressed': 'true', title: t('All'), onclick: () => pickLetter('') }, t('All')),
-      LETTERS.map((l) => h('button.letter.state', { type: 'button', 'aria-pressed': 'false', 'data-letter': l, onclick: () => pickLetter(l) }, l)));
+      h('button.letter.state', { type: 'button', 'aria-pressed': String(!state.letter), title: t('All'), onclick: () => pickLetter('') }, t('All')),
+      LETTERS.map((l) => h('button.letter.state', { type: 'button', 'aria-pressed': String(state.letter === l), 'data-letter': l, onclick: () => pickLetter(l) }, l)));
     const pickLetter = (l) => {
       state.letter = state.letter === l ? '' : l;
       for (const b of letterBar.children) b.setAttribute('aria-pressed', String((b.dataset.letter || '') === state.letter));
@@ -321,8 +331,9 @@ function browse(kind) {
     let hasMore = false;
     let busy = false;
     let reqId = 0;
+    let restoring = Boolean(restored);
     const io = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting && hasMore && !busy) loadMore();
+      if (entries[0].isIntersecting && hasMore && !busy && !restoring) loadMore().catch(error => snackbar(error.message));
     }, { rootMargin: '800px' });
     io.observe(sentinel);
     onLeave(() => io.disconnect());
@@ -363,8 +374,7 @@ function browse(kind) {
     async function loadMore() {
       busy = true;
       const id = reqId;
-      const data = await api.seriesList({ ...query(), offset: state.offset });
-      busy = false;
+      const data = await api.seriesList({ ...query(), offset: state.offset }).finally(() => { busy = false; });
       if (id !== reqId || stale()) return;
       results.querySelector('.grid')?.append(...data.items.map(card));
       hasMore = data.hasMore;
@@ -388,6 +398,13 @@ function browse(kind) {
     };
 
     await load();
+    if (restored && !stale()) {
+      try {
+        const request = reqId;
+        while (request === reqId && !stale() && hasMore && state.offset && state.offset < restored.state.offset) await loadMore();
+        if (!stale() && request === reqId) window.scrollTo(0, restored.scroll);
+      } finally { restoring = false; }
+    }
   };
 }
 

@@ -58,6 +58,10 @@ async function estimate() {
 
 /** Stream a backup zip to `out` (an HTTP response). */
 async function create(out, { includeBooks = false, includeExtensions = false } = {}) {
+  return require('./storage-migration').withWrite(() => createArchive(out, { includeBooks, includeExtensions }));
+}
+
+async function createArchive(out, { includeBooks, includeExtensions }) {
   const host = require('./plugins/suwayomi-host');
   if (includeExtensions && ['installing', 'starting', 'stopping'].includes(host.status().phase)) throw err('Wait for the Suwayomi runtime operation to finish before backing up extensions.', 409);
   const resume = includeExtensions && host.status().phase === 'running';
@@ -154,6 +158,10 @@ async function inspect(file) {
  * other files in the libraries are left alone.
  */
 async function restore(file, { includeBooks = false, includeExtensions = false } = {}) {
+  return require('./storage-migration').withWrite(() => restoreArchive(file, { includeBooks, includeExtensions }));
+}
+
+async function restoreArchive(file, { includeBooks, includeExtensions }) {
   const manifest = await inspect(file);
   const yauzl = require('yauzl');
   const staging = path.join(config.dataDir, `restore-${crypto.randomBytes(6).toString('hex')}`);
@@ -220,6 +228,7 @@ async function restore(file, { includeBooks = false, includeExtensions = false }
     const failed = [];
     if (bookEntries.length) {
       const libs = new Map(db.q('SELECT id, path FROM libraries').all().map((l) => [String(l.id), l.path]));
+      const restoredLibraries = new Set();
       for (const entry of bookEntries) {
         const [, libId, ...rest] = entry.fileName.split('/');
         const root = libs.get(libId);
@@ -230,11 +239,13 @@ async function restore(file, { includeBooks = false, includeExtensions = false }
         try {
           await fsp.mkdir(path.dirname(target), { recursive: true });
           await pipeline(await zip.openReadStreamPromise(entry), fs.createWriteStream(target));
+          restoredLibraries.add(Number(libId));
           written++;
         } catch (e) {
           if (failed.length < 5) failed.push(`${rel}: ${e.code || e.message}`);
         }
       }
+      for (const id of restoredLibraries) db.q('UPDATE libraries SET storage_device = NULL WHERE id = ?').run(id);
     }
 
     // 4. Forget anything cached from the old database.
@@ -315,7 +326,10 @@ function storedPath(name) {
 async function runScheduled({ manual = false } = {}) {
   if (backupRunning) return backupRunning;
   const tasks = require('./tasks');
+  const migration = require('./storage-migration');
+  if (migration.busy()) throw err('Try the backup again after the personal folder migration finishes.', 409);
   const task = tasks.start('backup', manual ? 'Backup' : 'Scheduled backup');
+  const release = migration.beginWrite();
   backupRunning = (async () => {
     const s = schedule();
     const dir = backupFolder(s);
@@ -325,7 +339,7 @@ async function runScheduled({ manual = false } = {}) {
     const name = `flyleaf-backup-${stamp}${s.includeBooks ? '-with-books' : ''}.zip`;
     const tmp = path.join(dir, `.${name}.part`);
     try {
-      await create(fs.createWriteStream(tmp), { includeBooks: s.includeBooks, includeExtensions: s.includeExtensions });
+      await createArchive(fs.createWriteStream(tmp), { includeBooks: s.includeBooks, includeExtensions: s.includeExtensions });
       await fsp.rename(tmp, path.join(dir, name));
     } catch (e) {
       await fsp.rm(tmp, { force: true });
@@ -340,6 +354,7 @@ async function runScheduled({ manual = false } = {}) {
     return { name };
   })().catch(e => { tasks.finish(task, e.message); throw e; }).finally(() => {
     backupRunning = null;
+    release();
   });
   return backupRunning;
 }

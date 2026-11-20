@@ -129,7 +129,7 @@ const PENDING_SQL = `FROM books b LEFT JOIN book_text_state t ON t.book_id = b.i
 
 /** Index every book that's new or changed. Runs one at a time; safe to call often. */
 async function indexPending() {
-  if (!ENABLED || state.running) return;
+  if (!ENABLED || state.running || require('./storage-migration').busy()) return;
   state.running = true;
   const tasks = require('./tasks');
   let task;
@@ -227,4 +227,4 @@ function reset() {
   });
 }
 
-module.exports = { indexPending, status, search, reset, FORMATS, ENABLED };
+module.exports = { indexPending, isRunning: () => state.running, status, search, reset, FORMATS, ENABLED };

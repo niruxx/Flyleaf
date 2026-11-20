@@ -91,7 +91,7 @@ router.post('/folders', async (req, res) => {
   res.status(201).json({ path: path.relative(lib.path, dir).split(path.sep).join('/') });
 });
 
-router.put('/file', async (req, res) => {
+router.put('/file', (req, res) => require('../storage-migration').withWrite(async () => {
   const lib = libraryFor(req, req.query.library);
   const nameSegs = cleanSegments(req.query.name);
   if (!nameSegs.length) throw err('Missing file name.');
@@ -138,7 +138,7 @@ router.put('/file', async (req, res) => {
   q('INSERT INTO uploads (user_id, library_id, file, size, created_at) VALUES (?, ?, ?, ?, ?)').run(req.user.id, lib.id, dest, received, Date.now());
   log.file(`${req.user.username} uploaded ${rel} to "${lib.name}"`);
   res.status(201).json({ path: rel, name: path.basename(dest), size: received, renamed: path.basename(dest) !== fileName });
-});
+}));
 
 // ---------------------------------------------------------------------------
 // After a batch: scan, and add whatever the files became to a collection.

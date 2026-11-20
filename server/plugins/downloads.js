@@ -311,6 +311,7 @@ events.on('book.added', (b) => {
 });
 
 function pump() {
+  if (require('../storage-migration').busy()) return;
   while (running.size < CONCURRENCY) {
     const next = q("SELECT * FROM downloads WHERE status = 'queued' ORDER BY id LIMIT 1").get();
     if (!next) return;
@@ -364,4 +365,4 @@ function resume() {
   pump();
 }
 
-module.exports = { enqueue, cancel, retry, resume, pump, friendlyFsError, segment, uniquePath };
+module.exports = { enqueue, cancel, retry, resume, pump, activeCount: () => running.size, friendlyFsError, segment, uniquePath };

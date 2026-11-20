@@ -44,6 +44,7 @@ api.use((req, res, next) => {
   next();
 });
 api.use(auth.csrfGuard);
+api.use(require('./storage-migration').guard);
 api.use((req, res, next) => {
   res.set('Cache-Control', 'no-store');
   next();
@@ -59,6 +60,7 @@ api.use(authRoutes.router);
 api.use(healthRoutes.health);
 api.use('/setup/restore', backupRoutes.setup);
 api.use(auth.requireUser);
+api.use(require('./routes/storage-migration'));
 api.use(require('./routes/tasks').router);
 api.use(healthRoutes.metrics);
 api.use('/tracking', require('./routes/tracking').router);
