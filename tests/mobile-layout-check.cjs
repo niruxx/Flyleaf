@@ -163,24 +163,27 @@ async function checkKeyboard(page, base) {
   });
   await page.goto(base, { waitUntil: 'domcontentloaded' });
   await page.locator('.home-hero').waitFor();
+  await page.addStyleTag({ content: ':root { --safe-top: 44px; }' });
   for (const type of ['dialog', 'sheet']) {
-    await page.evaluate(async (type) => {
+    const top = type === 'dialog' ? 0 : 56;
+    await page.evaluate(async ({ type, top }) => {
       const ui = await import('/js/ui.js');
       const field = ui.field('Type here', { multiline: true });
       const content = ui.h('div', field, ui.h('div', { style: { height: '500px' } }));
       if (type === 'sheet') ui.sheet(() => content);
       else void ui.dialog({ title: 'Edit', content, actions: [{ label: 'Save', value: true }] });
       field.input.focus();
-      window.resizeTestViewport(440, 56);
-    }, type);
+      window.resizeTestViewport(440, top);
+    }, { type, top });
     await page.locator('html.keyboard-open').waitFor({ state: 'attached' });
-    assert.equal(await page.locator('.bottom-nav').evaluate((nav) => getComputedStyle(nav).visibility), 'hidden');
+    await page.locator('.bottom-nav').waitFor({ state: 'hidden', timeout: 3000 });
     const popup = page.locator(`dialog.${type}[open]`);
+    await popup.evaluate((node) => Promise.allSettled(node.getAnimations().map((animation) => animation.finished)));
     const box = await popup.boundingBox();
-    assert.ok(box.y >= 55 && box.y + box.height <= 497, JSON.stringify(box));
+    assert.ok(box.y >= Math.max(top, 44) - 1 && box.y + box.height <= top + 441, JSON.stringify(box));
     if (type === 'dialog') {
       const action = await popup.getByRole('button', { name: 'Save' }).boundingBox();
-      assert.ok(action.y + action.height <= 497, JSON.stringify(action));
+      assert.ok(action.y + action.height <= top + 441, JSON.stringify(action));
     }
     await page.evaluate(() => window.resizeTestViewport(innerHeight - 64));
     await page.locator('html.keyboard-open').waitFor({ state: 'detached' });

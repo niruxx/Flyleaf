@@ -856,14 +856,17 @@ dialog.sheet {
 dialog.sheet[open] { animation: sheet-in var(--dur-long) var(--ease-emphasized-decel); }
 dialog.sheet::backdrop { background: var(--md-scrim); animation: fade-in var(--dur-medium) linear; }
 :root.keyboard-open dialog.dialog[open] {
+  --dialog-visible-top: max(var(--keyboard-top), var(--safe-top));
   position: fixed;
-  inset: calc(var(--keyboard-top) + 8px) 0 auto;
+  inset: calc(var(--dialog-visible-top) + 8px) 0 auto;
   margin: 0 auto;
-  max-height: calc(var(--keyboard-height) - 16px);
+  max-height: calc(var(--keyboard-height) + var(--keyboard-top) - var(--dialog-visible-top) - 16px);
 }
-:root.keyboard-open dialog.dialog.fullscreen-compact {
-  inset-block-start: var(--keyboard-top);
-  max-height: var(--keyboard-height);
+@media (max-width: 599px) {
+  :root.keyboard-open dialog.dialog.fullscreen-compact {
+    inset-block-start: var(--keyboard-top);
+    max-height: var(--keyboard-height);
+  }
 }
 :root.keyboard-open dialog.sheet[open] {
   position: fixed;

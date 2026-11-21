@@ -109,7 +109,7 @@ body.scrolled .app-bar {
 :root.keyboard-open .search-panel {
   max-height: max(0px, min(560px, calc(var(--keyboard-top) + var(--keyboard-height) - var(--bar-h) - 8px)));
 }
-:root.keyboard-open .bottom-nav { visibility: hidden; }
+:root.keyboard-open .bottom-nav { display: none; }
 @keyframes panel-in {
   from { opacity: 0; transform: scaleY(0.92); }
 }

@@ -213,10 +213,12 @@ body :focus-visible { outline: 3px solid var(--md-primary); outline-offset: 4px;
   .settings-page .settings-nav { max-height: calc(100dvh - var(--bar-h) - 24px); overflow-y: auto; scrollbar-width: thin; }
 }
 @media (max-width: 1023px) {
-  .app-bar .start { flex: 0 0 auto; }
-  .app-bar { gap: 16px; padding-inline: max(12px, var(--safe-left)) max(12px, var(--safe-right)); }
-  .app-bar .end { flex: 0 0 auto; }
-  .app-search { flex: 1; }
+  .app-bar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 16px;
+    padding-inline: max(12px, var(--safe-left)) max(12px, var(--safe-right));
+  }
   .app-search .search-bar input { font-size: 16px; }
   body:not(.bare) .page { margin: 0 14px 14px; padding: 26px; }
   .drawer { width: min(310px, 88vw); padding-left: max(14px, var(--safe-left)); padding-bottom: max(14px, var(--safe-bottom)); border-radius: 0 28px 28px 0; }
@@ -242,9 +244,8 @@ body :focus-visible { outline: 3px solid var(--md-primary); outline-offset: 4px;
 }
 @media (max-width: 599px) {
   body:not(.bare) { --bar-h: calc(116px + var(--safe-top)); }
-  .app-bar { padding-inline: max(8px, var(--safe-left)) max(12px, var(--safe-right)); gap: 0 8px; flex-wrap: wrap; align-content: center; }
-  .app-bar .start { flex: 1 1 auto; }
-  .app-search { order: 1; flex: 0 0 100%; margin-top: 4px; }
+  .app-bar { grid-template-columns: minmax(0, 1fr) auto; padding-inline: max(8px, var(--safe-left)) max(12px, var(--safe-right)); gap: 4px 8px; align-content: center; }
+  .app-search { grid-area: 2 / 1 / auto / -1; }
   .app-search .search-bar > .icon,
   .app-search .search-bar > .icon-btn { flex-shrink: 0; }
   .app-search .search-bar input { width: 0; }
