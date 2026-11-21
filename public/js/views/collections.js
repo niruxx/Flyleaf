@@ -25,7 +25,7 @@ export async function collectionsView(view, params, stale) {
   await Promise.all(ids.map((id) => api.series(id).then((s) => seriesById.set(id, s)).catch(() => {})));
   if (stale()) return;
   page.append(
-    stagger(h('div.grid', { style: { gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' } },
+    stagger(h('div.grid', { style: { gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 220px), 1fr))' } },
       list.map((c) =>
         h('a.collection-card', { href: `#/collection/${c.id}` },
           h('div.art', [0, 1, 2].map((i) => {

@@ -41,6 +41,39 @@ function append(el, children) {
 
 export const icon = (name, cls = '') => h(`span.icon${cls ? `.${cls}` : ''}`, { 'aria-hidden': 'true' }, name);
 
+export function initKeyboardViewport() {
+  const viewport = window.visualViewport;
+  if (!viewport) return;
+  const root = document.documentElement;
+  const textField = 'textarea, input:not([type]), input:is([type="text"], [type="search"], [type="email"], [type="password"], [type="number"], [type="tel"], [type="url"])';
+  let scheduled = false;
+  const update = () => {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => {
+      scheduled = false;
+      const focus = document.activeElement;
+      const editing = focus?.isContentEditable || focus?.matches(textField);
+      // Browser bars can resize the viewport without opening the keyboard.
+      // Leave pinch zoom under browser control.
+      const keyboard = Math.abs(viewport.scale - 1) < 0.01 && innerHeight - viewport.height > 100 &&
+        (editing || root.classList.contains('keyboard-open'));
+      root.classList.toggle('keyboard-open', keyboard);
+      if (!keyboard) return;
+      const top = Math.max(0, viewport.offsetTop);
+      root.style.setProperty('--keyboard-top', `${top}px`);
+      root.style.setProperty('--keyboard-height', `${viewport.height}px`);
+      root.style.setProperty('--keyboard-bottom', `${Math.max(0, innerHeight - top - viewport.height)}px`);
+    });
+  };
+  viewport.addEventListener('resize', update);
+  viewport.addEventListener('scroll', update);
+  window.addEventListener('resize', update);
+  document.addEventListener('focusin', update);
+  document.addEventListener('focusout', update);
+  update();
+}
+
 export function iconButton(name, label, onclick, variant = '') {
   return h(`button.icon-btn.state${variant ? `.${variant.split(' ').join('.')}` : ''}`, { type: 'button', title: label, 'aria-label': label, onclick }, icon(name));
 }
@@ -163,9 +196,9 @@ export function snackbar(message, { action, onAction, duration = 4000 } = {}) {
  * Open a modal dialog. `content` may be a node or a function receiving `close`.
  * Returns a promise resolving to the value passed to close().
  */
-export function dialog({ title, icon: ic, content, actions = [], className = '', dismissible = true, onOpen }) {
+export function dialog({ title, label = title, icon: ic, content, actions = [], className = '', dismissible = true, showClose = false, onOpen }) {
   return new Promise((resolve) => {
-    const dlg = h(`dialog.dialog${className ? `.${className.split(' ').join('.')}` : ''}`);
+    const dlg = h(`dialog.dialog${className ? `.${className.split(' ').join('.')}` : ''}`, { 'aria-label': label });
     let result;
     const close = (value) => {
       result = value;
@@ -174,8 +207,10 @@ export function dialog({ title, icon: ic, content, actions = [], className = '',
     const body = typeof content === 'function' ? content(close) : content;
     // The append() helper skips false/0/null; the DOM method would print them.
     append(dlg, [
-      h('div.dialog-head', ic && icon(ic), title && h('h2.headline-small', title)),
-      body && h('div.dialog-body', body),
+      (ic || title) && h('div.dialog-head', ic && icon(ic), title && h('h2.headline-small', title)),
+      body && h('div.dialog-body',
+        showClose && h('div.dialog-toolbar', iconButton('close', t('Close'), () => close())),
+        body),
       actions.length > 0 &&
         h(
           'div.dialog-actions',
@@ -413,8 +448,8 @@ export function actions(anchor, items, { title, at } = {}) {
   );
 }
 
-export function sheet(build) {
-  const dlg = h('dialog.sheet', h('div.handle'));
+export function sheet(build, { label } = {}) {
+  const dlg = h('dialog.sheet', { 'aria-label': label }, h('div.handle'));
   const close = () => leave(dlg, () => dlg.open && dlg.close());
   dlg.addEventListener('cancel', (e) => {
     e.preventDefault();
@@ -457,7 +492,7 @@ export function segmented(options, value, onChange) {
           render(o.value);
           onChange(o.value);
         },
-      }, o.icon && icon(o.icon), o.label),
+      }, o.icon && icon(o.icon), o.label && h('span.segment-label', o.label)),
     );
   }
   render(value);

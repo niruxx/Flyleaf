@@ -28,6 +28,7 @@ export async function run(mode) {
   }
   const {readerView}=await import('/js/reader/reader.js');
   await readerView(document.querySelector('#view'),{id:mode==='reader-slide'?'2':'1',query:new URLSearchParams()},()=>false);
+  if (mode === 'reader-layout') return { ready: Boolean(document.querySelector('foliate-view')) };
   const view=document.querySelector('foliate-view'), root=document.querySelector('.reader');
   let calls=0;const originalNext=view.next.bind(view);view.next=(...args)=>{calls++;return originalNext(...args)};
   const chapters=new Set();view.addEventListener('relocate',e=>chapters.add(e.detail.tocItem?.label));

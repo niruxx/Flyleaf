@@ -111,7 +111,7 @@ export async function finderView(view, params, stale) {
         t('ALL')),
       !shownSources.length && h('span.body-small.muted', t('No source matches.')),
       ...shownSources.map((s) => h('button.chip.state', { type: 'button', role: 'tab', 'aria-pressed': String(current === s.id), title: s.description || s.name, onclick: () => pick(s.id) },
-        sourceIcon(s), [s.name, languageName(s.language)].filter(Boolean).join(' · '), (s.needsSetup || s.error || health.failures.has(s.id)) && icon('warning'))),
+        sourceIcon(s), h('span.source-name', [s.name, languageName(s.language)].filter(Boolean).join(' · ')), (s.needsSetup || s.error || health.failures.has(s.id)) && icon('warning'))),
     ].filter(Boolean));
   }
   const healthPanel = h('details.finder-health');
@@ -486,8 +486,9 @@ export async function finderView(view, params, stale) {
     let d;
     const body = h('div.finder-details', loading());
     const result = dialog({
-      title: null,
+      label: t('Details'),
       className: 'wide finder-dialog fullscreen-compact',
+      showClose: true,
       content: body,
       actions: [],
       onOpen: async (dlg, close) => {
@@ -495,7 +496,7 @@ export async function finderView(view, params, stale) {
           d = await api.finderDetails(src.id, item.id);
         } catch (e) {
           markFailure(src, e);
-          body.replaceChildren(emptyState('error', t('Couldn’t load this item'), e.message), h('div.dialog-actions', button(t('Close'), { variant: 'text', onclick: () => close() })));
+          body.replaceChildren(emptyState('error', t('Couldn’t load this item'), e.message));
           return;
         }
         body.replaceChildren(detailsContent(src, d, close));

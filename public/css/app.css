@@ -106,6 +106,10 @@ body.scrolled .app-bar {
   animation: panel-in var(--dur-medium) var(--ease-emphasized-decel);
   transform-origin: top;
 }
+:root.keyboard-open .search-panel {
+  max-height: max(0px, min(560px, calc(var(--keyboard-top) + var(--keyboard-height) - var(--bar-h) - 8px)));
+}
+:root.keyboard-open .bottom-nav { visibility: hidden; }
 @keyframes panel-in {
   from { opacity: 0; transform: scaleY(0.92); }
 }
@@ -326,6 +330,9 @@ body.scrolled .app-bar {
 }
 .bottom-nav a {
   flex: 1;
+  min-width: 0;
+  text-align: center;
+  overflow-wrap: anywhere;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -970,7 +977,7 @@ dialog .tabs button {
 }
 .series-hero {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 24px;
   padding-top: 16px;
 }
@@ -987,6 +994,7 @@ dialog .tabs button {
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .series-hero .eyebrow {
   display: flex;
@@ -1030,10 +1038,20 @@ dialog .tabs button {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 4px;
+  max-width: 100%;
+}
+.series-hero .actions .btn {
+  max-width: 100%;
+  height: auto;
+  min-height: 56px;
+  padding-block: 8px;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .facts {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
   gap: 10px;
 }
 .fact {
@@ -1090,6 +1108,9 @@ dialog .tabs button {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: 6px 14px 6px 6px;
   border-radius: var(--shape-full);
   background: var(--md-surface-container);
@@ -1105,6 +1126,7 @@ dialog .tabs button {
   width: 32px;
   height: 32px;
   font-size: 13px;
+  flex: none;
 }
 .person .n {
   font-size: 14px;
@@ -1144,7 +1166,7 @@ dialog .tabs button {
 }
 @media (min-width: 840px) {
   .series-hero {
-    grid-template-columns: 260px 1fr;
+    grid-template-columns: 260px minmax(0, 1fr);
     gap: 40px;
     align-items: start;
   }
@@ -1174,6 +1196,10 @@ dialog .tabs button {
     text-align: left;
   }
 }
+@media (max-width: 599px) {
+  .series-hero { gap: 16px; padding-top: 8px; }
+  .series-hero > .cover-col { width: clamp(120px, 48vw, 204px); }
+}
 .vol-group + .vol-group {
   margin-top: 28px;
 }
@@ -1187,6 +1213,7 @@ dialog .tabs button {
   flex-direction: column;
   align-items: center;
   text-align: center;
+  overflow-wrap: anywhere;
   gap: 12px;
   padding: 64px 24px;
   color: var(--md-on-surface-variant);
@@ -1261,6 +1288,7 @@ dialog .tabs button {
 .collection-card .n {
   font-size: 16px;
   font-weight: 500;
+  overflow-wrap: anywhere;
 }
 .collection-card .c {
   font-size: 13px;
@@ -1795,7 +1823,7 @@ dialog .tabs button {
 
 .settings-layout {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 .settings-nav {
@@ -1818,7 +1846,7 @@ dialog .tabs button {
 }
 @media (min-width: 900px) {
   .settings-layout {
-    grid-template-columns: 230px 1fr;
+    grid-template-columns: 230px minmax(0, 1fr);
     gap: 32px;
     align-items: start;
   }
@@ -1887,7 +1915,10 @@ dialog .tabs button {
 .setting-row .text {
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
+.setting-row > .icon { flex-shrink: 0; }
+.setting-row > .field { min-width: 0; }
 .setting-row .text .s {
   font-size: 14px;
   color: var(--md-on-surface-variant);
@@ -3569,8 +3600,11 @@ dialog .tabs button {
   font-size: 13px;
 }
 dialog.dialog.wide {
-  width: min(760px, calc(100vw - 48px));
-  max-width: min(760px, calc(100vw - 48px));
+  width: min(760px, var(--dialog-width));
+  max-width: min(760px, var(--dialog-width));
+}
+@media (max-width: 599px) {
+  dialog.dialog.wide.fullscreen-compact { width: 100%; max-width: 100%; }
 }
 .error-text {
   color: var(--md-error);
@@ -3766,6 +3800,12 @@ span.plugin-icon {
 .source-chips::-webkit-scrollbar {
   display: none;
 }
+.source-chips .chip { max-width: min(260px, 100%); }
+.source-chips .source-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .source-chips .chip[aria-pressed='true'] {
   border-color: transparent;
   background: var(--md-secondary-container);
@@ -3815,6 +3855,16 @@ span.plugin-icon {
 .finder-crumbs:empty {
   display: none;
 }
+.finder-crumbs .chip {
+  max-width: 100%;
+  min-height: 36px;
+  height: auto;
+  padding-block: 6px;
+  white-space: normal;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.finder-results { overflow-wrap: anywhere; }
 .finder-label {
   margin: 4px 0 12px;
 }
@@ -3848,7 +3898,7 @@ span.plugin-icon {
 }
 .source-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
   gap: 12px;
 }
 .source-card {
@@ -3890,6 +3940,8 @@ span.plugin-icon {
 }
 .finder-section-head h2 {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .finder-none {
   padding: 8px 0 12px;
@@ -4176,7 +4228,7 @@ span.plugin-icon {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  padding-top: 4px;
+  padding-block: 4px 24px;
   color: var(--md-on-surface);
 }
 .info-top {
@@ -4187,7 +4239,8 @@ span.plugin-icon {
 }
 @media (max-width: 599px) {
   .info-top {
-    grid-template-columns: 104px minmax(0, 1fr);
+    grid-template-columns: clamp(64px, 24vw, 104px) minmax(0, 1fr);
+    gap: 12px;
   }
   .info-top .ring {
     grid-column: 1 / -1;
@@ -4261,7 +4314,7 @@ span.plugin-icon {
 }
 .info-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: 12px;
 }
 .info-card {
@@ -4290,10 +4343,11 @@ span.plugin-icon {
 }
 .info-fact {
   display: grid;
-  grid-template-columns: minmax(110px, 38%) 1fr;
+  grid-template-columns: minmax(0, 38%) minmax(0, 1fr);
   gap: 12px;
   font-size: 14px;
   line-height: 20px;
+  overflow-wrap: anywhere;
 }
 .info-fact .k {
   color: var(--md-on-surface-variant);
@@ -4321,10 +4375,6 @@ span.plugin-icon {
 .copy-mini .icon {
   font-size: 16px;
 }
-.info-dialog .dialog-actions {
-  padding: 8px 0 20px;
-}
-
 /* Detailed volume list on series pages */
 .segmented.compact > button {
   min-width: 44px;

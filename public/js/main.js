@@ -1,6 +1,6 @@
 import { api, setUnauthorizedHandler } from './api.js';
 import { route, render, session, navigate, onRoute } from './router.js';
-import { syncThemeColor } from './ui.js';
+import { initKeyboardViewport, syncThemeColor } from './ui.js';
 import { initShell, afterSignIn, refreshShell } from './shell.js';
 import { watchStorageMigration } from './components/storage-migration.js';
 import { startPage } from './catalog-prefs.js';
@@ -75,6 +75,7 @@ async function boot() {
     if (location.hash === '#/settings/mylibs' || (session.user?.role === 'admin' && location.hash === '#/settings/users')) render();
   }));
   initMotion();
+  initKeyboardViewport();
   let status;
   try {
     status = await api.status();

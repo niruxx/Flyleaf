@@ -592,7 +592,9 @@ export class TextEngine {
     );
     document.body.append(bar);
     const w = bar.offsetWidth;
-    const top = y - bar.offsetHeight - 10 < 8 ? bottom + 10 : y - bar.offsetHeight - 10;
+    const height = bar.offsetHeight;
+    const above = y - height - 10;
+    const top = above >= 8 ? above : Math.min(bottom + 10, innerHeight - height - 8);
     Object.assign(bar.style, { left: `${Math.max(8, Math.min(innerWidth - w - 8, x - w / 2))}px`, top: `${Math.max(8, top)}px` });
   }
 

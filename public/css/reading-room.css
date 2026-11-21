@@ -11,14 +11,15 @@
 .tonight-time { display: flex; gap: 6px; align-items: center; color: var(--md-primary); font-size: 14px; font-weight: 650; }
 .tonight-time .icon { font-size: 18px; }
 .journal-page { max-width: 1050px; }
-.journal-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 36px; }
-.journal-summary > div { display: grid; gap: 10px; padding: 20px; border: 1px solid var(--md-outline-variant); border-radius: 20px; background: var(--md-surface-container-low); }
+.journal-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 36px; }
+.journal-summary > div { display: grid; gap: 10px; padding: 20px; border: 1px solid var(--md-outline-variant); border-radius: 20px; background: var(--md-surface-container-low); overflow-wrap: anywhere; }
 .journal-summary strong { font-size: 26px; }
 .journal-summary span:last-child { font-size: 13px; color: var(--md-on-surface-variant); }
 .journal-day { padding: 0 0 32px 24px; border-left: 2px solid var(--md-outline-variant); margin-left: 6px; }
 .journal-day h2 { margin-top: 0; font-size: 20px; }
 .journal-reading { display: flex; align-items: center; gap: 14px; padding: 12px 0; color: inherit; text-decoration: none; }
 .journal-reading > .icon:last-child { margin-left: auto; }
+.journal-reading > div:nth-child(2), .reflection-card h3 { min-width: 0; overflow-wrap: anywhere; }
 .journal-reading p { margin: 5px 0; }
 .journal-cover { width: 42px; flex-shrink: 0; }
 .reflection-card { padding: 20px; margin: 12px 0; border-radius: 20px; background: var(--md-surface-container); }
@@ -60,7 +61,7 @@
 :root.eink :focus-visible { outline: 3px solid #000; outline-offset: 3px; }
 :root.eink .reader { --reader-bg: #fff !important; --reader-fg: #000 !important; }
 @media (max-width: 599px) {
-  .journal-summary { grid-template-columns: repeat(2, 1fr); }
+  .journal-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tonight-card { padding: 16px; gap: 14px; }
   .tonight-art { width: 84px; flex-basis: 84px; }
   .tonight-info h2 { font-size: 20px; }

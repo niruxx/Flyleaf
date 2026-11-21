@@ -64,6 +64,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 .audio-controls .icon-btn .icon {
   font-size: 30px;
@@ -94,6 +96,8 @@
 .audio-extras {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 .audio-chip {
   display: inline-flex;
@@ -296,6 +300,12 @@
   min-width: 0;
   padding: 0 4px;
 }
+.reader .chrome-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
 .reader .chrome-top .titles .t {
   font-size: 16px;
   font-weight: 500;
@@ -321,6 +331,8 @@
 }
 .reader .chrome-bottom .row .slider {
   flex: 1;
+  min-width: 0;
+  width: 0;
 }
 .reader .chrome-bottom .pageno {
   min-width: 72px;
@@ -328,6 +340,20 @@
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   color: var(--md-on-surface-variant);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 399px) {
+  .reader .chrome-top {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .reader .chrome-tools {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+  .reader .chrome-top .icon-btn, .reader .chrome-bottom .icon-btn { width: 44px; height: 44px; }
+  .reader.audio .audio-stage { padding-top: calc(104px + var(--safe-top)); }
 }
 .reader.chrome-hidden .chrome-top {
   transform: translateY(-100%);
@@ -399,9 +425,13 @@
   z-index: 300;
   display: flex;
   align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  width: max-content;
+  max-width: calc(100% - 16px);
   gap: 2px;
   padding: 4px;
-  border-radius: var(--shape-full);
+  border-radius: var(--shape-lg);
   background: var(--md-surface-container-high);
   color: var(--md-on-surface);
   box-shadow: var(--elev-2);
@@ -425,6 +455,18 @@
 }
 
 /* Reader settings sheet */
+.reader-sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 16px 0 24px;
+  background: var(--field-bg);
+}
+.reader-sheet-head .icon-btn { width: 44px; height: 44px; }
 .sheet-section {
   padding: 8px 24px 12px;
 }
@@ -444,6 +486,8 @@
 }
 .sheet-section .row .slider {
   flex: 1;
+  min-width: 0;
+  width: 0;
 }
 .sheet-section .toggle-row {
   display: flex;

@@ -23,12 +23,12 @@ async function epub() {
 }
 const book = epub();
 const mime = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.woff2': 'font/woff2', '.svg': 'image/svg+xml' };
-const html = mode => `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/css/m3.css"><link rel="stylesheet" href="/css/reader.css"><style>html,body{margin:0}#race{position:fixed;inset:0;display:block}</style><main id="view"></main><script type="module">import {run} from '/tests/${mode === 'speech' ? 'read-aloud-browser-fixture' : 'ebook-browser-fixture'}.js';window.results=await run(${JSON.stringify(mode)});</script>`;
+const html = mode => `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/css/m3.css"><link rel="stylesheet" href="/css/reader.css"><style>html,body{margin:0}#race{position:fixed;inset:0;display:block}</style><main id="view"></main><div class="snackbar-host" aria-live="polite"></div><script type="module">import {run} from '/tests/${mode === 'speech' ? 'read-aloud-browser-fixture' : 'ebook-browser-fixture'}.js';window.results=await run(${JSON.stringify(mode)});</script>`;
 http.createServer(async (req,res)=>{
   const url=new URL(req.url,'http://127.0.0.1');const p=url.pathname;
   res.setHeader('Cache-Control','no-store');
   if(p==='/speech'){res.setHeader('Content-Type','text/html');res.end(html('speech'));return;}
-  if(p==='/race'||p==='/reader'||p==='/reader-slide'){res.setHeader('Content-Type','text/html');res.end(html(p.startsWith('/reader')?p.slice(1):url.searchParams.has('raw')?'raw':'patched'));return;}
+  if(p==='/race'||p==='/reader'||p==='/reader-slide'||p==='/reader-layout'){res.setHeader('Content-Type','text/html');res.end(html(p.startsWith('/reader')?p.slice(1):url.searchParams.has('raw')?'raw':'patched'));return;}
   if(p==='/vendor/foliate/paginator.js'||p==='/vendor/raw/paginator.js'){res.setHeader('Content-Type','text/javascript');res.end(p.includes('/raw/')?upstream:patched);return;}
   if(/^\/api\/books\/[12]\/file$/.test(p)){res.setHeader('Content-Type','application/epub+zip');res.end(await book);return;}
   if(p.startsWith('/api/')){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(/^\/api\/books\/[12]\/reader$/.test(p)?{book:{id:p.includes('/2/')?2:1,title:'Mobile reader regression',label:'Test book',format:'epub',engine:'text',kind:'books',version:1,seriesId:1},settings:{...defaults,pageTurn:p.includes('/2/')?'slide':'book'},annotations:[],keybinds:null,profile:{name:'Test'}}:p==='/api/fonts'?[]:{ok:true}));return;}
@@ -41,4 +41,4 @@ http.createServer(async (req,res)=>{
   else file=path.join(root,'public',p);
   if(!file.startsWith(root+path.sep)){res.writeHead(403);res.end();return;}
   fs.readFile(file,(err,data)=>{if(err){res.writeHead(404);res.end();return;}res.setHeader('Content-Type',mime[path.extname(file)]||'application/octet-stream');res.end(data)});
-}).listen(8198,'127.0.0.1',()=>console.log('Ebook fixtures: http://127.0.0.1:8198/race?raw and /race and /reader'));
+}).listen(Number(process.env.FLYLEAF_EBOOK_FIXTURE_PORT ?? 8198),'127.0.0.1',function () { console.log('Ebook fixtures: http://127.0.0.1:' + this.address().port + '/race?raw and /race and /reader'); });

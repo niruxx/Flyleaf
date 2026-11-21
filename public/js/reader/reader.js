@@ -85,11 +85,7 @@ function createShell(data, tracker) {
   const top = h('div.chrome-top',
     iconButton('arrow_back', t('Close book'), () => exit()),
     h('div.titles', h('div.t', book.series && book.series !== book.label ? `${book.series} · ${book.label}` : book.title), titleSub),
-    searchBtn,
-    bookmarkBtn,
-    tocBtn,
-    fsBtn,
-    settingsBtn,
+    h('div.chrome-tools', searchBtn, bookmarkBtn, tocBtn, fsBtn, settingsBtn),
   );
 
   const slider = h('input.slider', { type: 'range', min: 0, max: 100, value: 0, step: 1, 'aria-label': t('Position in book') });
@@ -201,8 +197,10 @@ function createShell(data, tracker) {
         }, { show, fonts }));
       const enabled = data.enabledFonts;
       api.fonts().then((fonts) => render(fonts.filter((f) => !enabled || f.id === 'publisher' || enabled.includes(f.id) || f.id === settings.fontFamily))).catch(() => render([]));
-      return h('div', fontsBox, footer);
-    });
+      return h('div',
+        h('div.reader-sheet-head', h('h2.title-medium', t('Reader settings')), iconButton('close', t('Close'), close)),
+        fontsBox, footer);
+    }, { label: t('Reader settings') });
   }
 
   // ----- contents & annotations -----

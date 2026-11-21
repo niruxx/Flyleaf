@@ -44,15 +44,16 @@ function facts(rows) {
 export async function showBookInfo(bookId) {
   const body = h('div.book-info', loading());
   await dialog({
-    title: null,
+    label: t('Details'),
     className: 'wide fullscreen-compact info-dialog',
+    showClose: true,
     content: body,
     onOpen: async (dlg, close) => {
       let b;
       try {
         b = await api.bookInfo(bookId);
       } catch (e) {
-        body.replaceChildren(h('div.form-error', icon('error'), e.message), h('div.dialog-actions', button(t('Close'), { variant: 'text', onclick: () => close() })));
+        body.replaceChildren(h('div.form-error', icon('error'), e.message));
         return;
       }
       body.replaceChildren(render(b, close));
@@ -139,7 +140,6 @@ function render(b, close) {
       h('section.info-card.wide', h('h3', icon('folder_open'), t('File')), fileFacts),
     ),
     recommendations(b, close),
-    h('div.dialog-actions', button(t('Close'), { variant: 'text', onclick: () => close() })),
   );
 }
 
