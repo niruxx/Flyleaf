@@ -8,7 +8,7 @@ const upstream = fs.readFileSync('node_modules/foliate-js/paginator.js', 'utf8')
 test('compatibility patch validates the pinned source and includes load cancellation', () => {
   const patched = patchPaginator(upstream);
   assert.match(patched, /#cancelLoad/);
-  assert.match(patched, /Ebook section load timed out/);
+  assert.match(patched, /loadChapterFrame\(frame, src, controller\.signal\)/);
   assert.throws(() => patchPaginator(upstream.replace('snap(vx, vy)', 'snapChanged(vx, vy)')), /compatibility patch/);
 });
 

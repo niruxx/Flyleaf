@@ -5,18 +5,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const JSZip = require('jszip');
-const { patchPaginator } = require('../server/foliate-patch');
+const { patchPaginator, patchFixedLayout } = require('../server/foliate-patch');
 const root = path.resolve(__dirname, '..');
 const upstream = fs.readFileSync(path.join(root, 'node_modules/foliate-js/paginator.js'), 'utf8');
 const patched = patchPaginator(upstream);
+const fixedLayout = patchFixedLayout(fs.readFileSync(path.join(root, 'node_modules/foliate-js/fixed-layout.js'), 'utf8'));
 const defaultsSource = fs.readFileSync(path.join(root, 'server/profiles.js'), 'utf8').match(/const DEFAULT_SETTINGS = (\{[\s\S]*?\n\});/)[1];
 const defaults = vm.runInNewContext('(' + defaultsSource + ')');
-const chapter = (i) => `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter ${i}</title></head><body><h1>Chapter ${i}</h1>${Array.from({length:8},(_,n)=>`<p>This is paragraph ${n+1} of chapter ${i}. This fixture checks chapter transitions, mobile taps and recovery without contacting a library.</p>`).join('')}</body></html>`;
+const chapter = (i) => `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Chapter ${i}</title><link rel="stylesheet" href="publisher.css"/></head><body><h1>Chapter ${i}</h1><span epub:type="noteref"/><span>After the note marker</span>${Array.from({length:8},(_,n)=>`<p>This is paragraph ${n+1} of chapter ${i}. This fixture checks chapter transitions, mobile taps and recovery without contacting a library.</p>`).join('')}</body></html>`;
 async function epub() {
   const zip = new JSZip();
   zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
   zip.file('META-INF/container.xml', '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OPS/package.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
-  zip.file('OPS/package.opf', `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">reader-regression</dc:identifier><dc:title>Mobile reader regression</dc:title><dc:language>en</dc:language><meta property="dcterms:modified">2026-10-28T00:00:00Z</meta></metadata><manifest><item id="nav" href="nav.xhtml" properties="nav" media-type="application/xhtml+xml"/>${[1,2,3,4,5].map(i=>`<item id="c${i}" href="c${i}.xhtml" media-type="application/xhtml+xml"/>`).join('')}</manifest><spine>${[1,2,3,4,5].map(i=>`<itemref idref="c${i}"/>`).join('')}</spine></package>`);
+  zip.file('OPS/package.opf', `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">reader-regression</dc:identifier><dc:title>Mobile reader regression</dc:title><dc:language>en</dc:language><meta property="dcterms:modified">2026-10-28T00:00:00Z</meta></metadata><manifest><item id="nav" href="nav.xhtml" properties="nav" media-type="application/xhtml+xml"/><item id="style" href="publisher.css" media-type="text/css"/>${[1,2,3,4,5].map(i=>`<item id="c${i}" href="c${i}.xhtml" media-type="application/xhtml+xml"/>`).join('')}</manifest><spine>${[1,2,3,4,5].map(i=>`<itemref idref="c${i}"/>`).join('')}</spine></package>`);
+  zip.file('OPS/publisher.css', 'h1 { --publisher-style-loaded: yes; }');
   zip.file('OPS/nav.xhtml', `<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Contents</title></head><body><nav epub:type="toc"><ol>${[1,2,3,4,5].map(i=>`<li><a href="c${i}.xhtml">Chapter ${i}</a></li>`).join('')}</ol></nav></body></html>`);
   for (const i of [1,2,3,4,5]) zip.file(`OPS/c${i}.xhtml`, chapter(i));
   return zip.generateAsync({ type: 'nodebuffer' });
@@ -30,6 +32,7 @@ http.createServer(async (req,res)=>{
   if(p==='/speech'){res.setHeader('Content-Type','text/html');res.end(html('speech'));return;}
   if(p==='/race'||p==='/reader'||p==='/reader-slide'||p==='/reader-layout'){res.setHeader('Content-Type','text/html');res.end(html(p.startsWith('/reader')?p.slice(1):url.searchParams.has('raw')?'raw':'patched'));return;}
   if(p==='/vendor/foliate/paginator.js'||p==='/vendor/raw/paginator.js'){res.setHeader('Content-Type','text/javascript');res.end(p.includes('/raw/')?upstream:patched);return;}
+  if(p==='/vendor/foliate/fixed-layout.js'){res.setHeader('Content-Type','text/javascript');res.end(fixedLayout);return;}
   if(/^\/api\/books\/[12]\/file$/.test(p)){res.setHeader('Content-Type','application/epub+zip');res.end(await book);return;}
   if(p.startsWith('/api/')){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(/^\/api\/books\/[12]\/reader$/.test(p)?{book:{id:p.includes('/2/')?2:1,title:'Mobile reader regression',label:'Test book',format:'epub',engine:'text',kind:'books',version:1,seriesId:1},settings:{...defaults,pageTurn:p.includes('/2/')?'slide':'book'},annotations:[],keybinds:null,profile:{name:'Test'}}:p==='/api/fonts'?[]:{ok:true}));return;}
   let file;

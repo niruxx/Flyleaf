@@ -1,5 +1,7 @@
 'use strict';
 
+const chapterLoader = "import { loadChapterFrame } from '/js/reader/chapter-frame.js';\n";
+
 // Compatibility fixes for the pinned foliate-js paginator. Applied when serving the module,
 // so npm ci, Docker and read-only node_modules installations all get the same source.
 // Upstream race report: https://github.com/johnfactotum/foliate-js/issues/149
@@ -73,48 +75,29 @@ function patchPaginator(input) {
   source = source.slice(0, start) + `    async load(src, afterLoad, beforeRender) {
         if (typeof src !== 'string') throw new Error(\`\${src} is not string\`)
         this.#cancelLoad?.()
-        return new Promise((resolve, reject) => {
+        const controller = new AbortController()
+        const cancel = () => controller.abort()
+        this.#cancelLoad = cancel
+        try {
             const frame = this.#iframe
-            let timer
-            const cleanup = () => {
-                clearTimeout(timer)
-                frame.removeEventListener('load', loaded)
-                frame.removeEventListener('error', failed)
-                this.#cancelLoad = null
-            }
-            const fail = error => { cleanup(); reject(error) }
-            const failed = () => fail(new Error('Ebook section failed to load'))
-            const loaded = () => {
-                try {
-                    const doc = this.document
-                    if (!doc?.body) throw new Error('Ebook section has no body')
-                    afterLoad?.(doc)
-                    frame.style.display = 'block'
-                    const { vertical, rtl } = getDirection(doc)
-                    const background = getBackground(doc)
-                    this.#vertical = vertical
-                    this.#rtl = rtl
-                    this.#contentRange.selectNodeContents(doc.body)
-                    const layout = beforeRender?.({ vertical, rtl, background })
-                    this.render(layout)
-                    this.#observer.observe(doc.body)
-                    doc.fonts.ready.then(() => {
-                        if (frame.isConnected && doc === this.document) this.expand()
-                    }).catch(() => {})
-                    cleanup()
-                    resolve()
-                } catch (error) { fail(error) }
-            }
-            this.#cancelLoad = () => fail(new Error('Ebook section load cancelled'))
-            frame.addEventListener('load', loaded)
-            frame.addEventListener('error', failed)
-            // Reject the operation, rather than just unlocking a still-running navigation.
-            timer = setTimeout(() => {
-                frame.src = 'about:blank'
-                fail(new Error('Ebook section load timed out'))
-            }, 20000)
-            frame.src = src
-        })
+            const doc = await loadChapterFrame(frame, src, controller.signal)
+            if (!doc.body) throw new Error('Ebook section has no body')
+            afterLoad?.(doc)
+            frame.style.display = 'block'
+            const { vertical, rtl } = getDirection(doc)
+            const background = getBackground(doc)
+            this.#vertical = vertical
+            this.#rtl = rtl
+            this.#contentRange.selectNodeContents(doc.body)
+            const layout = beforeRender?.({ vertical, rtl, background })
+            this.render(layout)
+            this.#observer.observe(doc.body)
+            doc.fonts.ready.then(() => {
+                if (frame.isConnected && doc === this.document) this.expand()
+            }).catch(() => {})
+        } finally {
+            if (this.#cancelLoad === cancel) this.#cancelLoad = null
+        }
     }
 ` + source.slice(end);
   replace(`    destroy() {
@@ -129,6 +112,35 @@ function patchPaginator(input) {
   replace('    #observer = new ResizeObserver(() => this.expand())', '    #observer = new ResizeObserver(() => {\n        if (this.#iframe.isConnected && this.document?.body) this.expand()\n    })');
   replace('this.#background.style.background = getBackground(this.#view.document))', 'this.#view?.document?.body && (this.#background.style.background = getBackground(this.#view.document)))');
   replace("this.#view?.document?.fonts?.ready?.then(() => this.#view.expand())", "this.#view?.document?.fonts?.ready?.then(() => {\n            if (this.#view?.document?.body) this.#view.expand()\n        }).catch(() => {})");
-  return source;
+  return chapterLoader + source;
 }
-module.exports = { patchPaginator };
+
+function patchFixedLayout(input) {
+  const source = input.replace(/\r\n/g, '\n');
+  const before = `        return new Promise(resolve => {
+            iframe.addEventListener('load', () => {
+                const doc = iframe.contentDocument
+                this.dispatchEvent(new CustomEvent('load', { detail: { doc, index } }))
+                const { width, height } = getViewport(doc, this.defaultViewport)
+                resolve({
+                    element, iframe,
+                    width: parseFloat(width),
+                    height: parseFloat(height),
+                    onZoom,
+                })
+            }, { once: true })
+            iframe.src = src
+        })`;
+  if (!source.includes(before)) throw new Error('The foliate-js fixed-layout renderer changed; review the Flyleaf chapter loader patch.');
+  return chapterLoader + source.replace(before, `        try {
+            const doc = await loadChapterFrame(iframe, src)
+            this.dispatchEvent(new CustomEvent('load', { detail: { doc, index } }))
+            const { width, height } = getViewport(doc, this.defaultViewport)
+            return { element, iframe, width: parseFloat(width), height: parseFloat(height), onZoom }
+        } catch (error) {
+            element.remove()
+            throw error
+        }`);
+}
+
+module.exports = { patchPaginator, patchFixedLayout };

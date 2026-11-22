@@ -151,6 +151,80 @@ async function checkReader(page, base) {
   await fit(page, '.sel-toolbar');
 }
 
+async function checkReadLinks(page, catalog, reader) {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'userAgent', { value: `${navigator.userAgent} FxiOS/160.0` });
+    const source = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'src');
+    window.chapterDownloads = [];
+    Object.defineProperty(HTMLIFrameElement.prototype, 'src', {
+      ...source,
+      set(url) {
+        // Model the iOS Firefox navigation delegate, which downloads blob URLs.
+        if (url.startsWith('blob:')) window.chapterDownloads.push(url);
+        else source.set.call(this, url);
+      },
+    });
+  });
+  await page.route(/\/api\/books\/1\/(?:reader|file)(?:\?|$)|\/vendor\/foliate\//, async (route) => {
+    const url = new URL(route.request().url());
+    const response = await route.fetch({ url: `${reader}${url.pathname}${url.search}` });
+    await route.fulfill({ response });
+  });
+  const downloads = [];
+  page.on('download', (download) => downloads.push(download.suggestedFilename()));
+  await page.goto(`${catalog}/#/series/1`);
+  const readLink = page.locator('.series-hero .actions a[href="#/read/1"]');
+  await page.evaluate(() => { window.catalogDocument = true; });
+  await readLink.tap();
+  const chapter = () => document.querySelector('foliate-view')?.renderer?.getContents()[0]?.doc?.querySelector('h1')?.textContent;
+  await page.waitForFunction(chapter);
+  await page.locator('.reader .page-loading').waitFor({ state: 'hidden' });
+  assert.equal(await page.evaluate(chapter), 'Chapter 1');
+  const chapterLayout = await page.evaluate(() => {
+    const doc = document.querySelector('foliate-view').renderer.getContents()[0].doc;
+    const marker = doc.querySelector('span');
+    return {
+      url: doc.URL,
+      type: marker.getAttributeNS('http://www.idpf.org/2007/ops', 'type'),
+      sibling: marker.nextElementSibling.textContent,
+      style: doc.defaultView.getComputedStyle(doc.querySelector('h1')).getPropertyValue('--publisher-style-loaded').trim(),
+    };
+  });
+  assert.deepEqual(chapterLayout, { url: 'about:srcdoc', type: 'noteref', sibling: 'After the note marker', style: 'yes' });
+  assert.equal(new URL(page.url()).hash, '#/read/1');
+  assert.equal(await page.evaluate(() => window.catalogDocument), true);
+  await page.evaluate(() => document.querySelector('foliate-view').goTo(1));
+  assert.equal(await page.evaluate(chapter), 'Chapter 2');
+  assert.deepEqual(await page.evaluate(() => window.chapterDownloads), []);
+  assert.deepEqual(downloads, []);
+
+  await page.goBack();
+  await readLink.waitFor();
+  assert.equal(new URL(page.url()).hash, '#/series/1');
+
+  const svgPage = await page.evaluate(async () => {
+    const source = URL.createObjectURL(new Blob([
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600"><title>Fixed layout</title></svg>',
+    ], { type: 'image/svg+xml' }));
+    const view = document.createElement('foliate-view');
+    document.body.append(view);
+    try {
+      await view.open({ rendition: { layout: 'pre-paginated' }, sections: [{ load: () => source }] });
+      await view.init({ showTextStart: false });
+      const doc = view.renderer.getContents().find(({ doc }) => doc?.documentElement.localName === 'svg')?.doc;
+      if (!doc) return null;
+      return [doc.URL, doc.documentElement.namespaceURI, doc.documentElement.getAttribute('viewBox')];
+    } finally {
+      view.close();
+      view.remove();
+      URL.revokeObjectURL(source);
+    }
+  });
+  assert.deepEqual(svgPage, ['about:srcdoc', 'http://www.w3.org/2000/svg', '0 0 400 600']);
+  assert.deepEqual(await page.evaluate(() => window.chapterDownloads), []);
+}
+
 async function checkKeyboard(page, base) {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.addInitScript(() => {
@@ -208,11 +282,12 @@ async function checkKeyboard(page, base) {
       const catalogPage = await browser.newPage(options);
       catalogPage.setDefaultTimeout(8000);
       await checkCatalog(catalogPage, web);
+      await checkReadLinks(await browser.newPage(options), web, reader);
       await checkKeyboard(await browser.newPage(options), web);
       const readerPage = await browser.newPage(options);
       readerPage.setDefaultTimeout(8000);
       await checkReader(readerPage, reader);
-      console.log(`${engine} passed compact layout, reader, and simulated keyboard checks`);
+      console.log(`${engine} passed compact layout, reader navigation, and simulated keyboard checks`);
     } finally {
       await browser.close();
     }
