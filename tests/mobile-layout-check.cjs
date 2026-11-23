@@ -34,6 +34,25 @@ async function fit(page, selector, { scroll = true, insets = [0, 0] } = {}) {
   if (scroll && size.client) assert.ok(size.scroll <= size.client + 1, context);
 }
 
+async function checkTouchTargets(page, selector, surfaceSelector = null) {
+  const controls = await page.locator(selector).evaluateAll((elements, surface) => elements.map((element) => {
+    const { left, right, top, bottom, width, height } = element.getBoundingClientRect();
+    const background = getComputedStyle(surface ? element.querySelector(surface) : element).backgroundColor;
+    return { left, right, top, bottom, width, height, background };
+  }), surfaceSelector);
+  assert.ok(controls.length, `${selector} has no controls`);
+  for (const [i, control] of controls.entries()) {
+    const context = `${selector} ${i}: ${JSON.stringify(control)}`;
+    assert.ok(control.height >= 44 && control.width >= 44, context);
+    assert.notEqual(control.background, 'rgba(0, 0, 0, 0)', context);
+    for (const other of controls.slice(i + 1)) {
+      const width = Math.min(control.right, other.right) - Math.max(control.left, other.left);
+      const height = Math.min(control.bottom, other.bottom) - Math.max(control.top, other.top);
+      assert.ok(width <= 1 || height <= 1, `${context} overlaps ${JSON.stringify(other)}`);
+    }
+  }
+}
+
 async function seedContent(page) {
   await page.route(/\/api\/(?:series\/1|collections|finder\/(?:sources|follows)|books\/1\/info)(?:\?|$)/, async (route) => {
     const url = new URL(route.request().url());
@@ -65,7 +84,7 @@ async function seedContent(page) {
 async function checkCatalog(page, base) {
   await seedContent(page);
   await page.goto(base, { waitUntil: 'domcontentloaded' });
-  await page.locator('.home-hero').waitFor();
+  await page.locator('.home-feature').waitFor();
   const open = (route) => page.evaluate(async (path) => {
     const { navigate } = await import('/js/router.js');
     navigate(path);
@@ -74,7 +93,7 @@ async function checkCatalog(page, base) {
     { width: 390, height: 844 }, { width: 844, height: 390 }]) {
     await page.setViewportSize(viewport);
     for (const [route, content] of [
-      ['/', '.home-hero .hero-actions'], ['/library', '.library-controls'],
+      ['/', '.home-feature-actions'], ['/library', '.library-controls'],
       ['/series/1', '.series-hero .creators'], ['/finder', '.finder-results .empty h2'],
       ['/finder/following', '.follow-card .title-medium'], ['/collections', '.collection-card .n'],
       ['/settings/reading', '.settings-panel .segmented'],
@@ -100,6 +119,30 @@ async function checkCatalog(page, base) {
           width: input.getBoundingClientRect().width, fontSize: parseFloat(getComputedStyle(input).fontSize),
         }));
         assert.ok(search.width >= 60 && search.fontSize >= 16, JSON.stringify(search));
+        if (viewport.width < 600) {
+          await checkTouchTargets(page, '.home-feature-actions > .btn');
+          await checkTouchTargets(page, '.bottom-nav > a, .bottom-nav > button', '.pill');
+          await checkTouchTargets(page, '.app-bar .end > button:visible');
+        }
+        if (viewport.width === 320) {
+          const fallback = await page.addStyleTag({ content: '.icon { font-family: sans-serif !important; }' });
+          await fit(page, '.app-bar');
+          await fit(page, '.app-search .search-bar');
+          await fit(page, '.home-feature-actions');
+          await fit(page, '.bottom-nav');
+          await fallback.evaluate((style) => style.remove());
+        }
+        if (viewport.width === 390) {
+          const insets = await page.addStyleTag({ content: ':root { --safe-left: 20px; --safe-right: 14px; --safe-bottom: 34px; }' });
+          await fit(page, '.bottom-nav', { insets: [20, 14] });
+          assert.ok(await page.locator('.bottom-nav').evaluate((nav) => innerHeight - nav.getBoundingClientRect().bottom >= 33));
+          await insets.evaluate((style) => style.remove());
+        }
+      }
+      if (route === '/library' && viewport.width < 600) {
+        await fit(page, '.library-controls .chip-row');
+        await page.locator('.grid').first().evaluate((grid) => Promise.allSettled(grid.getAnimations({ subtree: true }).map((animation) => animation.finished)));
+        await checkTouchTargets(page, '.tile .more');
       }
       for (const label of await page.locator('.segmented .segment-label').all()) {
         assert.ok(await label.evaluate((node) => node.scrollWidth <= node.clientWidth + 1), await label.textContent());
@@ -134,6 +177,7 @@ async function checkReader(page, base) {
   await fit(page, '.chrome-top');
   await fit(page, '.chrome-tools');
   await fit(page, '.chrome-bottom .row:has(input)');
+  await checkTouchTargets(page, '.chrome-tools :is(button, a):visible');
   await page.getByRole('button', { name: 'Reader settings (S)' }).click();
   await page.locator('.reader-sheet-head').waitFor();
   await fit(page, 'dialog.sheet');
@@ -236,7 +280,7 @@ async function checkKeyboard(page, base) {
     };
   });
   await page.goto(base, { waitUntil: 'domcontentloaded' });
-  await page.locator('.home-hero').waitFor();
+  await page.locator('.home-feature').waitFor();
   await page.addStyleTag({ content: ':root { --safe-top: 44px; }' });
   for (const type of ['dialog', 'sheet']) {
     const top = type === 'dialog' ? 0 : 56;

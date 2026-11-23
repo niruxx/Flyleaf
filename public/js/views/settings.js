@@ -318,10 +318,12 @@ async function finderRecsSection(panel) {
 function appearancePanel(panel) {
   const s = themeState();
   const cards = h('div.theme-grid', THEMES.map((localT) => {
-    const prev = `oklch(0.47 ${0.15 * localT.chroma} ${localT.hue})`;
-    const cont = `oklch(0.91 ${0.055 * localT.chroma} ${localT.hue})`;
-    const tert = `oklch(0.6 ${0.1 * localT.chroma} ${localT.hue + 60})`;
-    const surf = localT.oled ? '#000' : `oklch(0.97 ${0.008 * localT.chroma} ${localT.hue})`;
+    const [surface, ...swatches] = localT.preview || [
+      localT.oled ? '#000' : `oklch(0.97 ${0.008 * localT.chroma} ${localT.hue})`,
+      `oklch(0.47 ${0.15 * localT.chroma} ${localT.hue})`,
+      `oklch(0.91 ${0.055 * localT.chroma} ${localT.hue})`,
+      `oklch(0.6 ${0.1 * localT.chroma} ${localT.hue + 60})`,
+    ];
     return h('button.theme-card', {
       type: 'button',
       'aria-pressed': String(s.theme === localT.id),
@@ -331,7 +333,7 @@ function appearancePanel(panel) {
         modeSeg.setValue(themeState().mode);
         hue.value = localT.hue;
       },
-    }, h('div.preview', { style: { background: surf } }, h('span', { style: { background: prev } }), h('span', { style: { background: cont } }), h('span', { style: { background: tert } })), h('span.name', localT.name));
+    }, h('div.preview', { style: { background: surface } }, swatches.map((color) => h('span', { style: { background: color } }))), h('span.name', localT.name));
   }));
   const modeSeg = segmented([
     { value: 'light', label: t('Light'), icon: 'light_mode' },

@@ -1,0 +1,161 @@
+/* Phone-sized controls need visible boundaries and room for translated labels. */
+@media (max-width: 599px) {
+  :root {
+    --mobile-nav-height: 76px;
+    --mobile-nav-bottom: max(8px, var(--safe-bottom));
+  }
+  :root:not(.keyboard-open):has(body:not(.bare)) {
+    scroll-padding-bottom: calc(var(--mobile-nav-height) + var(--mobile-nav-bottom) + 8px);
+  }
+  body:not(.bare) {
+    --snackbar-offset: calc(var(--mobile-nav-height) + 16px);
+  }
+  body:not(.bare) #view {
+    padding-bottom: calc(var(--mobile-nav-height) + var(--mobile-nav-bottom) + 12px);
+  }
+
+  .bottom-nav {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+    bottom: var(--mobile-nav-bottom);
+    height: var(--mobile-nav-height);
+    padding: 6px;
+  }
+  .bottom-nav > a,
+  .bottom-nav > button {
+    justify-content: flex-start;
+    min-height: 48px;
+    border-radius: 12px;
+    padding: 4px 2px;
+    gap: 4px;
+    line-height: 12px;
+  }
+  .bottom-nav .pill {
+    width: min(42px, 100%);
+    height: 28px;
+    background: var(--md-surface-container-highest);
+  }
+  .bottom-nav a[aria-current='page'] .pill,
+  .bottom-nav button[aria-expanded='true'] .pill {
+    width: min(42px, 100%);
+    background: var(--md-primary);
+    color: var(--md-on-primary);
+  }
+  .bottom-nav .pill .icon { font-size: 21px; }
+  :where(.app-bar, .bottom-nav, .drawer) .icon,
+  :where(.btn, .icon-btn, .chip, .segmented button) > .icon {
+    inline-size: 1em;
+    overflow: hidden;
+    text-align: center;
+  }
+
+  :where(.page, .drawer, .auth, .onboard, dialog, .reader .chapter-end, .note-panel) .btn.text {
+    background: var(--md-secondary-container);
+    color: var(--md-on-secondary-container);
+    border-radius: 12px;
+  }
+  :where(.page, .drawer, .auth, .onboard, dialog, .reader .chapter-end, .note-panel) .btn.text.danger {
+    background: var(--md-error-container);
+    color: var(--md-on-error-container);
+  }
+  :where(.page, .drawer, .auth, .onboard, dialog, .reader, .note-panel) .btn {
+    min-height: 44px;
+    max-width: 100%;
+    padding: 9px 12px;
+    gap: 6px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  :where(.page, .drawer, .auth, .onboard, dialog, .reader, .note-panel) .btn .icon {
+    flex: none;
+    margin: 0;
+  }
+  :where(.page, .drawer, .auth, .onboard, dialog, .reader, .note-panel) .btn:disabled {
+    opacity: .58;
+  }
+  :where(.page, dialog, .app-bar, .drawer, .reader .chrome-top, .reader .chrome-bottom, .sel-toolbar) .icon-btn:not(.field .icon-btn, .search-bar .icon-btn) {
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 12px;
+  }
+  :where(.page, dialog, .app-bar .end, .drawer, .reader .chrome-top, .reader .chrome-bottom, .sel-toolbar)
+  .icon-btn:not(.filled, .tonal, .outlined, .field .icon-btn, .search-bar .icon-btn) {
+    background: var(--md-surface-container-highest);
+  }
+  .app-bar .end { gap: 6px; }
+  .app-bar .avatar, .app-bar .end > .icon-btn, .app-bar .menu-toggle {
+    width: 44px;
+    height: 44px;
+    flex: none;
+  }
+  .drawer .nav-item, .drawer-group > summary { min-height: 44px; }
+  .page .tile .more {
+    min-width: 44px;
+    min-height: 44px;
+    opacity: 1;
+    transform: none;
+  }
+
+  .home-heading, .home-feature-actions, .series-jump, .section-head, .banner-actions,
+  .library-results-bar, .sheet-footer, .dialog-actions, .lk-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .section-head h2 { min-width: 0; overflow-wrap: anywhere; }
+  .page-banner { flex-wrap: wrap; }
+  .banner-main, .banner-actions { min-width: 0; max-width: 100%; }
+  .banner-actions { flex-basis: 100%; }
+  .library-controls .chip-row, .library-filter-options {
+    overflow: visible;
+    max-width: 100%;
+  }
+  .library-controls .chip-row { flex-wrap: wrap; }
+  .library-controls .chip-row .chip {
+    flex: 1 1 calc(50% - 4px);
+    padding-inline: 6px;
+  }
+  :where(.page .toolbar, .library-filter-options, .series-detail-main) .chip {
+    min-width: 0;
+    max-width: 100%;
+    height: auto;
+    min-height: 40px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .series-detail-main .chip-set { flex-wrap: wrap; }
+  .page .setting-row:not(.stack):has(> .text + :is(.btn, div:has(> .btn))) {
+    flex-wrap: wrap;
+    column-gap: 10px;
+    row-gap: 8px;
+  }
+  .page .setting-row:not(.stack):has(> .text + :is(.btn, div:has(> .btn))) > .text {
+    flex-basis: calc(100% - 40px);
+  }
+  .page .setting-row:not(.stack) > .text + div:has(> .btn) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-width: 100%;
+  }
+  dialog.dialog .dialog-actions { padding-block: 12px 16px; }
+  .reader .chrome-tools {
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+    column-gap: 4px;
+    row-gap: 2px;
+  }
+}
+
+@media (max-width: 599px) and (forced-colors: active) {
+  .bottom-nav .pill, :where(.page, dialog, .reader .chrome-top, .reader .chrome-bottom) .btn.text,
+  :where(.page, dialog, .reader .chrome-top, .reader .chrome-bottom) .icon-btn {
+    border: 1px solid ButtonText;
+  }
+}
+
+@media (max-width: 359px) {
+  .home-feature-actions { align-items: stretch; }
+  .home-feature-actions > .btn { width: 100%; }
+}

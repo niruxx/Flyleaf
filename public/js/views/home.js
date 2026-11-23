@@ -43,7 +43,7 @@ export async function homeView(view, params, stale) {
   const currentDetail = current && (current.series && current.label !== current.series ? current.label : current.author);
   const continueLink = current && h('a.btn.filled.state', { href: `#/read/${current.id}`, 'aria-label': t('Continue {title}', { title: currentTitle }) },
     icon('play_arrow', 'filled'), t('Continue reading'));
-  const browseLink = h(`a.btn.${current ? 'text' : 'filled'}.state`, { href: '#/library' }, icon('local_library'), t('Browse library'));
+  const browseLink = h(`a.btn.${current ? 'tonal' : 'filled'}.state`, { href: '#/library' }, icon('local_library'), t('Browse library'));
   const spotlight = h('section.home-feature', { hidden: !layout.hero, class: current ? 'has-book' : '' },
     current && h('div.home-feature-cover', cover(catalogPrefs(session.user).showCovers ? current : { ...current, coverUrl: null }, { showProgress: false, eager: true })),
     h('div.home-feature-body',

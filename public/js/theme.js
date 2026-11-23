@@ -2,8 +2,11 @@
 
 import { syncThemeColor } from './ui.js';
 
+const FLYLEAF = { id: 'flyleaf', name: 'Flyleaf', hue: 158, chroma: 0.9, preview: ['#f8f8f1', '#14654c', '#cfe9db', '#a64a32'] };
+
 export const THEMES = [
-  { id: 'flyleaf', name: 'Flyleaf', hue: 268, chroma: 1 },
+  FLYLEAF,
+  { id: 'periwinkle', name: 'Periwinkle', hue: 268, chroma: 1 },
   { id: 'ocean', name: 'Ocean', hue: 228, chroma: 1 },
   { id: 'sakura', name: 'Sakura', hue: 350, chroma: 0.9 },
   { id: 'forest', name: 'Forest', hue: 150, chroma: 0.9 },
@@ -18,6 +21,7 @@ export const THEMES = [
 ];
 
 const KEY = 'flyleaf.themeState';
+export const DEFAULT_THEME = { mode: 'system', theme: FLYLEAF.id, hue: FLYLEAF.hue, chroma: FLYLEAF.chroma, oled: false, noMotion: false };
 
 function read() {
   try {
@@ -32,7 +36,11 @@ function write(state) {
   } catch {}
 }
 
-export const themeState = () => ({ mode: 'system', theme: 'flyleaf', hue: 268, chroma: 1, oled: false, noMotion: false, ...read() });
+export function themeState() {
+  const s = { ...DEFAULT_THEME, ...read() };
+  if (s.theme === FLYLEAF.id) Object.assign(s, { hue: FLYLEAF.hue, chroma: FLYLEAF.chroma, oled: false });
+  return s;
+}
 
 /** Apply theme state to the document (and remember it for flash-free loads). */
 export function applyTheme(partial = {}) {
@@ -45,6 +53,8 @@ export function applyTheme(partial = {}) {
     if (preset.mode && partial.mode == null) s.mode = preset.mode;
   }
   const r = document.documentElement;
+  if (s.theme === FLYLEAF.id) r.dataset.palette = FLYLEAF.id;
+  else delete r.dataset.palette;
   if (s.eink) r.dataset.theme = 'light';
   else if (s.mode === 'light' || s.mode === 'dark') r.dataset.theme = s.mode;
   else delete r.dataset.theme;

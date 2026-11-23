@@ -42,6 +42,21 @@ test('e-ink temporarily overrides dark mode and motion while preserving the orig
   theme.applyTheme({ eink: false });
   assert.equal(classes.has('no-motion'), true);
 });
+test('the updated default palette handles saved preferences and preserves explicit themes', async () => {
+  const root = { dataset: {}, style: { setProperty() {} }, classList: { toggle() {} } };
+  let cached = JSON.stringify({ theme: 'flyleaf', hue: 268, chroma: 1, mode: 'dark' });
+  const context = vm.createContext({ document: { documentElement: root },
+    localStorage: { getItem: () => cached, setItem: (_, value) => { cached = value; } } });
+  const theme = await load('public/js/theme.js', context);
+  assert.equal(theme.applyTheme().hue, 158);
+  assert.equal(root.dataset.palette, 'flyleaf');
+  assert.equal(root.dataset.theme, 'dark');
+  assert.equal(theme.applyTheme({ theme: 'periwinkle' }).hue, 268);
+  assert.equal(root.dataset.palette, undefined);
+  theme.applyTheme({ theme: 'custom', hue: 47 });
+  assert.equal(theme.themeState().hue, 47);
+  assert.equal(root.dataset.palette, undefined);
+});
 test('journal Markdown preserves private reflections and highlighted passages', () => {
   const source = fs.readFileSync('public/js/components/reflection.js', 'utf8');
   const markdown = vm.runInNewContext(source.slice(source.indexOf('export function journalMarkdown')).replace('export ', '') + '\njournalMarkdown');

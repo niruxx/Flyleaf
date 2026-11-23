@@ -40,7 +40,7 @@ function samplePdf(count) {
 }
 const pdf = samplePdf(6);
 const mime = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.woff2': 'font/woff2', '.svg': 'image/svg+xml' };
-const html = mode => `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/css/m3.css"><link rel="stylesheet" href="/css/reader.css"><link rel="stylesheet" href="/css/workspace.css"><style>html,body{margin:0}#race{position:fixed;inset:0;display:block}</style><main id="view"></main><div class="snackbar-host" aria-live="polite"></div><script type="module">import {run} from '/tests/${mode === 'speech' ? 'read-aloud-browser-fixture' : 'ebook-browser-fixture'}.js';window.results=await run(${JSON.stringify(mode)});</script>`;
+const html = mode => `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/css/m3.css"><link rel="stylesheet" href="/css/reader.css"><link rel="stylesheet" href="/css/workspace.css"><link rel="stylesheet" href="/css/touch-controls.css"><style>html,body{margin:0}#race{position:fixed;inset:0;display:block}</style><main id="view"></main><div class="snackbar-host" aria-live="polite"></div><script type="module">import {run} from '/tests/${mode === 'speech' ? 'read-aloud-browser-fixture' : 'ebook-browser-fixture'}.js';window.results=await run(${JSON.stringify(mode)});</script>`;
 http.createServer(async (req,res)=>{
   const url=new URL(req.url,'http://127.0.0.1');const p=url.pathname;
   res.setHeader('Cache-Control','no-store');

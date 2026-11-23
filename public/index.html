@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-palette="flyleaf">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -17,8 +17,8 @@
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
-    <meta name="theme-color" content="#fbf8ff" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#121318" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f8f8f1" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#121c17" media="(prefers-color-scheme: dark)" />
 
     <script>
       // Apply the cached theme before first paint to avoid a flash.
@@ -26,14 +26,18 @@
         var t = JSON.parse(localStorage.getItem('flyleaf.themeState') || '{}');
         var r = document.documentElement;
         if (t.mode === 'light' || t.mode === 'dark') r.dataset.theme = t.mode;
-        if (t.hue != null) r.style.setProperty('--seed-hue', t.hue);
-        if (t.chroma != null) r.style.setProperty('--seed-chroma', t.chroma);
+        if (t.theme && t.theme !== 'flyleaf') {
+          delete r.dataset.palette;
+          if (t.hue != null) r.style.setProperty('--seed-hue', t.hue);
+          if (t.chroma != null) r.style.setProperty('--seed-chroma', t.chroma);
+        }
         if (t.oled) r.dataset.oled = '';
         if (t.noMotion || t.eink) r.classList.add('no-motion');
         if (t.eink) { r.classList.add('eink'); r.dataset.theme = 'light'; }
       } catch (e) {}
     </script>
 
+    <link rel="preload" href="/fonts/google-sans/latin.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/css/m3.css" />
     <link rel="stylesheet" href="/css/app.css" />
     <link rel="stylesheet" href="/css/ambience.css" />
@@ -42,6 +46,7 @@
     <link rel="stylesheet" href="/css/expressive.css" />
     <link rel="stylesheet" href="/css/reading-room.css" />
     <link rel="stylesheet" href="/css/workspace.css" />
+    <link rel="stylesheet" href="/css/touch-controls.css" />
     <script type="module" src="/js/main.js"></script>
   </head>
   <body class="bare">

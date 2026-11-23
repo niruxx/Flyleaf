@@ -2,7 +2,7 @@
 
 import { api } from './api.js';
 import { session } from './router.js';
-import { applyTheme } from './theme.js';
+import { applyTheme, DEFAULT_THEME } from './theme.js';
 import { applyBackground } from './background.js';
 import { applyCatalogPrefs } from './catalog-prefs.js';
 
@@ -12,7 +12,7 @@ export const prefs = () => session.user?.prefs || {};
 export function applyUserPrefs() {
   const p = prefs();
   applyCatalogPrefs(session.user);
-  applyTheme({ mode: 'system', theme: 'flyleaf', hue: 268, chroma: 1, oled: false,
+  applyTheme({ ...DEFAULT_THEME,
     ...(p.theme || {}), noMotion: Boolean(p.disableAnimations), eink: Boolean(p.einkMode) });
   applyBackground(p.einkMode ? null : p.background, session.user?.backgroundUrl);
 }

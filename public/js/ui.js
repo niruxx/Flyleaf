@@ -157,7 +157,8 @@ let themeOverride = null;
 export function syncThemeColor(override = themeOverride) {
   themeOverride = override;
   requestAnimationFrame(() => {
-    const color = override || resolveColor(getComputedStyle(document.documentElement).getPropertyValue('--md-surface').trim());
+    const root = getComputedStyle(document.documentElement);
+    const color = override || resolveColor(root.backgroundColor);
     document.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.setAttribute('content', color));
   });
 }
