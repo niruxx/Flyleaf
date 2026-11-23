@@ -370,11 +370,11 @@ export function chipInput(label, values = [], { suggestions = [] } = {}) {
 // ---------------------------------------------------------------------------
 // Menus & action sheets
 
-export function menu(anchor, items, { at } = {}) {
-  document.querySelectorAll('.menu').forEach((m) => m.remove());
+export function menu(anchor, items, { at, host = document.body, label, onClose } = {}) {
+  document.querySelectorAll('.menu').forEach((m) => m.dismiss ? m.dismiss(true) : m.remove());
   const el = h(
     'div.menu',
-    { role: 'menu' },
+    { role: 'menu', 'aria-label': label },
     items.filter(Boolean).map((it) =>
       it === '-'
         ? h('hr')
@@ -397,7 +397,7 @@ export function menu(anchor, items, { at } = {}) {
             ),
     ),
   );
-  document.body.append(el);
+  host.append(el);
   const r = at ? { left: at.x, right: at.x, top: at.y, bottom: at.y } : anchor.getBoundingClientRect();
   const mw = el.offsetWidth;
   const mh = el.offsetHeight;
@@ -409,17 +409,37 @@ export function menu(anchor, items, { at } = {}) {
   const onDoc = (e) => {
     if (!el.contains(e.target)) close();
   };
-  const onKey = (e) => e.key === 'Escape' && close();
-  function close() {
+  const onKey = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+      return;
+    }
+    if (!el.contains(e.target) || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault();
+    const buttons = [...el.querySelectorAll('button:not(:disabled)')];
+    const index = buttons.indexOf(e.target);
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? buttons.length - 1
+      : (index + (e.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[next]?.focus();
+  };
+  let closed = false;
+  function close(immediate = false) {
+    if (closed) return;
+    closed = true;
     document.removeEventListener('pointerdown', onDoc, true);
     document.removeEventListener('keydown', onKey);
-    leave(el, () => el.remove());
+    if (immediate === true) el.remove();
+    else leave(el, () => el.remove());
+    onClose?.();
   }
+  el.dismiss = close;
   setTimeout(() => {
+    if (closed) return;
     document.addEventListener('pointerdown', onDoc, true);
     document.addEventListener('keydown', onKey);
   });
-  el.querySelector('button')?.focus({ preventScroll: true });
+  el.querySelector('button:not(:disabled)')?.focus({ preventScroll: true });
   return close;
 }
 
@@ -542,12 +562,12 @@ export function onContext(el, fn) {
 
 const FORMAT_ICON = { epub: 'menu_book', mobi: 'menu_book', azw3: 'menu_book', fb2: 'menu_book', txt: 'article', pdf: 'picture_as_pdf' };
 
-export function cover(item, { showProgress = true, count, blur = item.blur, finished } = {}) {
+export function cover(item, { showProgress = true, count, blur = item.blur, finished, eager = false } = {}) {
   const el = h(`div.cover${blur ? '.blurred' : ''}`);
   const ph = h('div.placeholder', h('div.ph-title', item.title || item.name || ''), icon(FORMAT_ICON[item.format] || 'collections_bookmark'));
   el.append(ph);
   if (item.coverUrl) {
-    const img = h('img', { alt: '', loading: 'lazy', decoding: 'async', draggable: 'false' });
+    const img = h('img', { alt: '', loading: eager ? 'eager' : 'lazy', decoding: 'async', draggable: 'false' });
     img.addEventListener('load', () => {
       img.classList.add('loaded');
       ph.remove();

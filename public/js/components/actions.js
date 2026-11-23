@@ -2,6 +2,7 @@ import { t, plural } from '../i18n.js';
 // Shared actions for series and books (card ⋮ menus, series page, reader).
 
 import { api, can, downloadUrl, seriesDownloadUrl } from '../api.js';
+import { shareAddresses, shareBook } from './book-sharing.js';
 import { isAdmin, navigate, session } from '../router.js';
 import { prefs } from '../prefs.js';
 import { h, icon, actions, dialog, formDialog, field, snackbar, confirmDialog, formatBytes, copyText } from '../ui.js';
@@ -146,13 +147,9 @@ export async function download(url, label, size) {
 export async function sendTo({ book, series }) {
   const [{ devices, emailConfigured }, info] = await Promise.all([api.devices(), api.shareInfo().catch(() => ({ local: [], public: null }))]);
   const name = book ? book.label || book.title : series.name;
-  const path = `/#/series/${book ? book.seriesId : series.id}`;
-  // Links others can open: the server's address on the home network (not this browser's
-  // origin, which may be localhost or a public address) and, when set, the public URL.
-  const links = [];
-  if (info.local[0]) links.push({ url: info.local[0] + path, title: t('Copy home-network link'), sub: info.local[0].replace(/^https?:\/\//, '') + ' · works on your Wi-Fi', icon: 'home' });
-  if (info.public) links.push({ url: info.public + path, title: t('Copy internet link'), sub: info.public.replace(/^https?:\/\//, '') + ' · works from anywhere', icon: 'public' });
-  if (!links.length) links.push({ url: location.origin + path, title: t('Share link'), sub: t('For other Flyleaf users on this server'), icon: 'share' });
+  const links = book ? [] : shareAddresses(info).map(({ value, label, icon }) => ({
+    url: value.replace(/\/+$/, '') + `/#/series/${series.id}`, title: label, sub: value, icon,
+  }));
   const pick = (detail) => (e) => e.currentTarget.closest('dialog').dispatchEvent(new CustomEvent('pick', { detail }));
   const choice = await dialog({
     title: t('Send “{name}”', { name: name }),
@@ -163,9 +160,13 @@ export async function sendTo({ book, series }) {
           icon(d.platform === 'kindle' ? 'tablet_android' : 'tablet'), h('div.text', h('div.headline', d.name), h('div.supporting', d.email)), icon('send')),
       ),
       !devices.length && h('div.list-item.static', icon('info'), h('div.text', h('div.supporting', emailConfigured ? t('Add your Kindle/Kobo email address in Settings → Devices to send books by email.') : t('Sending by email needs SMTP set up by the admin (Settings → Server).')))),
+      emailConfigured && h('button.list-item.state', { type: 'button', onclick: pick({ email: true }) },
+        icon('email'), h('div.text', h('div.headline', t('Send to an email address')))),
       h('hr.divider', { style: { margin: '4px 0' } }),
       h('button.list-item.state', { type: 'button', onclick: (e) => e.currentTarget.closest('dialog').dispatchEvent(new CustomEvent('pick', { detail: { download: true } })) },
         icon('download'), h('div.text', h('div.headline', t('Download to this device')))),
+      book && h('button.list-item.state', { type: 'button', onclick: pick({ bookShare: true }) },
+        icon('share'), h('div.text', h('div.headline', t('Share book')))),
       links.map((l) => h('button.list-item.state', { type: 'button', onclick: pick({ share: l.url }) },
         icon(l.icon), h('div.text', h('div.headline', l.title), h('div.supporting', l.sub)), icon('content_copy'))),
       h('a.list-item.state', { href: '#/settings/devices' }, icon('add'), h('div.text', h('div.headline', t('Manage devices')))),
@@ -174,6 +175,15 @@ export async function sendTo({ book, series }) {
     onOpen: (dlg, close) => dlg.addEventListener('pick', (e) => close(e.detail)),
   });
   if (!choice) return;
+  if (choice.bookShare) return shareBook(book).catch((e) => snackbar(e.message));
+  if (choice.email) {
+    const email = field(t('Email address'), { type: 'email', required: true });
+    return formDialog({ title: t('Send to an email address'), fields: [email], submit: t('Send'), onSubmit: async () => {
+      const to = email.input.value.trim();
+      const { sent } = book ? await api.emailBook(book.id, to) : await api.emailSeries(series.id, to);
+      snackbar(plural(sent, 'Sent {sent} file to {name}', 'Sent {sent} files to {name}', { sent, name: to }));
+    } });
+  }
   if (choice.download) return book ? download(downloadUrl(book), name, book.size) : download(seriesDownloadUrl(series.id), t('{name} (all volumes, .zip)', { name: name }));
   if (choice.share) {
     // Copy rather than the system share sheet, so the chosen address is what gets sent.

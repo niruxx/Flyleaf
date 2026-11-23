@@ -1,7 +1,7 @@
 'use strict';
 
 // Look up selected text while reading: definitions (Wiktionary), Wikipedia summaries and
-// translations (MyMemory). The server asks on the reader's behalf – one place to cache, a
+// translations (DeepL or MyMemory). The server asks on the reader's behalf – one place to cache, a
 // proper User-Agent for Wikimedia, and readers' browsers never talk to those sites directly.
 // LOOKUP=0 turns it off (the reader then only offers links that open the sites).
 
@@ -11,6 +11,9 @@ const log = require('../log').logger('lookup');
 
 const router = express.Router();
 const ENABLED = process.env.LOOKUP !== '0';
+const deeplKey = process.env.DEEPL_AUTH_KEY?.trim();
+const deeplHost = deeplKey?.endsWith(':fx') ? 'api-free.deepl.com' : 'api.deepl.com';
+const deeplTarget = { en: 'EN-US', pt: 'PT-PT', zh: 'ZH-HANS' };
 const UA = `Flyleaf/${require('../../package.json').version} (self-hosted e-book server; https://github.com/niruxx/Flyleaf)`;
 const TTL = 24 * 3600_000;
 const cache = new Map(); // url → { at, data }
@@ -95,20 +98,53 @@ router.get('/lookup/wiki', async (req, res) => {
   });
 });
 
-/** Translate with MyMemory (free, no key): { text, from, to }. */
-router.get('/lookup/translate', async (req, res) => {
-  const q = text(req.query.q, 500);
+async function translateWithDeepL(q, from, to, res) {
+  let result;
+  try {
+    result = await fetch(`https://${deeplHost}/v2/translate`, {
+      method: 'POST', redirect: 'error',
+      headers: { Authorization: `DeepL-Auth-Key ${deeplKey}`, 'Content-Type': 'application/json', 'User-Agent': UA },
+      body: JSON.stringify({ text: [q], source_lang: from?.toUpperCase() || undefined, target_lang: deeplTarget[to] || to.toUpperCase() }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (result.ok) {
+      const { translations } = await result.json();
+      const translation = translations?.[0];
+      if (typeof translation?.text === 'string' && translation.text) {
+        return res.json({ text: translation.text, from: lang(translation.detected_source_language, from), to, provider: 'DeepL' });
+      }
+    }
+  } catch {
+    return res.status(502).json({ error: 'Could not reach DeepL. Try again in a moment.' });
+  }
+  if (result.status === 456) return res.status(503).json({ error: 'This server has reached its DeepL translation quota.' });
+  if (result.status === 429) return res.status(429).json({ error: 'DeepL is busy. Try again in a moment.' });
+  if (result.status === 403) return res.status(502).json({ error: 'DeepL rejected the server’s API key.' });
+  if (result.status === 400) return res.status(400).json({ error: 'DeepL could not translate this language pair.' });
+  return res.status(502).json({ error: 'DeepL did not return a translation.' });
+}
+
+/** Use DeepL when configured and MyMemory when no API key is installed. */
+async function translate(req, res) {
+  const input = req.method === 'POST' ? (req.body || {}) : req.query;
+  const q = typeof input.q === 'string' ? input.q.trim().slice(0, 500) : '';
   if (!q) return res.status(400).json({ error: 'Select some text to translate.' });
-  const to = base(lang(req.query.to));
-  const from = base(lang(req.query.from, 'en'));
+  const target = lang(input.to);
+  const source = base(lang(input.from, ''));
+  const from = source || (deeplKey ? '' : 'en');
+  const to = deeplKey ? target : base(target);
   if (from === to) return res.json({ text: q, from, to, same: true });
+  if (deeplKey) return translateWithDeepL(q, from, to, res);
   const data = await getJson(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(q)}&langpair=${from}|${to}`);
   const out = data?.responseData?.translatedText;
   if (!out || data.responseStatus >= 400) {
     log.file(`translate failed: ${data?.responseDetails || data?.responseStatus}`);
     return res.status(502).json({ error: data?.responseDetails || 'The translation service didn’t answer. Try again later, or open it in your translator.' });
   }
-  res.json({ text: out, from, to });
-});
+  res.json({ text: out, from, to, provider: 'MyMemory' });
+}
+
+router.get('/lookup/translate', translate);
+router.post('/lookup/translate', translate);
 
 module.exports = { router, ENABLED };

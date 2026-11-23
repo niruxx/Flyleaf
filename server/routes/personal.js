@@ -130,7 +130,7 @@ router.delete('/collections/:id/items/:seriesId', (req, res) => {
 
 const FILTER_KEYS = {
   library: 'id', kind: 'str', genre: 'list', tag: 'str', userTag: 'str', person: 'str', status: 'str', userStatus: 'str',
-  want: 'flag', collection: 'id', read: 'str', sort: 'str', q: 'str',
+  want: 'flag', collection: 'id', read: 'str', sort: 'str', q: 'str', text: 'str',
 };
 function cleanFilter(f) {
   const out = {};
@@ -140,7 +140,9 @@ function cleanFilter(f) {
     if (type === 'id') out[k] = Number(v) || undefined;
     else if (type === 'flag') out[k] = 1;
     else if (type === 'list') out[k] = [].concat(v).map((x) => String(x).slice(0, 100)).slice(0, 20);
-    else out[k] = String(v).slice(0, 200);
+    else if (k === 'text') {
+      if (typeof v === 'string' && v.trim()) out[k] = v.trim().slice(0, 200);
+    } else out[k] = String(v).slice(0, 200);
   }
   return JSON.parse(JSON.stringify(out));
 }
@@ -339,6 +341,8 @@ router.delete('/api-keys/:id', keyAdmin, (req, res) => {
 // Send-to devices (Kindle, Kobo, PocketBook… via email)
 
 const PLATFORMS = ['kindle', 'kobo', 'pocketbook', 'other'];
+const emailAddress = (value) => typeof value === 'string' && value.length <= 254 &&
+  /^[^\s@,;<>"]+@[^\s@,;<>"]+\.[^\s@,;<>"]+$/.test(value);
 
 router.get('/devices', (req, res) => {
   res.json({
@@ -350,7 +354,7 @@ router.get('/devices', (req, res) => {
 router.post('/devices', (req, res) => {
   const { name, email, platform } = req.body || {};
   if (!String(name || '').trim()) return res.status(400).json({ error: 'Name the device.' });
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email || '')) return res.status(400).json({ error: 'Enter the device’s email address.' });
+  if (!emailAddress(email)) return res.status(400).json({ error: 'Enter the device’s email address.' });
   const id = Number(q('INSERT INTO devices (user_id, name, email, platform, created_at) VALUES (?, ?, ?, ?, ?)').run(
     req.user.id, String(name).trim().slice(0, 60), email.trim(), PLATFORMS.includes(platform) ? platform : 'other', Date.now(),
   ).lastInsertRowid);
@@ -363,7 +367,11 @@ router.delete('/devices/:id', (req, res) => {
 });
 
 async function sendBooks(req, res, books) {
-  const device = q('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(Number(req.body?.deviceId), req.user.id);
+  const { email, deviceId } = req.body || {};
+  if (email !== undefined && !emailAddress(email)) return res.status(400).json({ error: 'Enter one valid email address.' });
+  const device = email === undefined
+    ? q('SELECT * FROM devices WHERE id = ? AND user_id = ?').get(Number(deviceId), req.user.id)
+    : { email, platform: /@(?:[a-z]+\.)?kindle\.com$/i.test(email) ? 'kindle' : 'other' };
   if (!device) return res.status(404).json({ error: 'Pick a device.' });
   try {
     const sent = await mailer.sendBooks(device, books);

@@ -727,7 +727,11 @@ export async function downloadsView(view, params, stale) {
   }
 
   function bookGroup(group) {
-    const key = `${group.rows[0].status}:${group.rows[0].error === 'Cancelled'}:${group.key}`;
+    const first = group.rows[0];
+    const cancelled = first.status === 'failed' && !failed(first);
+    const key = `${cancelled ? 'cancelled' : first.status}:${group.key}`;
+    const clear = !active(first) && iconButton('clear_all', t('Clear downloads for {title}', { title: group.title }),
+      run(() => api.clearBookDownloads(first.id, cancelled ? 'cancelled' : first.status)));
     const entries = h('div.downloads-list', group.rows.map(row));
     const reveal = h('div.download-book-reveal', { id: `download-entries-${++downloadGroupId}` }, h('div.download-book-reveal-inner', entries));
     const toggle = iconButton('expand_more', '', () => {
@@ -750,7 +754,7 @@ export async function downloadsView(view, params, stale) {
     return h('section.download-book-group',
       h('div.download-book-art', cover({ title: group.title, coverUrl: group.cover }, { showProgress: false })),
       h('div.download-book-content',
-        h('div.download-book-heading', h('h3.title-medium', group.title, h('span.muted', ` (${group.rows.length})`)), toggle), reveal));
+        h('div.download-book-heading', h('h3.title-medium', group.title, h('span.muted', ` (${group.rows.length})`)), clear, toggle), reveal));
   }
 
   function section(label, rows, { actions = [], empty } = {}) {

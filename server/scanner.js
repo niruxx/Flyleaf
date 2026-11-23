@@ -229,7 +229,7 @@ async function processMetadata(libraryId, stats) {
   }
 }
 
-async function processBook(book) {
+async function readBookMetadata(book) {
   const update = {};
   let cover = null;
   let embedded = {};
@@ -320,6 +320,11 @@ async function processBook(book) {
     }
   }
 
+  return { update, embedded, cover };
+}
+
+async function processBook(book) {
+  const { update, embedded, cover } = await readBookMetadata(book);
   const sets = ['embedded = ?'];
   const values = [JSON.stringify(embedded)];
   for (const [key, val] of Object.entries(update)) {
@@ -571,4 +576,4 @@ function scanAndWait(libraryId) {
   });
 }
 
-module.exports = { requestScan, scanAndWait, resumeQueue: runQueue, state, processBook, assignSeries, seedSeriesFromFiles, FILE_FORMATS };
+module.exports = { requestScan, scanAndWait, resumeQueue: runQueue, state, processBook, readBookMetadata, resolveFormat, assignSeries, seedSeriesFromFiles, FILE_FORMATS };

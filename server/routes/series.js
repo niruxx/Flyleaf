@@ -69,11 +69,10 @@ function visibleSeries(req, res) {
 // ---------------------------------------------------------------------------
 // Listing
 
-router.get('/series', (req, res) => {
+function seriesQuery(user, p) {
   const where = [];
   const args = [];
   const having = [];
-  const p = req.query;
   if (p.library) {
     where.push('s.library_id = ?');
     args.push(Number(p.library));
@@ -85,7 +84,20 @@ router.get('/series', (req, res) => {
   let rankIds;
   if (p.q) {
     // Ranked word-start matching across titles, alternative titles, book titles and creators.
-    rankIds = require('../search').rankSeries(req.user, String(p.q));
+    rankIds = require('../search').rankSeries(user, String(p.q));
+  }
+  if (typeof p.text === 'string' && p.text.trim()) {
+    const { ENABLED, ftsQuery } = require('../fulltext');
+    const match = ENABLED && ftsQuery(p.text.trim().slice(0, 200));
+    if (match) {
+      where.push(`s.id IN (
+        SELECT text_book.series_id FROM book_text JOIN books text_book ON text_book.id = book_text.book_id
+        WHERE book_text MATCH ? AND text_book.missing = 0
+      )`);
+      args.push(match);
+    } else {
+      where.push('0');
+    }
   }
   // A–Z jump: first letter of the sort title ("#" = digits and symbols).
   if (p.letter) {
@@ -124,13 +136,18 @@ router.get('/series', (req, res) => {
   if (p.want) where.push('us.want_to_read = 1');
   if (p.collection) {
     where.push('s.id IN (SELECT series_id FROM collection_items ci JOIN collections c ON c.id = ci.collection_id WHERE c.id = ? AND (c.user_id = ? OR c.promoted = 1))');
-    args.push(Number(p.collection), req.user.id);
+    args.push(Number(p.collection), user.id);
   }
   if (p.read === 'unread') having.push('MAX(p.updated_at) IS NULL');
   if (p.read === 'reading') having.push('MAX(p.updated_at) IS NOT NULL AND SUM(CASE WHEN p.finished = 1 THEN 1 ELSE 0 END) < COUNT(b.id)');
   if (p.read === 'completed') having.push('SUM(CASE WHEN p.finished = 1 THEN 1 ELSE 0 END) = COUNT(b.id)');
+  return { where, args, having, sort: p.sort || (rankIds ? 'relevance' : undefined), rankIds };
+}
+
+router.get('/series', (req, res) => {
+  const p = req.query;
   // Opening one library by id is a direct request (lets the admin view a user's library from the admin panel).
-  res.json(listSeries(req.user, { where, args, having, sort: p.sort || (rankIds ? 'relevance' : undefined), rankIds, limit: p.limit, offset: p.offset, direct: Boolean(p.library) }));
+  res.json(listSeries(req.user, { ...seriesQuery(req.user, p), limit: p.limit, offset: p.offset, direct: Boolean(p.library) }));
 });
 
 // ---------------------------------------------------------------------------
@@ -332,6 +349,7 @@ const EDITABLE = {
   localizedName: 'localized_name',
   sortName: 'sort_name',
   summary: 'summary',
+  externalRating: 'external_rating',
   status: 'status',
   publisher: 'publisher',
   year: 'year',
@@ -365,6 +383,15 @@ router.patch('/series/:id', requireAdmin, (req, res) => {
       case 'ageRating':
         v = v === '' || v == null ? null : Number(v);
         if (v != null && ![0, 1, 2, 3].includes(v)) return res.status(400).json({ error: 'Invalid age rating.' });
+        break;
+      case 'externalRating':
+        if (v !== null) {
+          if (!Number.isFinite(v.average) || v.average < 1 || v.average > 5 ||
+              (v.count != null && (!Number.isSafeInteger(v.count) || v.count < 1))) {
+            return res.status(400).json({ error: 'Use a rating from 1 to 5 and an optional positive rating count.' });
+          }
+          v = JSON.stringify({ average: v.average, count: v.count ?? null, source: null });
+        }
         break;
       case 'status':
         v = v || null;
@@ -407,7 +434,7 @@ router.post('/series/:id/refresh', requireAdmin, async (req, res) => {
   const id = Number(req.params.id);
   const s = q('SELECT library_id FROM series WHERE id = ?').get(id);
   if (!s) return res.status(404).json({ error: 'Series not found.' });
-  q(`UPDATE series SET locked = '[]', metadata_source = NULL, metadata_at = NULL, summary = NULL, genres = '[]', tags = '[]',
+  q(`UPDATE series SET locked = '[]', metadata_source = NULL, metadata_at = NULL, summary = NULL, external_rating = NULL, genres = '[]', tags = '[]',
      people = '[]', status = NULL, age_rating = NULL, provider_ids = '{}' WHERE id = ?`).run(id);
   const books = q('SELECT b.*, l.kind FROM books b JOIN libraries l ON l.id = b.library_id WHERE b.series_id = ? AND b.missing = 0').all(id);
   for (const b of books) await scanner.processBook({ ...b, meta_locked: 0 }).catch(() => {});
@@ -535,4 +562,4 @@ router.get('/series/:id/download', requirePermission('download', 'Downloading is
   await zip.finalize();
 });
 
-module.exports = { router, setSeriesFinished, USER_STATUS, PUB_STATUS, RELATION_KINDS };
+module.exports = { router, seriesQuery, setSeriesFinished, USER_STATUS, PUB_STATUS, RELATION_KINDS };

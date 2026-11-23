@@ -28,13 +28,14 @@ function setup(t) {
   const events = [];
   const router = load('server/routes/reading-room.js', { '../db': db, '../serialize': serialize }).router;
   const positions = load('server/routes/position-history.js', { '../db': db, '../serialize': serialize, '../events': { emit: (...args) => events.push(args) } }).router;
+  const progress = load('server/routes/reading.js', { '../db': db, '../serialize': serialize, '../events': { emit: (...args) => events.push(args) } }).router;
   const user = { id: 1, username: 'one', role: 'guest', visibleLibraryIds: [1], maxAgeRating: 1, ageIncludeUnknown: true, permissions: {}, prefs: {} };
   const request = (method, url, body, acting = user, target = router) => new Promise((resolve, reject) => {
     const req = { method, url, user: acting, body, query: Object.fromEntries(new URL(url, 'http://test').searchParams), headers: {} };
     const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { resolve({ status: this.statusCode, body }); } };
     target.handle(req, res, e => e ? reject(e) : resolve({ status: 404 }));
   });
-  return { q, request, user, positions, events };
+  return { q, request, user, positions, progress, events };
 }
 
 test('reading estimates require reliable length, learn bounded pace and respect playback speed', () => {
@@ -105,4 +106,23 @@ test('position history captures device-style SQL writes and protects restores wi
   assert.equal((await call('POST', `/books/1/positions/${old}/restore`, { expectedUpdatedAt: q('SELECT updated_at FROM progress WHERE user_id=1 AND book_id=1').get().updated_at })).status, 409);
   for (let i=0; i<110; i++) q('UPDATE progress SET page=?,updated_at=? WHERE user_id=1 AND book_id=1').run(i, 1000+i);
   assert.equal(q('SELECT COUNT(*) AS n FROM position_history WHERE user_id=1 AND book_id=1').get().n, 100);
+});
+
+test('offline progress replays respect account scope and the newer device position', async t => {
+  const { q, request, user, progress } = setup(t);
+  const save = (body, acting = user) => request('PUT', '/books/1/progress', body, acting, progress);
+  const read = () => q('SELECT page, updated_at FROM progress WHERE user_id=1 AND book_id=1').get();
+  const now = Date.now() - 1000;
+  assert.equal((await save({ page: 7, syncUserId: 1, recordedAt: now })).status, 200);
+  assert.equal(read().updated_at, now);
+  assert.equal((await save({ page: 4, syncUserId: 1, recordedAt: now - 100, seconds: 30, day: '2026-11-23' })).status, 200);
+  assert.equal(read().page, 7);
+  assert.equal(q("SELECT seconds FROM reading_log WHERE user_id=1 AND book_id=1 AND day='2026-11-23'").get().seconds, 30);
+  assert.equal((await save({ page: 9, syncUserId: 1, recordedAt: now + 100 }, { ...user, id: 2 })).status, 403);
+  assert.equal((await save({ seconds: 5, syncUserId: 1 })).status, 200);
+  assert.equal(read().updated_at, now, 'a heartbeat without a position leaves the sync timestamp alone');
+  assert.equal((await save({ page: 5, syncUserId: 1, recordedAt: now + 100 })).status, 200);
+  assert.equal(read().page, 5, 'a later position can be earlier in the book');
+  assert.equal((await save({ page: 11 }, { ...user, id: 2 })).status, 200);
+  assert.equal(read().page, 5);
 });

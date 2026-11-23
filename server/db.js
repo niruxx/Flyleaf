@@ -640,6 +640,46 @@ const migrations = [
     PRIMARY KEY (user_id, series_id)
   );
   `,
+  `
+  ALTER TABLE series ADD COLUMN external_rating TEXT;
+  `,
+  `
+  CREATE TABLE book_shares (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_hash TEXT NOT NULL UNIQUE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    book_version INTEGER,
+    book_size INTEGER,
+    locator TEXT,
+    allow_download INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+  );
+  CREATE INDEX book_shares_owner ON book_shares(user_id, book_id);
+  CREATE INDEX book_shares_expiry ON book_shares(expires_at);
+  CREATE TABLE oidc_identities (
+    issuer TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (issuer, subject)
+  );
+  `,
+  `
+  CREATE TABLE book_drop (
+    id TEXT PRIMARY KEY,
+    metadata TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'ready',
+    created_at INTEGER NOT NULL
+  );
+  `,
+  `
+  CREATE TABLE kobo_auto_items (
+    collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+    book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+    PRIMARY KEY (collection_id, book_id)
+  );
+  `,
 ];
 
 function migrate() {

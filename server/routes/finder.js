@@ -531,6 +531,8 @@ router.post('/:plugin/download', async (req, res) => {
 
 // A download "needs attention" when it failed on its own (not when you cancelled it).
 const NEEDS_ATTENTION = "(d.status = 'failed' AND COALESCE(d.error, '') != 'Cancelled')";
+const downloadBookTitle = (d, item) => item.bookTitle || item.title || d.title;
+const downloadBookKey = (d, item = json(d.item, null) || {}) => item.sourceId || downloadBookTitle(d, item).trim().toLowerCase();
 
 /**
  * Which downloads a request may act on: everyone else only ever sees their own. The admin sees
@@ -556,13 +558,13 @@ router.get('/downloads/list', (req, res) => {
                      ) WHERE n <= 100 ORDER BY id DESC`).all(...args);
   res.json([...current, ...history].map((d) => {
     // Which chapter/volume this was, so a failed one can be told apart from its siblings.
-    const item = json(d.item, {});
+    const item = json(d.item, null) || {};
     const local = d.file && q('SELECT id, cover FROM books WHERE path = ? AND missing = 0').get(d.file);
     return {
       id: d.id, plugin: d.plugin_id, title: d.title, status: d.status, received: d.received, total: d.total,
       error: d.error, library: d.library_name, userId: d.user_id, username: d.username, userName: d.user_name, createdAt: d.created_at, finishedAt: d.finished_at,
       fileTitle: item.fileTitle || null, volume: item.volume ?? null, chapter: item.chapter ?? null,
-      bookTitle: item.bookTitle || item.title || d.title, sourceId: item.sourceId || null, libraryId: d.library_id,
+      bookTitle: downloadBookTitle(d, item), sourceId: item.sourceId || null, libraryId: d.library_id,
       cover: local?.cover ? `/api/books/${local.id}/cover?v=${encodeURIComponent(local.cover)}` : httpUrl(item.cover),
     };
   }));
@@ -597,6 +599,34 @@ router.delete('/downloads/:id', (req, res) => {
   if (['queued', 'downloading'].includes(d.status)) downloads.cancel(d.id);
   else q('DELETE FROM downloads WHERE id = ?').run(d.id);
   res.json({ ok: true });
+});
+
+router.delete('/downloads/:id/book', (req, res) => {
+  const filters = {
+    done: "d.status = 'done'",
+    failed: NEEDS_ATTENTION,
+    cancelled: "d.status = 'failed' AND d.error = 'Cancelled'",
+  };
+  const { what } = req.query;
+  if (typeof what !== 'string' || !Object.hasOwn(filters, what)) {
+    return res.status(400).json({ error: 'Invalid download status.' });
+  }
+  const which = filters[what];
+  const first = q(`SELECT * FROM downloads d WHERE d.id = ? AND ${which}`).get(Number(req.params.id));
+  if (!first || (req.user.role !== 'admin' && first.user_id !== req.user.id)) {
+    return res.status(404).json({ error: 'Download not found.' });
+  }
+
+  // Match the book group across all records, including history beyond the list limit.
+  const key = downloadBookKey(first);
+  const ids = q(`SELECT id, title, item FROM downloads d
+    WHERE d.user_id IS ? AND d.library_id IS ? AND d.plugin_id = ? AND ${which}`)
+    .all(first.user_id, first.library_id, first.plugin_id)
+    .filter((d) => downloadBookKey(d) === key)
+    .map((d) => d.id);
+  const { changes } = q(`DELETE FROM downloads AS d WHERE ${which} AND d.id IN (SELECT value FROM json_each(?))`)
+    .run(JSON.stringify(ids));
+  res.json({ removed: Number(changes) });
 });
 
 // ?what=history (default): finished and cancelled; ?what=failed: failed ones you've given up on.

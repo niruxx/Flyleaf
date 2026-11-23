@@ -54,7 +54,7 @@
 }
 :root.eink *, :root.eink *::before, :root.eink *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; box-shadow: none !important; text-shadow: none !important; backdrop-filter: none !important; }
 :root.eink .ambient, :root.eink .scape, :root.eink .banner-glow, :root.eink .hero::before, :root.eink .hero::after { display: none !important; }
-:root.eink .hero, :root.eink .page-banner, :root.eink .home-shortcut, :root.eink .explore-tile, :root.eink .glance-tile { background: #fff !important; border: 1px solid #777; }
+:root.eink .hero, :root.eink .page-banner, :root.eink .home-feature, :root.eink .home-link, :root.eink .explore-tile, :root.eink .glance-tile { background: #fff !important; border: 1px solid #777; }
 :root.eink h1, :root.eink .page-banner h1 { background: none !important; color: #000 !important; -webkit-text-fill-color: #000 !important; }
 :root.eink .cover { filter: grayscale(1); }
 :root.eink .btn, :root.eink .chip, :root.eink .nav-item[aria-current='page'] { border: 1px solid currentColor; }

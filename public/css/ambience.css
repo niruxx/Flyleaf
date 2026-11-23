@@ -212,25 +212,6 @@ body.scrolled .app-bar {
 /* Home                                                                   */
 /* ===================================================================== */
 
-.home-hero {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 24px;
-  align-items: center;
-  padding: 32px 28px;
-  min-height: 260px;
-  isolation: isolate;
-  border: 1px solid color-mix(in srgb, var(--md-outline-variant) 45%, transparent);
-  background:
-    radial-gradient(700px 360px at 0% 0%, color-mix(in srgb, var(--md-primary-container) 85%, transparent), transparent 70%),
-    radial-gradient(700px 360px at 100% 100%, color-mix(in srgb, var(--md-tertiary-container) 85%, transparent), transparent 70%),
-    color-mix(in srgb, var(--md-surface-container-low) 80%, transparent);
-}
-@media (min-width: 900px) {
-  .home-hero {
-    grid-template-columns: 1fr 380px;
-  }
-}
 .hero-glow {
   position: absolute;
   inset: -50%;
@@ -251,15 +232,6 @@ body.scrolled .app-bar {
   text-transform: uppercase;
   color: var(--md-primary);
   margin-bottom: 6px;
-}
-.home-hero h1 {
-  font-size: clamp(30px, 4.4vw, 48px);
-  font-weight: 700;
-  letter-spacing: -0.03em;
-}
-.home-hero .stats-row .chip {
-  background: color-mix(in srgb, var(--md-surface) 55%, transparent);
-  backdrop-filter: blur(8px);
 }
 .hero-actions {
   display: flex;

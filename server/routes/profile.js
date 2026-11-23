@@ -11,6 +11,7 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const { isIP, BlockList } = require('node:net');
 const express = require('express');
 const config = require('../config');
 const settings = require('../settings');
@@ -152,11 +153,37 @@ function lanAddresses() {
   return [...new Set(out)].sort((a, b) => Number(!a.startsWith('192.168.')) - Number(!b.startsWith('192.168.')));
 }
 
+const privateIPv4 = new BlockList();
+for (const [subnet, bits] of [
+  ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16],
+  ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15],
+  ['198.51.100.0', 24], ['203.0.113.0', 24], ['224.0.0.0', 3],
+]) privateIPv4.addSubnet(subnet, bits);
+const globalIPv6 = new BlockList();
+globalIPv6.addSubnet('2000::', 3, 'ipv6');
+const specialIPv6 = new BlockList();
+specialIPv6.addSubnet('2001:db8::', 32, 'ipv6');
+
+function publicAddress(req) {
+  const configured = String(settings.get('publicUrl') || '').replace(/\/+$/, '');
+  if (configured) return configured;
+  try {
+    const url = new URL(`${req.protocol}://${req.get('host')}`);
+    if (url.username || url.password || url.pathname !== '/' || url.search || url.hash) return null;
+    const host = url.hostname.replace(/^\[|\]$/g, '');
+    const family = isIP(host);
+    if (family === 4 && !privateIPv4.check(host)) return url.origin;
+    if (family === 6 && globalIPv6.check(host, 'ipv6') && !specialIPv6.check(host, 'ipv6')) return url.origin;
+  } catch {}
+  return null;
+}
+
 router.get('/share-info', (req, res) => {
-  const listening = config.host === '127.0.0.1' || config.host === 'localhost' ? [] : lanAddresses();
+  const addresses = lanAddresses();
+  const listening = ['0.0.0.0', '::'].includes(config.host) ? addresses : addresses.filter((ip) => ip === config.host);
   res.json({
     local: listening.map((ip) => `http://${ip}:${config.port}`),
-    public: (settings.get('publicUrl') || '').replace(/\/+$/, '') || null,
+    public: publicAddress(req),
   });
 });
 

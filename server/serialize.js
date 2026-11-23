@@ -190,7 +190,7 @@ function listSeries(user, opts = {}) {
   const having = opts.having?.length ? `HAVING ${opts.having.join(' AND ')}` : '';
   const limit = Math.min(Number(opts.limit) || 120, 2000);
   const offset = Math.max(Number(opts.offset) || 0, 0);
-  let sort = SERIES_SORTS[opts.sort] || SERIES_SORTS.name;
+  let sort = Object.hasOwn(SERIES_SORTS, opts.sort) ? SERIES_SORTS[opts.sort] : SERIES_SORTS.name;
   // Ranked ids (search, recommendations): only those, in that order when sorting by relevance.
   const orderArgs = [];
   if (Array.isArray(opts.rankIds)) {
@@ -267,6 +267,7 @@ function toSeries(row, user, detail = false) {
     Object.assign(s, {
       sortName: row.sort_name,
       summary: row.summary,
+      externalRating: json(row.external_rating, null),
       publisher: row.publisher,
       language: row.language,
       ageRatingLabel: AGE_RATINGS.find((a) => a.value === row.age_rating)?.label || 'Unknown',

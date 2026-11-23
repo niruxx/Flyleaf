@@ -27,4 +27,6 @@ module.exports = {
   sessionDays: Number(process.env.SESSION_DAYS) || 30,
   // Automatic rescan interval in minutes (0 disables).
   scanInterval: Number(process.env.SCAN_INTERVAL_MINUTES ?? 60),
+  bookDropDir: process.env.BOOKDROP_DIR?.trim() ? path.resolve(root, process.env.BOOKDROP_DIR.trim()) : null,
+  bookDropOnline: bool(process.env.BOOKDROP_ONLINE_METADATA, true),
 };

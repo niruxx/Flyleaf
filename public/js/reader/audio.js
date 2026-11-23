@@ -3,7 +3,7 @@ import { t, N_ } from '../i18n.js';
 // Progress is a position across all tracks ("track:seconds"), saved like reading progress, so
 // stats, Continue reading and syncing between devices work the same as for books.
 
-import { api } from '../api.js';
+import { api, bookUrl } from '../api.js';
 import { h, icon, iconButton, menu, cover, formatDuration } from '../ui.js';
 
 const SPEEDS = [0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5];
@@ -40,7 +40,7 @@ export class AudioEngine {
 
   async open(startLocator) {
     this.shell.setLoading(true);
-    const info = await api.audioTracks(this.book.id);
+    const info = await api.audioTracks(this.book.id, this.book.shareToken);
     this.tracks = info.tracks;
     if (!this.tracks.length) throw new Error(t('This audiobook has no audio files.'));
     this.chapters = info.chapters;
@@ -120,7 +120,7 @@ export class AudioEngine {
   }
 
   trackUrl(n) {
-    return `/api/books/${this.book.id}/tracks/${n}?v=${this.book.version}`;
+    return `${bookUrl(this.book)}/tracks/${n}?v=${this.book.version}`;
   }
 
   async load(track, seconds = 0, play = false) {

@@ -2,7 +2,7 @@ import { t } from '../i18n.js';
 // Text reader (EPUB, MOBI/AZW/AZW3, FB2, TXT→EPUB) built on foliate-js, with highlights & notes.
 
 import { api, fileUrl } from '../api.js';
-import { h, icon, iconButton, snackbar, dialog, field, copyText } from '../ui.js';
+import { h, icon, iconButton, snackbar, dialog, field, copyText, menu } from '../ui.js';
 import { isDark } from '../theme.js';
 import { TEXT_THEMES, LOOKS, PAPER_GRAIN } from '../components/reader-settings.js';
 import { fallingLeaf, reducedMotion } from './turn.js';
@@ -82,20 +82,25 @@ export class TextEngine {
     return this.s.flow === 'scrolled';
   }
 
-  async open(startLocator) {
+  async open(startLocator, file) {
     this.shell.setLoading(true);
     const [{ Overlayer }] = await Promise.all([import('/vendor/foliate/overlayer.js'), import('/vendor/foliate/view.js')]);
     this.Overlayer = Overlayer;
 
-    const res = await fetch(fileUrl(this.book), { credentials: 'same-origin' });
-    if (!res.ok) throw new Error(res.status === 410 ? t('This file is no longer in the library folder.') : t('Couldn’t load the book ({status}).', { status: res.status }));
-    const ext = EXT[this.book.format] || 'epub';
-    const file = new File([await res.blob()], `book.${ext}`, { type: MIME[ext] || 'application/octet-stream' });
+    if (!file) {
+      const res = await fetch(fileUrl(this.book), { credentials: 'same-origin' });
+      if (!res.ok) throw new Error(res.status === 410 ? t('This file is no longer in the library folder.') : t('Couldn’t load the book ({status}).', { status: res.status }));
+      const ext = EXT[this.book.format] || 'epub';
+      file = new File([await res.blob()], `book.${ext}`, { type: MIME[ext] || 'application/octet-stream' });
+    }
+    if (this.destroyed) return;
+    this.file = file;
 
     const view = document.createElement('foliate-view');
     this.view = view;
     this.shell.stage.replaceChildren(h('div.text-stage', view));
     await view.open(file);
+    if (this.destroyed) return view.close();
     view.renderer.addEventListener('navigation-error', (event) => this.navigationError(event.detail));
     const onStageClick = (event) => {
       if (event.target !== view && event.target !== view.parentElement && event.target !== this.shell.stage) return;
@@ -106,6 +111,7 @@ export class TextEngine {
     this.cleanups.push(() => this.shell.stage.removeEventListener('click', onStageClick));
     this.applyLayout();
     await this.applyStyles();
+    if (this.destroyed) return;
 
     view.addEventListener('relocate', (e) => this.onRelocate(e.detail));
     view.addEventListener('load', (e) => this.onLoad(e.detail));
@@ -122,7 +128,10 @@ export class TextEngine {
       window.open(e.detail.a.href, '_blank', 'noopener');
     });
     view.addEventListener('link', (e) => this.onLink(e));
-    view.addEventListener('relocate', () => this.closeFootnote());
+    view.addEventListener('relocate', () => {
+      this.closeFootnote();
+      this.closeSelection();
+    });
 
     this.toc = flattenToc(view.book.toc || []);
     this.setAnnotations(this.shell.annotations);
@@ -149,8 +158,10 @@ export class TextEngine {
         if (!saved && this.book.progress?.percent > 0) await view.goToFraction(this.book.progress.percent);
       }
     } catch {
+      if (this.destroyed) return;
       await view.init({});
     }
+    if (this.destroyed) return;
     this.shell.setLoading(false);
 
     const onTheme = () => this.s.textTheme === 'auto' && this.applyStyles();
@@ -164,13 +175,13 @@ export class TextEngine {
     clearTimeout(this.navigationTimer);
     this.turnLift?.cancel();
     this.closeFootnote();
-    import('./lookup.js').then((m) => m.closeLookup()).catch(() => {});
+    this.lookupCleanup?.();
     this.cleanups.forEach((fn) => fn());
-    document.querySelector('.sel-toolbar')?.remove();
+    this.closeSelection();
     try {
       this.view?.close();
-      this.view?.remove();
     } catch {}
+    this.view?.remove();
   }
 
   // ----- appearance -----
@@ -382,6 +393,31 @@ export class TextEngine {
     return { locator: loc.cfi, percent: this.fraction, chapter: loc.tocItem?.label?.trim() || null };
   }
 
+  parallelStart() {
+    const current = this.view.lastLocation?.section?.current ?? 0;
+    const sections = this.view.book.sections;
+    const following = sections.findIndex((s, i) => i > current && s.linear !== 'no');
+    const previous = sections.findLastIndex((s, i) => i < current && s.linear !== 'no');
+    return String(following >= 0 ? following : previous >= 0 ? previous : current);
+  }
+
+  get parallelSource() { return this.file; }
+
+  get parallelSections() {
+    const chapters = this.toc.map(({ label, target, depth }) => ({
+      label: `${'  '.repeat(depth)}${label}`,
+      target,
+      index: this.view.resolveNavigation(target)?.index,
+    })).filter(({ index }) => Number.isInteger(index));
+    const covered = new Set(chapters.map(({ index }) => index));
+    this.view.book.sections.forEach((section, index) => {
+      if (section.linear !== 'no' && !covered.has(index)) chapters.push({
+        label: t('Section {number}', { number: index + 1 }), target: index, index,
+      });
+    });
+    return chapters.sort((a, b) => a.index - b.index);
+  }
+
   onRelocate(detail) {
     const { fraction, tocItem, pageItem, location, cfi } = detail;
     // Two pages side by side (wide screens): the Book look draws a spine between them.
@@ -407,7 +443,19 @@ export class TextEngine {
   onLoad({ doc, index }) {
     const frameOf = () => doc.defaultView?.frameElement?.getBoundingClientRect() || { left: 0, top: 0 };
     let downAt = null;
+    let selectionTimer;
+    const selectedText = () => {
+      const selection = doc.getSelection();
+      const text = selection?.toString().trim();
+      if (!text || !selection.rangeCount || selection.isCollapsed) return null;
+      const range = selection.getRangeAt(0).cloneRange();
+      const rect = range.getBoundingClientRect();
+      const frame = frameOf();
+      return { index, range, text, doc, x: frame.left + rect.left + rect.width / 2, y: frame.top + rect.top, bottom: frame.top + rect.bottom };
+    };
     doc.addEventListener('pointerdown', (e) => {
+      clearTimeout(selectionTimer);
+      if (e.button === 0) this.closeSelection();
       downAt = { x: e.clientX, y: e.clientY };
       this.tracker.activity();
       if (!e.target.closest?.('a[href]')) this.closeFootnote();
@@ -421,26 +469,39 @@ export class TextEngine {
         this.justShowedAnnotation = false;
         return;
       }
-      document.querySelector('.sel-toolbar')?.remove();
+      this.closeSelection();
       const x = frameOf().left + e.clientX;
       if (this.scrollMode()) this.shell.toggleChrome();
       else this.shell.handleTap(x / innerWidth);
     });
     doc.addEventListener('keydown', (e) => {
       this.tracker.activity();
+      if (e.key === 'Escape' && (this.selectionMenu || this.selectionToolbar?.isConnected)) {
+        e.preventDefault();
+        return this.closeSelection();
+      }
       if (e.key === 'Escape' && this.footnoteCleanup) return this.closeFootnote();
       this.shell.handleKey(e);
     });
-    let selTimer;
+    doc.addEventListener('contextmenu', (e) => {
+      const selected = selectedText();
+      if (!selected && e.pointerType === 'touch') return;
+      if (!selected && e.target.closest?.('a[href], input, textarea, [contenteditable]')) return;
+      clearTimeout(selectionTimer);
+      e.preventDefault();
+      const frame = frameOf();
+      const at = e.clientX || e.clientY
+        ? { x: frame.left + e.clientX, y: frame.top + e.clientY }
+        : selected || { x: frame.left + (frame.width || innerWidth) / 2, y: frame.top + (frame.height || innerHeight) / 2 };
+      this.openSelectionMenu(selected, at);
+    });
     const checkSelection = () => {
-      clearTimeout(selTimer);
-      selTimer = setTimeout(() => {
-        const sel = doc.getSelection();
-        if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
-        const range = sel.getRangeAt(0);
-        const rect = range.getBoundingClientRect();
-        const fr = frameOf();
-        this.showSelectionToolbar({ index, range, text: sel.toString().trim(), x: fr.left + rect.left + rect.width / 2, y: fr.top + rect.top, bottom: fr.top + rect.bottom, doc });
+      clearTimeout(selectionTimer);
+      selectionTimer = setTimeout(() => {
+        if (this.destroyed || this.selectionMenu || !doc.defaultView?.frameElement?.isConnected) return;
+        const selection = selectedText();
+        if (selection) this.showSelectionToolbar(selection);
+        else if (this.selectionToolbar?.selectionDoc === doc) this.closeSelection();
       }, 350);
     };
     doc.addEventListener('pointerup', checkSelection);
@@ -546,9 +607,14 @@ export class TextEngine {
     }
   }
 
-  showSelectionToolbar({ index, range, text, x, y, bottom, doc }) {
-    document.querySelector('.sel-toolbar')?.remove();
-    const create = async (color, withNote = false) => {
+  closeSelection() {
+    this.selectionMenu?.();
+    this.selectionToolbar?.remove();
+    this.selectionToolbar = null;
+  }
+
+  async saveSelection({ index, range, text, doc }, color, withNote = false) {
+    try {
       const cfi = this.view.getCFI(index, range);
       let note = null;
       if (withNote) {
@@ -570,27 +636,63 @@ export class TextEngine {
       this.annotationsByValue.set(cfi, a);
       await this.view.addAnnotation({ value: cfi, color });
       doc.getSelection()?.removeAllRanges();
-      bar.remove();
       snackbar(note ? t('Note saved') : t('Highlighted'));
+    } catch (error) {
+      snackbar(error.message);
+    }
+  }
+
+  selectionActions(selection) {
+    const copy = { label: t('Copy'), icon: 'content_copy', onClick: () => copyText(selection.text) };
+    if (this.book.shareToken) return [copy];
+    const lookup = async (tab) => {
+      const { openLookup } = await import('./lookup.js');
+      if (this.destroyed) return;
+      const lang = [].concat(this.view.book.metadata?.language || [])[0] || this.book.language || null;
+      this.lookupCleanup = openLookup({ text: selection.text.slice(0, 500), bookLang: lang, at: selection,
+        root: this.shell.root.closest('.reader'), tab });
     };
-    const bar = h('div.sel-toolbar', { role: 'toolbar' },
-      Object.entries(HIGHLIGHT_COLORS).filter(([k]) => k !== 'underline').map(([k, hex]) =>
-        h('button.color', { type: 'button', title: t('Highlight {k}', { k: k }), 'aria-label': t('Highlight {k}', { k: k }), style: { background: hex }, onclick: () => create(k) })),
-      iconButton('format_underlined', t('Underline'), () => create('underline')),
-      h('span.divider-v'),
-      iconButton('edit_note', t('Highlight with note'), () => create('yellow', true)),
-      iconButton('content_copy', t('Copy'), () => {
-        copyText(text);
-        bar.remove();
-      }),
-      iconButton('dictionary', t('Look up (define, Wikipedia, translate)'), async () => {
-        bar.remove();
-        const { openLookup } = await import('./lookup.js');
-        const lang = [].concat(this.view.book.metadata?.language || [])[0] || this.book.language || null;
-        openLookup({ text: text.slice(0, 500), bookLang: lang, at: { x, y, bottom }, root: this.shell.root });
-      }),
+    return [copy,
+      { label: t('Highlight'), icon: 'ink_highlighter', onClick: () => this.saveSelection(selection, 'yellow') },
+      { label: t('Underline'), icon: 'format_underlined', onClick: () => this.saveSelection(selection, 'underline') },
+      { label: t('Add note'), icon: 'edit_note', onClick: () => this.saveSelection(selection, 'yellow', true) },
+      { label: t('Look up'), icon: 'dictionary', onClick: () => lookup('define') },
+      { label: t('Translate'), icon: 'translate', onClick: () => lookup('translate'), menuOnly: true },
+      { label: 'Wikipedia', icon: 'travel_explore', onClick: () => lookup('wiki'), menuOnly: true },
+      this.shell.openSearch && { label: t('Search in this book'), icon: 'search', onClick: () => this.shell.openSearch(selection.text.slice(0, 200)) },
+    ].filter(Boolean);
+  }
+
+  openSelectionMenu(selection, at) {
+    this.closeSelection();
+    const shortcuts = [
+      !selection && !this.book.shareToken && this.shell.toggleBookmark && { label: t('Bookmark this page'), icon: 'bookmark_add', onClick: this.shell.toggleBookmark },
+      this.shell.openContents && { label: t('Contents & annotations'), icon: 'toc', onClick: this.shell.openContents },
+      { label: t('Reader settings'), icon: 'tune', onClick: this.shell.openSettings },
+    ];
+    this.selectionMenu = menu(null, [
+      ...(selection ? [...this.selectionActions(selection), '-'] : []), ...shortcuts,
+    ], { at, label: t('Reader actions'), host: document.fullscreenElement || document.body,
+      onClose: () => { this.selectionMenu = null; } });
+  }
+
+  showSelectionToolbar(selection) {
+    this.closeSelection();
+    const { x, y, bottom, doc } = selection;
+    const run = (action) => {
+      this.closeSelection();
+      action();
+    };
+    const bar = h('div.sel-toolbar', { role: 'toolbar', 'aria-label': t('Text selection actions') },
+      !this.book.shareToken && Object.entries(HIGHLIGHT_COLORS).filter(([k]) => k !== 'underline').map(([k, hex]) =>
+        h('button.color', { type: 'button', title: t('Highlight {k}', { k }), 'aria-label': t('Highlight {k}', { k }), style: { background: hex }, onclick: () => run(() => this.saveSelection(selection, k)) })),
+      this.selectionActions(selection).filter(({ icon, menuOnly }) => !menuOnly && icon !== 'ink_highlighter' && icon !== 'search')
+        .map(({ label, icon, onClick }) => iconButton(icon, label, () => run(onClick))),
+      iconButton('more_horiz', t('More actions'), () => this.openSelectionMenu(selection, { x, y: bottom })),
     );
-    document.body.append(bar);
+    this.selectionToolbar = bar;
+    bar.selectionDoc = doc;
+    (document.fullscreenElement || document.body).append(bar);
     const w = bar.offsetWidth;
     const height = bar.offsetHeight;
     const above = y - height - 10;

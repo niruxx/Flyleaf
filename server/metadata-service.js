@@ -8,7 +8,7 @@ const covers = require('./covers');
 const { json, similarity, mergeLinks } = require('./util');
 const log = require('./log').logger('metadata');
 
-const FIELDS = ['name', 'localized_name', 'summary', 'status', 'year', 'publisher', 'age_rating', 'genres', 'tags', 'people', 'links', 'cover'];
+const FIELDS = ['name', 'localized_name', 'summary', 'status', 'year', 'publisher', 'age_rating', 'genres', 'tags', 'people', 'links', 'cover', 'external_rating'];
 
 /**
  * Apply a provider result to a series.
@@ -50,6 +50,10 @@ async function applyToSeries(seriesId, result, { fields = FIELDS, force = false,
     } catch (err) {
       log.file(`cover download failed for series ${seriesId}: ${err.message}`);
     }
+  }
+  if (want('external_rating') && result.externalRating) {
+    const current = takeCover && !force ? q('SELECT locked FROM series WHERE id = ?').get(seriesId) : null;
+    if (!json(current?.locked, []).includes('external_rating')) put('external_rating', JSON.stringify(result.externalRating));
   }
   q(`UPDATE series SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`).run(...vals, Date.now(), seriesId);
 }

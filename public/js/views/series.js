@@ -17,7 +17,7 @@ import { findSeriesSource } from '../components/finder-links.js';
 const LINK_ICON = { MyAnimeList: 'tv', AniList: 'stacks', MangaDex: 'auto_stories', MangaUpdates: 'update', ComicVine: 'local_library', Goodreads: 'reviews', 'Open Library': 'local_library', 'Google Books': 'book_2', Kitsu: 'pets', Amazon: 'shopping_bag', BookWalker: 'storefront', Wikipedia: 'public' };
 
 export async function seriesView(view, params, stale) {
-  const page = h('div.page');
+  const page = h('div.page.series-page');
   view.append(page);
   page.append(skeleton('series'));
   const s = await api.series(params.id).catch((e) => (e.status === 404 ? null : Promise.reject(e)));
@@ -32,9 +32,10 @@ export async function seriesView(view, params, stale) {
   const reload = () => render();
   const started = s.books.some((b) => b.progress);
   const next = s.books.find((b) => b.id === s.nextBookId);
+  const progress = Math.round(s.progress * 100);
 
   // ----- Hero -----
-  const art = cover({ ...s, title: s.name }, { showProgress: false });
+  const art = cover({ ...s, title: s.name }, { showProgress: false, eager: true });
   art.style.viewTransitionName = 'hero-cover';
   art.addEventListener('click', () => s.blur && art.classList.toggle('blurred'));
   if (s.blur) art.title = t('Tap to reveal');
@@ -206,9 +207,14 @@ export async function seriesView(view, params, stale) {
       editBtn,
       moreBtn,
     ),
-    s.progress > 0 && h('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', maxWidth: '460px', width: '100%' } },
-      h('div.progress', { style: { flex: '1' } }, h('span', { style: { width: `${Math.round(s.progress * 100)}%` } })),
-      h('span.label-medium.muted', `${Math.round(s.progress * 100)}%`)),
+    s.progress > 0 && h('div.series-progress',
+      h('div.progress', { role: 'progressbar', 'aria-label': t('Reading progress'), 'aria-valuenow': progress, 'aria-valuemin': 0, 'aria-valuemax': 100 }, h('span', { style: { width: `${progress}%` } })),
+      h('span.label-medium.muted', `${progress}%`)),
+  );
+  const detailTitle = h('h2', { tabindex: -1 }, t('Details'));
+  const seriesDetails = h('section.section.series-details', h('div.section-head', detailTitle),
+    h('div.series-detail-grid', h('div.series-detail-main',
+    summary && h('div.info-block', h('span.label', t('Summary')), summary),
     h('div.info-block', h('span.label', t('Your status')), statusRow),
     h('div.info-block', h('span.label', t('Your tags')), tagSet),
     s.genres.length > 0 && h('div.info-block', h('span.label', t('Genres')),
@@ -217,9 +223,8 @@ export async function seriesView(view, params, stale) {
       h('div.chip-set', s.tags.slice(0, 24).map((localT) => h('span.chip', localT)))),
     s.people.length > 0 && h('div.info-block', h('span.label', t('Writers & artists')),
       h('div.people', s.people.map((x) =>
-        h('a.person', { href: `#/person/${encodeURIComponent(x.name)}` }, h('span.avatar', x.name[0]), h('span', h('div.n', x.name), h('div.r', x.role)))))),
-    h('div.facts', facts.map(([k, v]) => h('div.fact', h('div.k', k), h('div.v', v)))),
-    summary && h('div.info-block', h('span.label', t('Summary')), summary),
+        h('a.person', { href: `#/person/${encodeURIComponent(x.name)}` }, h('span.avatar', x.name[0]), h('span', h('div.n', x.name), h('div.r', x.role))))))),
+    h('dl.series-facts', facts.map(([k, v]) => h('div', h('dt', k), h('dd', v))))),
   );
 
   const scape = h('div.scape');
@@ -227,20 +232,20 @@ export async function seriesView(view, params, stale) {
   if (p.colorScape && !p.einkMode) applyColorScape(art, scape, page);
 
   // ----- New chapters (series downloaded with Content Finder) -----
-  if (can(session.user, 'contentFinder')) page.append(followPanel(s));
+  const following = can(session.user, 'contentFinder') && followPanel(s);
 
   // ----- Related -----
+  let related;
   if (s.relations.length) {
     const grid = stagger(h('div.grid', s.relations.map((r) => {
       const card = seriesCard(r.series, { onChange: reload });
       card.querySelector('.t-sub').textContent = t(RELATION_LABEL[r.kind] || r.kind);
       return card;
     })));
-    const details = h('details.section', { open: !p.collapseRelationships },
+    related = h('details.section', { open: !p.collapseRelationships },
       h('summary.section-head', { style: { cursor: 'pointer', listStyle: 'none' } }, h('h2', t('Related series')), icon('expand_more')),
       grid,
     );
-    page.append(details);
   }
 
   // ----- Volumes -----
@@ -291,12 +296,20 @@ export async function seriesView(view, params, stale) {
     drawVolumes();
   });
   layoutToggle.classList.add('compact');
+  const volumesTitle = h('h2', { tabindex: -1 }, single && groups[0][0] !== t('Other') ? `${groups[0][0]} (${s.books.length})` : t('In this series ({length})', { length: s.books.length }));
+  const jump = (label, target) => button(label, { variant: 'text', onclick: () => {
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({ block: 'start' });
+  } });
   page.append(
-    h('section.section',
-      h('div.section-head', h('h2', single && groups[0][0] !== 'Other' ? `${groups[0][0]} (${s.books.length})` : t('In this series ({length})', { length: s.books.length })), layoutToggle),
+    h('nav.series-jump', { 'aria-label': t('Series sections') }, jump(t('In this series'), volumesTitle), jump(t('Details'), detailTitle)),
+    h('section.section.series-volumes',
+      h('div.section-head', volumesTitle, layoutToggle),
       h('div.toolbar', availableLanguages.length > 0 && languageFilter, h('label.check', toggleSwitch(protectSpoilers, value => { protectSpoilers = value; setPref('spoilerSafe', value); drawVolumes(); }, t('Protect future titles and covers')), t('Protect future titles and covers'))),
       volumes,
     ),
+    seriesDetails,
+    ...[following, related].filter(Boolean),
   );
   if (remembered) requestAnimationFrame(() => {
     if (stale()) return;
@@ -397,9 +410,17 @@ function renderReviews(section, s, r) {
   } });
 
   const others = r.reviews.filter((x) => !x.mine);
+  const external = s.externalRating;
+  const sources = s.links.filter((link) => ['Google Books', 'Open Library', 'Amazon'].includes(link.source));
   // The DOM's replaceChildren would print `false`; h() skips it.
   section.replaceChildren(h('div',
     h('div.section-head', h('h2', t('Ratings & reviews'))),
+    external && h('div.rating-summary',
+      h('span.big', external.average.toFixed(1)),
+      h('div', stars(Math.round(external.average * 2)), h('div.body-small.muted', external.source || t('External rating (edited)'),
+        external.count && ` · ${plural(external.count, '{count} rating', '{count} ratings', { count: external.count })}`))),
+    sources.length > 0 && h('div.chip-set', sources.map((link) =>
+      h('a.chip.state', { href: link.url, target: '_blank', rel: 'noopener noreferrer' }, icon('open_in_new'), link.source))),
     r.count > 0 && h('div.rating-summary',
       h('span.big', (r.average / 2).toFixed(1)),
       h('div', stars(Math.round(r.average)), h('div.body-small.muted', plural(r.count, '{count} rating on this server', '{count} ratings on this server', { count: r.count })))),

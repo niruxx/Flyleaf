@@ -7,6 +7,7 @@ import { LOOKS } from '../components/reader-settings.js';
 import { turnPages, measure, reducedMotion, finishTurn } from './turn.js';
 
 import { PageZoom } from './zoom.js';
+import { PageAnnotations, pageFromLocator } from './page-annotations.js';
 
 const MAX_CANVAS_PIXELS = 12_000_000; // stay well under iOS Safari's canvas limits
 // Auto-scroll speeds (levels 1–10) in pixels per second on an 800px-tall screen.
@@ -102,7 +103,7 @@ class ImageSource {
     this.width = dataSaver ? Math.min(1280, Math.round(Math.max(screen.width, screen.height) * Math.min(devicePixelRatio || 1, 2))) : null;
   }
   async init() {
-    const { count } = await api.pages(this.book.id);
+    const { count } = await api.pages(this.book.id, this.book.shareToken);
     this.count = count;
   }
   load(i) {
@@ -135,15 +136,24 @@ class PdfSource {
     this.cache = new Map();
     this.sizes = new Map();
   }
-  async init() {
+  async init(sharedDocument) {
+    if (sharedDocument) {
+      this.doc = sharedDocument;
+      this.count = this.doc.numPages;
+      return;
+    }
     const pdfjs = await import('/vendor/pdfjs/pdf.min.mjs');
+    if (this.destroyed) return;
     pdfjs.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs';
     // A PDF saved for offline reading is read whole from the cache (PDF.js would otherwise
     // ask for byte ranges, which the cached copy can't answer).
     const { isSaved } = await import('../offline.js');
-    this.task = isSaved(this.book.id)
-      ? pdfjs.getDocument({ data: await (await fetch(fileUrl(this.book), { credentials: 'same-origin' })).arrayBuffer(), isEvalSupported: false })
-      : pdfjs.getDocument({ url: fileUrl(this.book), isEvalSupported: false, withCredentials: true });
+    if (this.destroyed) return;
+    const file = !this.book.shareToken && isSaved(this.book.id)
+      ? { data: await (await fetch(fileUrl(this.book), { credentials: 'same-origin' })).arrayBuffer() }
+      : { url: fileUrl(this.book), withCredentials: true };
+    if (this.destroyed) return;
+    this.task = pdfjs.getDocument({ ...file, isEvalSupported: false });
     this.doc = await this.task.promise;
     this.count = this.doc.numPages;
   }
@@ -231,9 +241,10 @@ class PdfSource {
     return new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.85));
   }
   destroy() {
+    this.destroyed = true;
     for (const p of this.cache.values()) p.then((c) => (c.width = c.height = 0)).catch(() => {});
     this.cache.clear();
-    this.task?.destroy();
+    this.task?.destroy().catch(() => {});
   }
 }
 
@@ -248,6 +259,7 @@ export class PageEngine {
     this.s = shell.settings;
     this.isPdf = book.format === 'pdf';
     this.source = this.isPdf ? new PdfSource(book) : new ImageSource(book, { dataSaver: data.dataSaver });
+    this.highlights = data.shared || data.reference ? null : new PageAnnotations(book, shell);
     this.page = 0;
     this.half = 0; // 0/1 when a wide page is split in two
     this.renderSeq = 0;
@@ -272,13 +284,14 @@ export class PageEngine {
     return this.s.layout === 'single' && (this.s.pageSplit === 'split' || this.s.pageSplit === 'split-reverse');
   }
 
-  async open(startLocator) {
+  async open(startLocator, source) {
     this.shell.setLoading(true);
-    await this.source.init();
+    await this.source.init(source);
+    if (this.destroyed) return;
     if (!this.source.count) throw new Error(t('This book has no pages.'));
     const saved = this.book.progress;
     let start = saved?.page != null && !saved.finished ? saved.page : 0;
-    if (startLocator != null && /^\d+$/.test(startLocator)) start = Number(startLocator);
+    start = pageFromLocator(startLocator) ?? start;
     this.page = Math.min(start, this.count - 1);
     this.applyTheme();
     this.build();
@@ -296,14 +309,17 @@ export class PageEngine {
     addEventListener('resize', onResize);
     this.cleanups.push(() => removeEventListener('resize', onResize));
 
-    if (this.isPdf) {
+    if (this.isPdf && !this.shell.reference) {
       this.source.outline().then((toc) => (this.toc = toc));
-      if (!this.book.coverUrl) this.source.thumbnail().then((blob) => blob && api.generatedCover(this.book.id, blob)).catch(() => {});
+      if (!this.book.shareToken && !this.book.coverUrl) this.source.thumbnail().then((blob) => blob && api.generatedCover(this.book.id, blob)).catch(() => {});
     }
   }
 
   destroy() {
+    this.destroyed = true;
+    this.renderSeq++;
     this.zoomCleanup?.();
+    this.stripCleanup?.();
     this.stopAutoScroll();
     this.cleanups.forEach((fn) => fn());
     this.source.destroy();
@@ -403,6 +419,7 @@ export class PageEngine {
       c.setAttribute('role', 'img');
       c.setAttribute('aria-label', el.alt || t('Page {value}', { value: i + 1 }));
       c.dataset.alt = el.alt || t('Page {value}', { value: i + 1 });
+      c.pageBounds = crop;
       out = c;
     }
     const gains = whiten && paperGains(a.paper);
@@ -514,14 +531,22 @@ export class PageEngine {
     return this.isPdf ? (query) => this.source.search(query) : null;
   }
   goToLocator(loc) {
-    this.go(Number(loc));
+    const page = pageFromLocator(loc);
+    if (page != null) this.go(page);
   }
+  toggleHighlight() { this.highlights?.toggle(); }
+  setAnnotations() { this.highlights?.refresh(); }
+  annotated(el, i) { return this.highlights?.wrap(el, i, this.count) || el; }
   scrollBy(dir) {
     this.container?.scrollBy({ top: dir * this.container.clientHeight * 0.85, behavior: 'smooth' });
   }
   currentLocator() {
     return { locator: String(this.page), page: this.page, percent: (this.page + 1) / this.count };
   }
+  parallelStart() {
+    return String(this.page + 1 < this.count ? this.page + 1 : Math.max(0, this.page - 1));
+  }
+  get parallelSource() { return this.isPdf ? this.source.doc : null; }
 
   go(p, { dir } = {}) {
     p = Math.max(0, Math.min(this.count - 1, p));
@@ -550,7 +575,11 @@ export class PageEngine {
 
   build() {
     const stage = this.shell.stage;
+    this.renderSeq++;
     this.stripCleanup?.();
+    this.stripCleanup = null;
+    this.stripPages = null;
+    this.stripAnchor = null;
     this.zoomCleanup?.();
     stage.replaceChildren();
     this.shell.setSlider({
@@ -585,13 +614,16 @@ export class PageEngine {
     this.atEnd = false;
     const spread = this.spreadOf(this.page);
     this.report();
-    const loadingTimer = setTimeout(() => this.shell.setLoading(true), 150);
+    const loadingTimer = setTimeout(() => {
+      if (seq === this.renderSeq) this.shell.setLoading(true);
+    }, 150);
     const opts = await this.sizeOpts(spread);
     let els;
     try {
       els = await Promise.all(spread.map((i) => this.source.load(i, opts)));
     } catch (e) {
       clearTimeout(loadingTimer);
+      if (seq !== this.renderSeq) return;
       this.shell.setLoading(false);
       this.shell.toast(e.message);
       return;
@@ -627,12 +659,15 @@ export class PageEngine {
       c.width = half;
       c.height = hgt;
       c.getContext('2d').drawImage(el0, leftHalf ? 0 : half, 0, half, hgt, 0, 0, half, hgt);
+      const bounds = el0.pageBounds || { x: 0, y: 0, w: 1, h: 1 };
+      c.pageBounds = { ...bounds, x: bounds.x + (leftHalf ? 0 : bounds.w / 2), w: bounds.w / 2 };
       els = [c];
     }
 
     const solo = this.s.layout === 'double' && spread.length === 1;
     const turn = dir && !document.documentElement?.classList?.contains('eink') ? this.s.pageTurn || 'slide' : 'none';
-    const wrap = h(`div.spread${this.wideFit ? '.fit-wide' : ''}${solo ? '.solo' : ''}${turn === 'slide' ? `.turn-${dir}` : ''}${els.length > 1 ? '.pair' : ''}`, els);
+    const wrap = h(`div.spread${this.wideFit ? '.fit-wide' : ''}${solo ? '.solo' : ''}${turn === 'slide' ? `.turn-${dir}` : ''}${els.length > 1 ? '.pair' : ''}`,
+      els.map((el, n) => this.annotated(el, spread[n])));
     // The Book look: a spine between two pages, or a soft fold on the bound side of one.
     if (this.s.look === 'book') wrap.append(h(`div.spine${els.length > 1 ? '' : '.single'}`));
     // Book page turn: the old pages go onto a leaf that swings over the new ones.
@@ -830,11 +865,12 @@ export class PageEngine {
         if (!loaded.has(i) || !pg.isConnected) return;
         const above = pg.getBoundingClientRect().bottom <= strip.getBoundingClientRect().top + 1;
         const before = pg.offsetHeight;
-        pg.replaceChildren(el);
+        pg.replaceChildren(this.annotated(el, i));
         pg.classList.add('ready');
         pg.style.height = '';
-        // Keep the view steady when a page above the viewport changes height (Safari lacks scroll anchoring).
-        if (above) strip.scrollTop += pg.offsetHeight - before;
+        // Keep a jump anchored while surrounding page placeholders resolve to their real height.
+        if (this.stripAnchor != null) strip.scrollTop = pages[this.stripAnchor].offsetTop;
+        else if (above) strip.scrollTop += pg.offsetHeight - before;
       } catch {
         loaded.delete(i);
       }
@@ -863,6 +899,11 @@ export class PageEngine {
       if (raf) return;
       raf = requestAnimationFrame(() => {
         raf = 0;
+        if (this.stripAnchor != null) {
+          const target = Math.min(pages[this.stripAnchor].offsetTop, strip.scrollHeight - strip.clientHeight);
+          if (Math.abs(strip.scrollTop - target) <= 2) return;
+          this.stripAnchor = null;
+        }
         const mid = strip.scrollTop + strip.clientHeight * 0.33;
         let i = Math.min(this.page, pages.length - 1);
         while (i > 0 && pages[i].offsetTop > mid) i--;
@@ -910,7 +951,6 @@ export class PageEngine {
       cancelAnimationFrame(raf);
       this.stopAutoScroll();
     };
-    this.cleanups.push(() => this.stripCleanup?.());
     this.report();
     this.stripJump(this.page, true);
   }
@@ -971,18 +1011,23 @@ export class PageEngine {
   async stripJump(p, initial = false) {
     const pages = this.stripPages;
     if (!pages) return;
+    const strip = this.container;
+    const request = this.stripRequest = {};
+    this.stripAnchor = p;
     this.page = p;
     const pg = pages[p];
-    pg.scrollIntoView({ block: 'start' });
+    strip.scrollTop = pg.offsetTop;
     const loadedEl = await this.source.load(p, { cssWidth: pg.clientWidth || innerWidth }).catch(() => null);
+    if (this.stripPages !== pages || this.stripRequest !== request || this.stripAnchor !== p || !pg.isConnected) return;
     const el = loadedEl && this.prepare(loadedEl, p, { sidesOnly: true });
     if (el && !pg.classList.contains('ready')) {
-      pg.replaceChildren(el);
+      pg.replaceChildren(this.annotated(el, p));
       pg.classList.add('ready');
       pg.style.height = '';
       this.stripLoaded?.add(p);
     }
-    pg.scrollIntoView({ block: 'start' });
+    this.page = p;
+    strip.scrollTop = pg.offsetTop;
     if (!initial) this.report();
   }
 }

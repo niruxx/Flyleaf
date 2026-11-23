@@ -1,23 +1,39 @@
 // Reader shell: chrome, settings sheet, contents/annotations, bookmarks, key binds.
 // Engines: pages.js (manga, comics, PDF) and text.js (EPUB, MOBI/AZW3, FB2, TXT).
 
-import { api } from '../api.js';
-import { onLeave, navigate, readerReturnPath } from '../router.js';
-import { h, icon, iconButton, button, sheet, syncThemeColor, snackbar, segmented } from '../ui.js';
+import { api, can, downloadUrl } from '../api.js';
+import { onLeave, navigate, readerReturnPath, session } from '../router.js';
+import { h, icon, iconButton, button, sheet, syncThemeColor, snackbar, segmented, emptyState, toggleSwitch } from '../ui.js';
 import { displaySettings } from '../reading-display.js';
 import { Tracker } from './tracker.js';
-import { autoSaveNext } from '../offline.js';
+import { openParallelPane } from './parallel.js';
+import { autoSaveNext, pendingPosition } from '../offline.js';
 import { readerSettingsForm, PAPER_GRAIN } from '../components/reader-settings.js';
 import { resolveKeybinds, actionFor } from '../keybinds.js';
 import { annotationRow } from '../views/bookmarks.js';
 import { t, plural } from '../i18n.js';
 
 export async function readerView(view, params, stale) {
-  const data = await api.reader(params.id, params.query.get('list'));
+  const shared = Boolean(params.token);
+  const userId = session.user?.id;
+  const pendingOnOpen = shared ? null : pendingPosition(userId, { id: Number(params.id) });
+  let data;
+  try {
+    data = shared ? await api.sharedReader(params.token) : await api.reader(params.id, params.query.get('list'));
+  } catch (e) {
+    if (!shared) throw e;
+    if (!stale()) view.append(emptyState('link_off', t('Book link unavailable'), e.message));
+    return;
+  }
   if (stale()) return;
   const { book } = data;
+  if (shared) book.shareToken = params.token;
+  else {
+    const pending = pendingPosition(userId, book) || pendingOnOpen;
+    if (pending && pending.updatedAt > (book.progress?.updatedAt || 0)) book.progress = pending;
+  }
 
-  const tracker = new Tracker(book.id);
+  const tracker = new Tracker(book.id, { shared, progress: book.progress });
   const shell = createShell(data, tracker);
   view.append(shell.root);
 
@@ -35,9 +51,9 @@ export async function readerView(view, params, stale) {
   }
 
   onLeave(() => {
+    shell.destroy();
     shell.engine?.destroy?.();
     tracker.destroy();
-    shell.destroy();
     wakeLock?.release?.().catch(() => {});
     document.removeEventListener('visibilitychange', onVis);
     syncThemeColor(null);
@@ -49,10 +65,11 @@ export async function readerView(view, params, stale) {
     const engine = new Engine(book, shell, tracker, data);
     if (stale()) return engine.destroy();
     shell.engine = engine;
-    await engine.open(params.query.get('loc'));
+    await engine.open(shared ? data.locator : params.query.get('loc'));
+    if (stale()) return;
     shell.refreshBookmark();
     shell.engineReady();
-    autoSaveNext(book).catch((e) => snackbar(t('Could not auto-save the next chapter: {message}', { message: e.message })));
+    if (!shared) autoSaveNext(book).catch((e) => snackbar(t('Could not auto-save the next chapter: {message}', { message: e.message })));
     // From full-text search results: show the matches in this book.
     const q = params.query.get('q');
     if (q && engine.search) shell.openSearch(q);
@@ -70,9 +87,16 @@ function createShell(data, tracker) {
   const binds = resolveKeybinds(data.keybinds);
   let annotations = data.annotations;
   let overridden = data.overridden;
+  let parallel = null;
+  let parallelPosition = null;
+  let chromeObserver;
+  let readerReady = false;
 
   const titleSub = h('div.s');
   const bookmarkBtn = iconButton('bookmark_add', t('Bookmark this page (B)'), () => toggleBookmark());
+  const highlightBtn = iconButton('ink_highlighter', t('Highlight an area'), () => shell.engine?.toggleHighlight?.());
+  highlightBtn.hidden = true;
+  highlightBtn.setAttribute('aria-pressed', 'false');
   const tocBtn = iconButton('toc', t('Contents & annotations (T)'), () => openContents());
   const settingsBtn = iconButton('tune', t('Reader settings (S)'), () => openSettings());
   const fsBtn = document.fullscreenEnabled
@@ -85,7 +109,18 @@ function createShell(data, tracker) {
   const top = h('div.chrome-top',
     iconButton('arrow_back', t('Close book'), () => exit()),
     h('div.titles', h('div.t', book.series && book.series !== book.label ? `${book.series} · ${book.label}` : book.title), titleSub),
-    h('div.chrome-tools', searchBtn, bookmarkBtn, tocBtn, fsBtn, settingsBtn),
+    h('div.chrome-tools', searchBtn, !data.shared && bookmarkBtn, !data.shared && highlightBtn, tocBtn, fsBtn, settingsBtn,
+      data.shared && data.allowDownload && h('a.icon-btn.state', {
+        href: downloadUrl(book), download: '', title: t('Download'), 'aria-label': t('Download'),
+      }, icon('download')),
+      !data.shared && can(session.user, 'download') && iconButton('share', t('Share book'), async () => {
+        try {
+          const { shareBook } = await import('../components/book-sharing.js');
+          await shareBook(book, shell.engine?.currentLocator?.());
+        } catch (e) {
+          snackbar(e.message);
+        }
+      })),
   );
 
   const slider = h('input.slider', { type: 'range', min: 0, max: 100, value: 0, step: 1, 'aria-label': t('Position in book') });
@@ -126,11 +161,11 @@ function createShell(data, tracker) {
   }
 
   // With auto-hide off, the menu stays put until a tap in the middle of the page hides it.
-  const autoHide = () => settings.autoCloseMenu !== false;
+  const autoHide = () => !parallel && settings.autoCloseMenu !== false;
   let hideTimer = autoHide() ? setTimeout(() => shell.showChrome(false), settings.immersive ? 600 : 2500) : null;
 
   const onKey = (e) => {
-    if (e.target.closest?.('input, textarea, select, dialog, .sel-toolbar')) return;
+    if (e.target.closest?.('input, textarea, select, dialog, .sel-toolbar, .menu')) return;
     if (document.querySelector('dialog[open]')) return;
     shell.handleKey(e);
   };
@@ -144,6 +179,7 @@ function createShell(data, tracker) {
   }
 
   function exit() {
+    if (data.shared) return location.assign(location.pathname);
     // Without a connection the series page can't load; go back to the saved books.
     if (!navigator.onLine || document.body.classList.contains('is-offline')) return navigate('/offline', { replace: true });
     const back = readerReturnPath();
@@ -159,8 +195,36 @@ function createShell(data, tracker) {
 
   // ----- settings -----
   let saveTimer;
+  function setParallel(on) {
+    const engine = shell.engine;
+    if (on === Boolean(parallel) || !engine?.parallelStart) return;
+    if (on) {
+      parallel = openParallelPane({ Engine: engine.constructor, data, primary: engine, settings: shell.settings,
+        locator: parallelPosition ?? engine.parallelStart() });
+      root.insertBefore(parallel.pane, loadingEl);
+      root.classList.add('parallel-reading');
+      shell.showChrome(true);
+      const measure = () => {
+        root.style.setProperty('--parallel-top', `${top.offsetHeight}px`);
+        root.style.setProperty('--parallel-bottom', `${bottom.offsetHeight}px`);
+      };
+      measure();
+      chromeObserver = new ResizeObserver(measure);
+      chromeObserver.observe(top);
+      chromeObserver.observe(bottom);
+      parallel.open();
+    } else {
+      parallelPosition = parallel.close() ?? parallelPosition;
+      parallel = null;
+      chromeObserver?.disconnect();
+      root.classList.remove('parallel-reading');
+    }
+    engine.applySetting(book.engine === 'text' ? 'flow' : 'layout');
+  }
+
   /** Settings changed in the reader are saved for this series (a custom override of the profile). */
   function persistSettings() {
+    if (data.shared) return;
     overridden = true;
     clearTimeout(saveTimer);
     const { resolvedDir, ...clean } = settings;
@@ -171,7 +235,7 @@ function createShell(data, tracker) {
     const show = book.engine === 'text' ? 'text' : book.engine === 'audio' ? 'none' : 'pages';
     sheet((close) => {
       const fontsBox = h('div');
-      const footer = h('div.sheet-footer',
+      const footer = !data.shared && h('div.sheet-footer',
         h('div.who', overridden ? t('Custom settings for this series (based on “{value}”)', { value: data.profile?.name || t('Default') }) : t('Using reading profile “{value}”', { value: data.profile?.name || t('Default') })),
         button(t('Reset to profile'), { variant: 'text', icon: 'restart_alt', onclick: async () => {
           await api.saveReaderSettings(book.seriesId, null);
@@ -192,13 +256,18 @@ function createShell(data, tracker) {
           if (key === 'direction') settings.resolvedDir = value === 'auto' ? (book.kind === 'manga' ? 'rtl' : 'ltr') : value;
           shell.applyBehaviour();
           shell.engine?.applySetting?.(key, value);
+          parallel?.applySetting(key, value);
           persistSettings();
           if (key === 'layout') render(fonts);
         }, { show, fonts }));
       const enabled = data.enabledFonts;
-      api.fonts().then((fonts) => render(fonts.filter((f) => !enabled || f.id === 'publisher' || enabled.includes(f.id) || f.id === settings.fontFamily))).catch(() => render([]));
+      if (data.shared) render([]);
+      else api.fonts().then((fonts) => render(fonts.filter((f) => !enabled || f.id === 'publisher' || enabled.includes(f.id) || f.id === settings.fontFamily))).catch(() => render([]));
       return h('div',
         h('div.reader-sheet-head', h('h2.title-medium', t('Reader settings')), iconButton('close', t('Close'), close)),
+        readerReady && shell.engine?.parallelStart && h('div.setting-row.parallel-setting',
+          h('div.text', t('Parallel reading'), h('div.s', t('Scroll a second section independently. Progress follows the main pane.'))),
+          toggleSwitch(Boolean(parallel), (on) => { setParallel(on); close(); }, t('Parallel reading'))),
         fontsBox, footer);
     }, { label: t('Reader settings') });
   }
@@ -232,7 +301,8 @@ function createShell(data, tracker) {
           shell.engine.goToLocator(x.locator);
         } }));
       }
-      const tabs = [['toc', t('Contents'), 'toc'], ['bookmarks', t('Bookmarks'), 'bookmark'], book.engine === 'text' && ['highlights', t('Highlights'), 'ink_highlighter']].filter(Boolean);
+      const tabs = [['toc', t('Contents'), 'toc'], !data.shared && ['bookmarks', t('Bookmarks'), 'bookmark'],
+        !data.shared && book.engine !== 'audio' && ['highlights', t('Highlights'), 'ink_highlighter']].filter(Boolean);
       const seg = segmented(tabs.map(([value, label, ic]) => ({ value, label, icon: ic })), 'toc', (v) => show(v));
       function show(v) {
         seg.setValue(v);
@@ -335,6 +405,7 @@ function createShell(data, tracker) {
     return annotations.find((a) => a.kind === 'bookmark' && (loc.page != null ? a.page === loc.page : a.locator === loc.locator || (a.percent != null && loc.percent != null && Math.abs(a.percent - loc.percent) < 0.002)));
   }
   async function toggleBookmark() {
+    if (data.shared) return;
     const loc = shell.engine?.currentLocator?.();
     if (!loc) return;
     const existing = currentBookmark();
@@ -355,14 +426,22 @@ function createShell(data, tracker) {
     stage,
     book,
     tracker,
-    settings: displaySettings(settings, () => document.documentElement?.classList?.contains('eink')),
+    settings: displaySettings(new Proxy(settings, { get(target, key) {
+      if (parallel && key === 'flow') return 'scrolled';
+      if (parallel && key === 'layout') return 'webtoon';
+      return Reflect.get(target, key);
+    } }), () => document.documentElement?.classList?.contains('eink')),
     engine: null,
     get annotations() {
       return annotations;
     },
     set annotations(v) {
       annotations = v;
+      parallel?.setAnnotations(v);
     },
+    openSettings,
+    openContents,
+    toggleBookmark,
     exit,
     setSubtitle(text) {
       titleSub.textContent = text || '';
@@ -406,6 +485,7 @@ function createShell(data, tracker) {
       settings[key] = value;
       shell.applyBehaviour();
       shell.engine?.applySetting?.(key, value);
+      parallel?.applySetting(key, value);
       persistSettings();
     },
     /** Engines say whether auto-scroll is available (webtoon mode) after building. */
@@ -424,6 +504,7 @@ function createShell(data, tracker) {
     },
     showChrome(on) {
       clearTimeout(hideTimer);
+      if (parallel && !on) return;
       root.classList.toggle('chrome-hidden', !on);
       syncThemeColor(on ? null : shell._bg || '#000000');
       if (!on) document.querySelector('.sel-toolbar')?.remove();
@@ -454,17 +535,29 @@ function createShell(data, tracker) {
       stage.replaceChildren(
         h('div.empty', { style: { color: 'var(--md-on-surface)', background: 'var(--md-surface)', height: '100%', justifyContent: 'center' } },
           icon('error'), h('h2.title-large', t('Couldn’t open this book')), h('p.body-medium', message),
-          h('a.btn.tonal', { href: `#/series/${book.seriesId}` }, t('Back to series'))),
+          button(book.seriesId ? t('Back to series') : t('Close book'), { variant: 'tonal', onclick: exit })),
       );
     },
     /** Keyboard → configured action. */
     /** After the book opens: show what this engine supports. */
     engineReady() {
+      readerReady = true;
       searchBtn.hidden = !shell.engine?.search;
+      highlightBtn.hidden = !shell.engine?.toggleHighlight;
+    },
+    highlightMode(active) {
+      highlightBtn.setAttribute('aria-pressed', String(active));
+      highlightBtn.classList.toggle('selected', active);
+      if (active) shell.showChrome(true);
     },
     openSearch,
     handleKey(e) {
       const eng = shell.engine;
+      if (e.key === 'Escape' && eng?.highlights?.active) {
+        e.preventDefault();
+        eng.toggleHighlight();
+        return;
+      }
       if (e.key === 'Escape' && eng?.zoom?.active) {
         e.preventDefault();
         return eng.zoom.reset();
@@ -565,6 +658,8 @@ function createShell(data, tracker) {
       card.showModal();
     },
     destroy() {
+      parallel?.close();
+      chromeObserver?.disconnect();
       clearTimeout(hideTimer);
       clearTimeout(saveTimer);
       document.removeEventListener('keydown', onKey);

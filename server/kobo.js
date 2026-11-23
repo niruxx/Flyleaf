@@ -7,7 +7,7 @@ const fs = require('node:fs/promises');
 const { q, tx } = require('./db');
 const auth = require('./auth');
 const { BOOK_SELECT, getBook } = require('./serialize');
-const { accessFilter } = require('./util');
+const { accessFilter, listsLibrary } = require('./util');
 const sync = require('./client-sync');
 const { koboLocation, koboCFI } = require('./kobo-position');
 const { rendition, VERSION: renditionVersion } = require('./kepub');
@@ -39,9 +39,20 @@ function books(user) {
   const overrides = shelfOverrides(user, collection.id);
   return q(`${BOOK_SELECT} WHERE b.format = 'epub' AND b.missing = 0 AND ${filter.sql}
     AND (b.series_id IN (SELECT series_id FROM collection_items WHERE collection_id = ?)
+      OR b.id IN (SELECT book_id FROM kobo_auto_items WHERE collection_id = ?)
       OR b.id IN (${overrides.include.map(() => '?').join(',') || 'NULL'}))
     AND b.id NOT IN (${overrides.exclude.map(() => '?').join(',') || '0'}) ORDER BY b.id`)
-    .all(user.id, user.id, ...filter.args, collection.id, ...overrides.include, ...overrides.exclude);
+    .all(user.id, user.id, ...filter.args, collection.id, collection.id, ...overrides.include, ...overrides.exclude);
+}
+
+function autoAddBook(book) {
+  if (book.format !== 'epub') return;
+  for (const row of q("SELECT * FROM users WHERE json_extract(prefs, '$.koboAutoAdd') = 1").all()) {
+    const user = auth.toUser(row);
+    if (!user.permissions.apiAccess || !user.permissions.download || !listsLibrary(user, book.libraryId) || !getBook(book.bookId, user)) continue;
+    const collection = shelf(user);
+    if (collection) q('INSERT OR IGNORE INTO kobo_auto_items (collection_id, book_id) VALUES (?, ?)').run(collection.id, book.bookId);
+  }
 }
 function shelfOverrides(user, id) {
   const stored = sync.load(user, 'kobo-shelf', `collection:${id}`);
@@ -70,9 +81,10 @@ function visibleBooks(req) {
 function tags(user, visible = books(user)) {
   return q('SELECT * FROM collections WHERE user_id = ? ORDER BY id').all(user.id).map(c => {
     const series = new Set(q('SELECT series_id FROM collection_items WHERE collection_id = ?').all(c.id).map(i => i.series_id));
+    const added = new Set(q('SELECT book_id FROM kobo_auto_items WHERE collection_id = ?').all(c.id).map(i => i.book_id));
     const overrides = shelfOverrides(user, c.id);
     return { Id: uuid(c.id), Name: c.name, Type: 'UserTag', Created: iso(c.created_at), LastModified: iso(c.updated_at),
-      Items: visible.filter(b => !overrides.exclude.includes(b.id) && (series.has(b.series_id) || overrides.include.includes(b.id))).map(b => ({ RevisionId: uuid(b.id), Type: 'ProductRevisionTagItem' })) };
+      Items: visible.filter(b => !overrides.exclude.includes(b.id) && (series.has(b.series_id) || added.has(b.id) || overrides.include.includes(b.id))).map(b => ({ RevisionId: uuid(b.id), Type: 'ProductRevisionTagItem' })) };
   });
 }
 function ownedTag(req) {
@@ -341,4 +353,4 @@ router.get(['/:key/:id/:width/:height/:grey/image.jpg', '/:key/:id/:width/:heigh
   res.sendFile(path.join(require('./config').coverDir, b.cover));
 });
 router.use((err, req, res, next) => { if (res.headersSent) return next(err); res.status(err.status || 500).json({ error: err.status === 400 ? 'Invalid JSON' : 'Kobo sync failed' }); });
-module.exports = { router, uuid };
+module.exports = { router, uuid, autoAddBook };

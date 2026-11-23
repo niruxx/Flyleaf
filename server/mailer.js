@@ -5,6 +5,7 @@
 const path = require('node:path');
 const fsp = require('node:fs/promises');
 const settings = require('./settings');
+const { bookParts, zipParts } = require('./book-package');
 
 const KINDLE_OK = new Set(['epub', 'pdf', 'txt', 'docx', 'rtf']);
 const MAX_BYTES = 45 * 1024 * 1024;
@@ -29,21 +30,39 @@ function transport() {
 async function sendBooks(device, books) {
   const t = transport();
   const from = settings.get('smtp').from;
-  let sent = 0;
+  const messages = [];
   for (const book of books) {
-    if (book.format === 'folder') throw new Error(`"${book.title}" is a folder of images and can’t be emailed.`);
     if (device.platform === 'kindle' && !KINDLE_OK.has(book.format)) {
       throw new Error(`Kindle only accepts EPUB, PDF, DOCX, RTF and TXT – "${book.title}" is ${book.format.toUpperCase()}.`);
     }
-    const { size } = await fsp.stat(book.path);
-    if (size > MAX_BYTES) throw new Error(`"${book.title}" is too large to email (${Math.round(size / 1048576)} MB).`);
-    await t.sendMail({
+    const stat = await fsp.stat(book.path);
+    const parts = stat.isDirectory() ? await bookParts(book) : null;
+    if (parts && !parts.length) throw new Error(`"${book.title}" has no files to email.`);
+    const size = parts ? parts.reduce((sum, file) => sum + file.size + 120 + 2 * Buffer.byteLength(file.name), 22) : stat.size;
+    if (size > MAX_BYTES) throw new Error(`"${book.title}" is too large to email (${Math.round(size / 1048576)} MB). Share a reading link instead.`);
+    messages.push({ book, parts });
+  }
+  let sent = 0;
+  for (const { book, parts } of messages) {
+    const zip = parts ? zipParts(parts) : null;
+    const filename = path.basename(book.path);
+    const attachment = zip
+      ? { filename: `${filename}.${book.format === 'audio' ? 'zip' : 'cbz'}`, content: zip }
+      : { filename, path: book.path };
+    const delivery = t.sendMail({
       from,
-      to: device.email,
+      to: { address: device.email },
       subject: book.title,
       text: `Sent from Flyleaf: ${book.title}`,
-      attachments: [{ filename: path.basename(book.path), path: book.path }],
+      attachments: [attachment],
     });
+    if (zip) {
+      try {
+        await Promise.all([delivery, zip.finalize()]);
+      } finally {
+        if (!zip.readableEnded) zip.destroy();
+      }
+    } else await delivery;
     sent++;
   }
   return sent;

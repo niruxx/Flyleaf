@@ -38,10 +38,15 @@ function serverDay() {
  */
 router.put('/books/:id/progress', (req, res) => {
   const bookId = Number(req.params.id);
-  if (!getBook(bookId, req.user)) return res.status(404).json({ error: 'Book not found.' });
-
   const body = req.body || {};
+  if (body.syncUserId !== undefined && body.syncUserId !== req.user.id) {
+    return res.status(403).json({ error: 'This reading position belongs to another account.' });
+  }
+  const row = getBook(bookId, req.user);
+  if (!row) return res.status(404).json({ error: 'Book not found.' });
   const now = Date.now();
+  const recordedAt = body.syncUserId != null && Number.isSafeInteger(body.recordedAt) && body.recordedAt > 0
+    ? Math.min(now, body.recordedAt) : null;
   const percent = Number.isFinite(Number(body.percent)) ? Math.min(Math.max(Number(body.percent), 0), 1) : null;
   const page = Number.isInteger(body.page) && body.page >= 0 ? body.page : null;
   const position = typeof body.position === 'string' ? body.position.slice(0, 2000) : null;
@@ -49,11 +54,11 @@ router.put('/books/:id/progress', (req, res) => {
   const day = typeof body.day === 'string' && DAY_RE.test(body.day) ? body.day : serverDay();
   const finished = body.finished === true || (percent != null && percent >= 0.999) ? 1 : null;
 
-  const before = q('SELECT finished, page, percent FROM progress WHERE user_id = ? AND book_id = ?').get(req.user.id, bookId);
+  const before = q('SELECT finished, page, percent, updated_at FROM progress WHERE user_id = ? AND book_id = ?').get(req.user.id, bookId);
+  const savePosition = body.syncUserId == null || (recordedAt != null && (!before || before.updated_at < recordedAt));
   const wasFinished = Boolean(before?.finished);
   // Pages read since the last save (forwards only).
-  const row = getBook(bookId, req.user);
-  const total = bookPages(row);
+  const total = savePosition ? bookPages(row) : 0;
   let pages = 0;
   if (total) {
     if (IMAGE_FORMATS.has(row.format) && page != null) pages = page - (before?.page ?? -1);
@@ -61,7 +66,7 @@ router.put('/books/:id/progress', (req, res) => {
     pages = Math.max(0, Math.min(pages, MAX_PAGES_PER_SAVE));
   }
   tx(() => {
-    q(`INSERT INTO progress (user_id, book_id, position, page, percent, finished, started_at, updated_at)
+    if (savePosition) q(`INSERT INTO progress (user_id, book_id, position, page, percent, finished, started_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (user_id, book_id) DO UPDATE SET
          position   = COALESCE(excluded.position, position),
@@ -75,8 +80,8 @@ router.put('/books/:id/progress', (req, res) => {
       page,
       percent ?? 0,
       finished ?? 0,
-      now,
-      now,
+      recordedAt ?? now,
+      recordedAt ?? now,
       percent,
     );
     if (seconds > 0 || pages > 0) {
@@ -84,6 +89,7 @@ router.put('/books/:id/progress', (req, res) => {
          ON CONFLICT (user_id, book_id, day) DO UPDATE SET seconds = seconds + excluded.seconds, pages = pages + excluded.pages`).run(req.user.id, bookId, day, seconds, pages);
     }
   });
+  if (!savePosition) return res.json({ ok: true, finished: wasFinished });
   const p = q('SELECT page, percent, finished FROM progress WHERE user_id = ? AND book_id = ?').get(req.user.id, bookId);
   events.emit('progress.updated', { userId: req.user.id, username: req.user.username, bookId, page: p.page, percent: p.percent, finished: Boolean(p.finished) });
   if (p.finished && !wasFinished) events.emit('book.finished', { userId: req.user.id, username: req.user.username, bookId });

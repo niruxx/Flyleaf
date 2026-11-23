@@ -56,10 +56,14 @@ api.get('/openapi.json', (req, res) => res.json(require('./openapi').build(`${re
 const authRoutes = require('./routes/auth');
 const backupRoutes = require('./routes/backup');
 const healthRoutes = require('./routes/health');
+const bookShares = require('./routes/book-shares');
 api.use(authRoutes.router);
+api.use(require('./routes/oidc').router);
 api.use(healthRoutes.health);
+api.use('/shared', bookShares.guest);
 api.use('/setup/restore', backupRoutes.setup);
 api.use(auth.requireUser);
+api.use(bookShares.manage);
 api.use(require('./routes/storage-migration'));
 api.use(require('./routes/tasks').router);
 api.use(healthRoutes.metrics);
@@ -75,6 +79,7 @@ api.use('/admin', backupRoutes.admin);
 api.use('/admin', require('./routes/admin').router);
 api.use('/finder', finder.router);
 api.use('/uploads', require('./routes/uploads').router);
+api.use('/admin/book-drop', require('./routes/book-drop').router);
 api.use(require('./routes/library').router);
 api.use(require('./routes/series').router);
 api.use(require('./routes/books').router);
@@ -89,9 +94,10 @@ api.use(require('./routes/notifications').router);
 
 api.use((req, res) => res.status(404).json({ error: 'Not found.' }));
 api.use((err, req, res, next) => {
+  const url = req.originalUrl.replace(/(\/api\/shared\/)[^/?]+/, '$1[link]').replace(/(\/api\/oidc\/callback)\?.*/, '$1');
   // Expected refusals (bad input, no permission…) go to the log file; only real faults reach the console.
-  if (err.expose && (err.status || 500) < 500) log.file(`${req.method} ${req.originalUrl}: ${err.message}`);
-  else log.error(`${req.method} ${req.originalUrl}:`, err);
+  if (err.expose && (err.status || 500) < 500) log.file(`${req.method} ${url}: ${err.message}`);
+  else log.error(`${req.method} ${url}:`, err);
   if (res.headersSent) return next(err);
   res.status(err.status || 500).json({ error: err.expose ? err.message : 'Something went wrong on the server.' });
 });
@@ -163,6 +169,7 @@ server.on('error', (err) => {
 
 auth.pruneSessions();
 archive.pruneCache().catch(() => {});
+require('./events').on('book.added', require('./kobo').autoAddBook);
 scanner.requestScan(null);
 require('./plugins/manager').seedBuiltins().then(() => require('./plugins/downloads').resume());
 require('./plugins/suwayomi-host').boot();
@@ -172,6 +179,7 @@ require('./tracking').start();
 require('./backup').startSchedule();
 require('./activity').start();
 require('./watcher').start();
+require('./book-drop').start();
 // Catch up on full-text indexing a little after start-up.
 setTimeout(() => require('./fulltext').indexPending().catch(() => {}), 20_000).unref();
 if (config.scanInterval > 0) {

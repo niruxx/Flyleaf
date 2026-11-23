@@ -452,41 +452,50 @@ router.get('/books/:id/cover', (req, res) => {
 // Files & pages
 
 /** The file the in-browser reader opens (TXT, DOCX and RTF are converted to EPUB). */
-router.get('/books/:id/file', async (req, res) => {
-  const book = readable(req, res);
-  if (!book) return;
+async function readerFile(req, res, book, cache = 'private, max-age=86400') {
   if (isDirBook(book)) return res.status(400).json({ error: 'Not a single file.' });
   let file = book.path;
   if (formats.CONVERTIBLE.has(book.format)) file = await formats.toEpub(book.path, book.format, book.title);
-  res.set('Cache-Control', 'private, max-age=86400');
+  res.set('Cache-Control', cache);
   res.type(FILE_MIME[book.format] || 'application/octet-stream');
   res.sendFile(file, { dotfiles: 'allow' }, (err) => err && !res.headersSent && res.status(404).end());
-});
+}
+
+const readAsset = (handler) => (req, res) => {
+  const book = readable(req, res);
+  if (book) return handler(req, res, book);
+};
+router.get('/books/:id/file', readAsset(readerFile));
 
 /** Original file as an attachment (image folders are zipped on the fly). */
-router.get('/books/:id/download', requirePermission('download', 'Downloading isn’t enabled for your account.'), async (req, res) => {
-  const book = readable(req, res);
-  if (!book) return;
+async function originalFile(req, res, book, { scoped = false } = {}) {
   if (isDirBook(book)) {
     const { ZipArchive } = require('archiver');
-    const zip = new ZipArchive({ store: true });
+    let zip;
+    if (scoped) {
+      const { bookParts, zipParts } = require('../book-package');
+      const parts = await bookParts(book);
+      if (!parts.length) return res.status(404).json({ error: 'This book has no files to download.' });
+      zip = zipParts(parts);
+    } else {
+      zip = new ZipArchive({ store: true });
+      zip.directory(book.path, false);
+    }
     res.attachment(`${path.basename(book.path)}.${book.format === 'audio' ? 'zip' : 'cbz'}`);
     zip.on('error', () => res.destroy());
     zip.pipe(res);
-    zip.directory(book.path, false);
     await zip.finalize();
     return;
   }
   res.download(book.path, path.basename(book.path), { dotfiles: 'allow' }, (err) => err && !res.headersSent && res.status(404).end());
-});
+}
+router.get('/books/:id/download', requirePermission('download', 'Downloading isn’t enabled for your account.'), readAsset(originalFile));
 
 // ---------------------------------------------------------------------------
 // Audiobooks: the track list (with chapters and length when the file has them), and each track
 // streamed with byte ranges so the player can seek.
 
-router.get('/books/:id/tracks', async (req, res) => {
-  const book = readable(req, res);
-  if (!book) return;
+async function trackList(req, res, book) {
   if (book.format !== 'audio') return res.status(400).json({ error: 'Not an audiobook.' });
   const audio = require('../audio');
   const tracks = await audio.tracksOf(book.path);
@@ -496,40 +505,39 @@ router.get('/books/:id/tracks', async (req, res) => {
     duration: emb.duration || null,
     chapters: emb.chapters || null,
   });
-});
+}
+router.get('/books/:id/tracks', readAsset(trackList));
 
-router.get('/books/:id/tracks/:n', async (req, res) => {
-  const book = readable(req, res);
-  if (!book) return;
+async function trackFile(req, res, book, cache = 'private, max-age=86400') {
   if (book.format !== 'audio') return res.status(400).end();
   const tracks = await require('../audio').tracksOf(book.path);
   const t = tracks[Number(req.params.n)];
   if (!t) return res.status(404).end();
-  res.set('Cache-Control', 'private, max-age=86400');
+  res.set('Cache-Control', cache);
   res.type(t.mime);
   res.sendFile(t.file, { dotfiles: 'allow', acceptRanges: true }, (err) => err && !res.headersSent && res.status(404).end());
-});
+}
+router.get('/books/:id/tracks/:n', readAsset(trackFile));
 
-router.get('/books/:id/pages', async (req, res) => {
-  const book = readable(req, res);
-  if (!book) return;
+async function pageList(req, res, book, { readOnly = false } = {}) {
   if (!archive.IMAGE_FORMATS.has(book.format)) return res.status(400).json({ error: 'Not an image book.' });
   const pages = await archive.listPages(book);
-  if (pages.length !== book.page_count) q('UPDATE books SET page_count = ? WHERE id = ?').run(pages.length, book.id);
+  if (!readOnly && pages.length !== book.page_count) q('UPDATE books SET page_count = ? WHERE id = ?').run(pages.length, book.id);
   res.json({ count: pages.length });
-});
+}
+router.get('/books/:id/pages', readAsset(pageList));
 
-router.get('/books/:id/pages/:n', async (req, res) => {
-  const book = readable(req, res);
-  if (!book) return;
+async function pageImage(req, res, book, cache = 'private, max-age=604800') {
   const n = Number(req.params.n);
   if (!Number.isInteger(n) || n < 0) return res.status(400).end();
   const width = Number(req.query.w) || null;
   const page = await archive.openPage(book, n, { width: width && width >= 100 && width <= 4000 ? width : null });
   if (!page) return res.status(404).end();
-  res.set({ 'Content-Type': page.mime, 'Content-Length': String(page.size), 'Cache-Control': 'private, max-age=604800' });
+  res.set({ 'Content-Type': page.mime, 'Content-Length': String(page.size), 'Cache-Control': cache });
   if (page.buffer) return res.end(page.buffer);
   await pipeline(page.stream, res).catch(() => {});
-});
+}
+router.get('/books/:id/pages/:n', readAsset(pageImage));
 
-module.exports = { router, readable, deleteBook, FILE_MIME, ORIGINAL_MIME, EXT, annotationRow };
+module.exports = { router, readable, deleteBook, FILE_MIME, ORIGINAL_MIME, EXT, annotationRow,
+  readerFile, originalFile, trackList, trackFile, pageList, pageImage };

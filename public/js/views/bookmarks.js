@@ -158,7 +158,7 @@ export function annotationRow(a, book, onChange, { onOpen } = {}) {
   const thumb = a.kind === 'bookmark' && a.page != null && book.format !== 'pdf' && !['epub', 'mobi', 'azw3', 'fb2', 'txt'].includes(book.format)
     ? h('div.thumb', h('div.cover', h('img.loaded', { src: pageUrl(book, a.page, 160), alt: '', loading: 'lazy' })))
     : null;
-  const where = a.kind === 'bookmark'
+  const where = a.kind === 'bookmark' || a.page != null
     ? [a.page != null ? t('Page {value}', { value: a.page + 1 }) : a.percent != null ? `${Math.round(a.percent * 100)}%` : null, a.chapter].filter(Boolean).join(' · ')
     : a.chapter || '';
   const el = h('a.annot', { href, style: { '--hl': a.kind === 'highlight' ? HIGHLIGHT_COLORS[a.color] || HIGHLIGHT_COLORS.yellow : 'var(--md-tertiary)' }, onclick: onOpen ? (e) => { e.preventDefault(); onOpen(a); } : null },

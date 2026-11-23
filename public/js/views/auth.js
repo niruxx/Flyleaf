@@ -171,10 +171,11 @@ export function setupView(view) {
   user.input.focus();
 }
 
-export function loginView(view) {
+export function loginView(view, params) {
   const user = field(t('Username or email'), { autocomplete: 'username', required: true, autocapitalize: 'none', autocorrect: 'off', spellcheck: 'false' });
   const pass = field(t('Password'), { type: 'password', autocomplete: 'current-password', required: true });
   const err = h('div');
+  if (params.query.get('oidc') === 'failed') err.append(formError(t('OpenID Connect sign-in failed. Try again or sign in with your password.')));
   const submit = button(t('Sign in'), { type: 'submit', icon: 'login' });
   let root;
 
@@ -211,6 +212,7 @@ export function loginView(view) {
   // "Create an account" only when the admin has turned sign-up on.
   const signup = h('div.auth-alt');
   api.status().then((st) => {
+    if (st.oidc) signup.append(h('a.btn.tonal', { href: st.oidc }, icon('key'), t('Sign in with OpenID Connect')), h('br'));
     if (st.registration) signup.append(h('span.muted', `${t('New here?')} `), h('a', { href: '#/register' }, t('Create an account')));
   }).catch(() => {});
   root = shell(t('Welcome back'), t('Sign in to your library.'), h('div', form, signup,

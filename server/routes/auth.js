@@ -33,6 +33,7 @@ router.get('/status', (req, res) => {
   const reg = settings.get('registration') || {};
   res.json({
     needsSetup: userCount() === 0,
+    oidc: require('./oidc').loginUrl(),
     // Whether the sign-in page offers "Create an account" (and asks for an invite code).
     registration: reg.enabled ? { inviteRequired: Boolean(reg.inviteCode) } : null,
     user: req.user ? { ...publicUser(req.user), backgroundUrl: req.user.backgroundUrl } : null,
@@ -174,6 +175,7 @@ me.put('/prefs', (req, res) => {
   const next = { ...req.user.prefs };
   for (const [k, v] of Object.entries(incoming)) {
     if (!Object.hasOwn(auth.PREF_DEFAULTS, k)) continue;
+    if (k === 'koboAutoAdd' && typeof v !== 'boolean') return res.status(400).json({ error: 'Kobo auto-add must be on or off.' });
     next[k] = k === 'catalog' ? auth.catalogPrefs(v, auth.catalogPrefs(next.catalog)) : v;
   }
   // A new account finishing the welcome steps starts from today's version: "What's new" is for

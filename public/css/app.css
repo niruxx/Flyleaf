@@ -5058,5 +5058,4 @@ html.has-bg body.scrolled .app-bar {
 @media (max-width: 599px) {
   .task-card { flex-wrap: wrap; gap: 10px; padding: 16px; }
   .task-actions { width: 100%; justify-content: flex-end; }
-  .home-welcome { flex-wrap: wrap; }
 }

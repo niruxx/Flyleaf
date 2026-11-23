@@ -24,21 +24,42 @@ async function epub() {
   return zip.generateAsync({ type: 'nodebuffer' });
 }
 const book = epub();
+function samplePdf(count) {
+  const pages = Array.from({ length: count }, (_, i) => `${i + 3} 0 R`);
+  const objects = ['<< /Type /Catalog /Pages 2 0 R >>',
+    `<< /Type /Pages /Count ${count} /Kids [${pages.join(' ')}] >>`,
+    ...pages.map(() => '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 640 1000] >>')];
+  let data = '%PDF-1.4\n';
+  const offsets = objects.map((value, i) => {
+    const offset = data.length;
+    data += `${i + 1} 0 obj\n${value}\nendobj\n`;
+    return String(offset).padStart(10, '0') + ' 00000 n \n';
+  });
+  const xref = data.length;
+  return Buffer.from(data + `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.join('')}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`);
+}
+const pdf = samplePdf(6);
 const mime = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.woff2': 'font/woff2', '.svg': 'image/svg+xml' };
-const html = mode => `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/css/m3.css"><link rel="stylesheet" href="/css/reader.css"><style>html,body{margin:0}#race{position:fixed;inset:0;display:block}</style><main id="view"></main><div class="snackbar-host" aria-live="polite"></div><script type="module">import {run} from '/tests/${mode === 'speech' ? 'read-aloud-browser-fixture' : 'ebook-browser-fixture'}.js';window.results=await run(${JSON.stringify(mode)});</script>`;
+const html = mode => `<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="/css/m3.css"><link rel="stylesheet" href="/css/reader.css"><link rel="stylesheet" href="/css/workspace.css"><style>html,body{margin:0}#race{position:fixed;inset:0;display:block}</style><main id="view"></main><div class="snackbar-host" aria-live="polite"></div><script type="module">import {run} from '/tests/${mode === 'speech' ? 'read-aloud-browser-fixture' : 'ebook-browser-fixture'}.js';window.results=await run(${JSON.stringify(mode)});</script>`;
 http.createServer(async (req,res)=>{
   const url=new URL(req.url,'http://127.0.0.1');const p=url.pathname;
   res.setHeader('Cache-Control','no-store');
   if(p==='/speech'){res.setHeader('Content-Type','text/html');res.end(html('speech'));return;}
-  if(p==='/race'||p==='/reader'||p==='/reader-slide'||p==='/reader-layout'){res.setHeader('Content-Type','text/html');res.end(html(p.startsWith('/reader')?p.slice(1):url.searchParams.has('raw')?'raw':'patched'));return;}
+  if(p==='/race'||p==='/reader'||p==='/reader-slide'||p==='/reader-layout'||p==='/reader-parallel'||p==='/reader-parallel-pages'||p==='/reader-parallel-pdf'||p==='/reader-selection'){res.setHeader('Content-Type','text/html');res.end(html(p.startsWith('/reader')?p.slice(1):url.searchParams.has('raw')?'raw':'patched'));return;}
   if(p==='/vendor/foliate/paginator.js'||p==='/vendor/raw/paginator.js'){res.setHeader('Content-Type','text/javascript');res.end(p.includes('/raw/')?upstream:patched);return;}
   if(p==='/vendor/foliate/fixed-layout.js'){res.setHeader('Content-Type','text/javascript');res.end(fixedLayout);return;}
   if(/^\/api\/books\/[12]\/file$/.test(p)){res.setHeader('Content-Type','application/epub+zip');res.end(await book);return;}
+  if(p==='/api/books/3/reader'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({book:{id:3,title:'Comic fixture',format:'cbz',engine:'pages',kind:'comics',version:1},settings:defaults,annotations:[]}));return;}
+  if(p==='/api/books/3/pages'){res.setHeader('Content-Type','application/json');res.end('{"count":6}');return;}
+  if(/^\/api\/books\/3\/pages\/\d+$/.test(p)){res.setHeader('Content-Type','image/svg+xml');res.end('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="1000"><rect width="640" height="1000" fill="ivory"/></svg>');return;}
+  if(p==='/api/books/4/reader'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({book:{id:4,title:'PDF fixture',format:'pdf',engine:'pages',kind:'books',version:1},settings:defaults,annotations:[]}));return;}
+  if(p==='/api/books/4/file'){res.setHeader('Content-Type','application/pdf');res.end(pdf);return;}
   if(p.startsWith('/api/')){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(/^\/api\/books\/[12]\/reader$/.test(p)?{book:{id:p.includes('/2/')?2:1,title:'Mobile reader regression',label:'Test book',format:'epub',engine:'text',kind:'books',version:1,seriesId:1},settings:{...defaults,pageTurn:p.includes('/2/')?'slide':'book'},annotations:[],keybinds:null,profile:{name:'Test'}}:p==='/api/fonts'?[]:{ok:true}));return;}
   let file;
   if(p==='/tests/ebook-browser-fixture.js')file=path.join(__dirname,'ebook-browser-fixture.js');
   else if(p==='/tests/read-aloud-browser-fixture.js')file=path.join(__dirname,'read-aloud-browser-fixture.js');
   else if(p.startsWith('/vendor/foliate/'))file=path.join(root,'node_modules/foliate-js',p.slice('/vendor/foliate/'.length));
+  else if(p.startsWith('/vendor/pdfjs/'))file=path.join(root,'node_modules/pdfjs-dist/legacy/build',p.slice('/vendor/pdfjs/'.length));
   else if(p.startsWith('/vendor/roboto-flex/'))file=path.join(root,'node_modules/@fontsource-variable/roboto-flex',p.slice('/vendor/roboto-flex/'.length));
   else if(p.startsWith('/vendor/symbols/'))file=path.join(root,'node_modules/material-symbols',p.slice('/vendor/symbols/'.length));
   else file=path.join(root,'public',p);

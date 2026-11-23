@@ -12,6 +12,7 @@ function setup(t, dataDir) {
   const events = [];
   const user = { id: 1, username: 'reader', role: 'admin', visibleLibraryIds: [1], permissions: { download: true, apiAccess: true }, prefs: { koboCollectionId: 1 }, apiKey: { id: 1, scope: 'full' } };
   const auth = { userFromApiKey: (key) => key === 'full-access-key-123456789' ? user : key === 'read-access-key-123456789' ? { ...user, apiKey: { id: 2, scope: 'read' } } : null,
+    toUser: (row) => ({ ...user, id: row.id, prefs: JSON.parse(row.prefs) }),
     requireAdmin: (req, res, next) => req.user.role === 'admin' ? next() : res.status(403).json({ error: 'Admin only' }), requirePermission: () => (req, res, next) => next() };
   function load(file) {
     file = path.resolve(file);
@@ -138,6 +139,31 @@ test('Kobo sync sends a selected EPUB shelf, incremental updates, progress and r
   assert.equal(removed.body[0].ChangedEntitlement.BookEntitlement.IsRemoved, true);
   user.visibleLibraryIds = [];
   assert.equal((await request(router, 'GET', base+'/v1/library/'+uuid(1)+'/state')).status, 404);
+});
+
+test('Kobo auto-add picks up newly scanned accessible EPUBs and honors device removals', async (t) => {
+  const { load, q, request, user } = setup(t);
+  const { router, uuid, autoAddBook } = load('server/kobo.js');
+  const base = '/full-access-key-123456789/v1/library';
+  const book = { bookId: 2, libraryId: 1, format: 'epub' };
+  const existsOnDevice = () => request(router, 'GET', `${base}/${uuid(2)}/state`);
+  const writePrefs = (enabled) => q('UPDATE users SET prefs = ? WHERE id = 1').run(JSON.stringify({ koboAutoAdd: enabled, koboCollectionId: 1 }));
+  autoAddBook(book);
+  assert.equal((await existsOnDevice()).status, 404);
+  writePrefs(true);
+  user.visibleLibraryIds = [];
+  autoAddBook(book);
+  user.visibleLibraryIds = [1];
+  assert.equal((await existsOnDevice()).status, 404);
+  autoAddBook({ ...book, format: 'pdf' });
+  assert.equal((await existsOnDevice()).status, 404);
+  autoAddBook(book);
+  writePrefs(false);
+  assert.equal((await existsOnDevice()).status, 200);
+  const result = await request(router, 'GET', `${base}/sync`);
+  assert.ok(result.body.find((x) => x.NewTag)?.NewTag.Tag.Items.some((item) => item.RevisionId === uuid(2)));
+  await request(router, 'POST', `${base}/tags/${uuid(1)}/items/delete`, { Items: [{ RevisionId: uuid(2), Type: 'ProductRevisionTagItem' }] });
+  assert.equal((await existsOnDevice()).status, 404);
 });
 
 test('kosync authenticates revocable key digests and exchanges page progress with the web', async (t) => {

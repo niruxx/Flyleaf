@@ -11,6 +11,7 @@ import {
   avatar, fillAvatar,
 } from '../ui.js';
 import { trackingSettings } from '../components/tracking-settings.js';
+import { shareAddressField } from '../components/book-sharing.js';
 import { readerSettingsForm } from '../components/reader-settings.js';
 import { signOut, refreshAvatarInShell, initShell } from '../shell.js';
 import { t, plural, N_, languages, currentLanguage, setLanguage } from '../i18n.js';
@@ -29,11 +30,11 @@ const PANELS = [
   { id: 'fonts', label: N_('EPUB fonts'), icon: 'font_download' },
   { group: N_('Connections') },
   { id: 'opds', label: N_('OPDS & clients'), icon: 'rss_feed', perm: 'apiAccess' },
-  { id: 'api', label: N_('API & webhooks'), icon: 'api', perm: 'apiAccess' },
+  { id: 'api', label: N_('API & webhooks'), icon: 'api', perm: 'apiAccess', keywords: ['Kobo', 'KOReader'] },
   { id: 'devices', label: N_('Send-to devices'), icon: 'send_to_mobile', perm: 'download' },
   { id: 'import', label: N_('Import (MAL)'), icon: 'upload_file' },
   { group: N_('Server'), admin: true },
-  { id: 'libraries', label: N_('Libraries'), icon: 'folder_managed', admin: true },
+  { id: 'libraries', label: N_('Libraries'), icon: 'folder_managed', admin: true, keywords: ['BookDrop', N_('Duplicates'), N_('Full-text search')] },
   { id: 'users', label: N_('Users'), icon: 'group', admin: true },
   { id: 'activity', label: N_('Activity'), icon: 'history', admin: true },
   { id: 'metadata', label: N_('Metadata sources'), icon: 'travel_explore', admin: true },
@@ -45,11 +46,26 @@ const PANELS = [
 export async function settingsView(view, params, stale) {
   const panels = PANELS.filter((p) => (!p.admin || isAdmin()) && (!p.perm || can(session.user, p.perm)) && (!p.home || (session.user.homeDir && !isAdmin())));
   const current = params.tab && panels.some((p) => p.id === params.tab) ? params.tab : 'account';
-  const nav = h('nav.settings-nav', panels.map((p) =>
-    p.group
-      ? h('div.group', t(p.group))
-      : h('a.nav-item', { href: `#/settings/${p.id}`, 'aria-current': p.id === current ? 'page' : null }, icon(p.icon), h('span.label', t(p.label))),
-  ));
+  const sections = [];
+  for (const item of panels) {
+    if (item.group) sections.push({ label: t(item.group), items: [] });
+    else sections.at(-1).items.push(item);
+  }
+  const search = field(t('Find a setting'), { type: 'search' });
+  const links = h('div.settings-links');
+  const nav = h('nav.settings-nav', { 'aria-label': t('Settings section') }, search, links);
+  function filterSettings() {
+    const term = search.input.value.trim().toLocaleLowerCase();
+    const groups = sections.map(({ label, items }) => {
+      const matches = items.filter((p) => [label, t(p.label), ...(p.keywords || []).map((word) => t(word))]
+        .some((value) => value.toLocaleLowerCase().includes(term)));
+      return matches.length && h('div.settings-section', h('div.group', label), matches.map((p) =>
+        h('a.nav-item', { href: `#/settings/${p.id}`, 'aria-current': p.id === current ? 'page' : null }, icon(p.icon), h('span.label', t(p.label)))));
+    }).filter(Boolean);
+    links.replaceChildren(...(groups.length ? groups : [h('p.note', t('No matching settings'))]));
+  }
+  search.input.addEventListener('input', filterSettings);
+  filterSettings();
   const select = h('select', { 'aria-label': t('Settings section'), onchange: (event) => navigate(`/settings/${event.target.value}`) });
   let optionGroup = select;
   for (const item of panels) {
@@ -58,9 +74,10 @@ export async function settingsView(view, params, stale) {
   }
   const mobileNav = h('label.settings-mobile-select', h('span', t('Settings section')), select);
   const panel = h('div.settings-panel.enter');
-  const page = h('div.page.settings-page', h('div.page-head', h('div', h('div.page-eyebrow', t('Make yourself at home')), h('h1', t('Settings')), h('p.muted', t('Your account, reading preferences, and connected services.')))), mobileNav, h('div.settings-layout', nav, panel));
+  const page = h('div.page.settings-page', h('div.page-head', h('h1', t('Settings'))), mobileNav, h('div.settings-layout', nav, panel));
   view.append(page);
-  requestAnimationFrame(() => nav.querySelector('[aria-current]')?.scrollIntoView({ inline: 'center', block: 'nearest' }));
+  const currentLink = nav.querySelector('[aria-current]');
+  if (currentLink) links.scrollTop = Math.max(0, currentLink.offsetTop - links.clientHeight / 2);
 
   const render = {
     account: accountPanel,
@@ -73,7 +90,7 @@ export async function settingsView(view, params, stale) {
     devices: devicesPanel,
     import: importPanel,
   }[current];
-  if (render) return render(panel, stale);
+  if (render) return render(panel, stale, params);
   if (current === 'api') return (await import('./settings-api.js')).apiPanel(panel, stale);
   if (current === 'mylibs') return (await import('./settings-mylibs.js')).mylibsPanel(panel, stale);
   if (current === 'plugins') return (await import('./settings-plugins.js')).pluginsPanel(panel, stale);
@@ -88,7 +105,7 @@ const group = (...rows) => h('div.settings-group', ...rows);
 
 // ---------------------------------------------------------------------------
 
-async function accountPanel(panel, stale) {
+async function accountPanel(panel, stale, params) {
   const u = session.user;
   const username = field(t('Username'), { value: u.username, disabled: !isAdmin(), support: isAdmin() ? null : t('Only the admin can change usernames.') });
   const display = field(t('Display name'), { value: u.displayName });
@@ -149,7 +166,23 @@ async function accountPanel(panel, stale) {
     ),
   );
   const tracking = h('section');
-  panel.append(tracking);
+  const oidc = h('div');
+  panel.append(oidc, tracking);
+  const oidcStatus = params.query.get('oidc');
+  if (oidcStatus === 'linked') snackbar(t('OpenID Connect account linked'));
+  if (oidcStatus === 'failed') snackbar(t('Could not link your OpenID Connect account'));
+  api.status().then(({ oidc: login }) => {
+    if (!login || stale()) return;
+    const available = new URL(login).origin === location.origin;
+    oidc.append(group(row('key', t('OpenID Connect'), available ? null : t('Open the public address to link an account.'),
+      available ? button(t('Link account'), { variant: 'tonal', onclick: async () => {
+        try {
+          location.assign((await api.linkOidc()).url);
+        } catch (e) {
+          snackbar(e.message);
+        }
+      } }) : h('a.btn.tonal', { href: new URL('/#/settings/account', login) }, t('Open public address')))));
+  }).catch(() => {});
   await trackingSettings(tracking, stale);
 }
 
@@ -598,15 +631,19 @@ async function fontsPanel(panel, stale) {
 
 async function opdsPanel(panel, stale) {
   panel.append(h('h2', t('OPDS & third-party clients')), loading());
-  const [keys, server] = await Promise.all([api.apiKeys(), isAdmin() ? api.adminSettings().catch(() => null) : null]);
+  const [keys, info] = await Promise.all([api.apiKeys(), api.shareInfo().catch(() => ({}))]);
   if (stale()) return;
   panel.lastChild.remove();
-  const base = (server?.publicUrl || location.origin).replace(/\/+$/, '');
+  const address = shareAddressField(info);
+  const urlFields = [];
   const p = prefs();
-  const opdsUrl = (k) => `${base}/api/opds/${k}`;
+  const opdsUrl = (k) => `${address.input.value.replace(/\/+$/, '')}/api/opds/${k}`;
+  address.input.addEventListener('change', () => urlFields.forEach(({ text, key }) => (text.textContent = opdsUrl(key))));
 
-  const keyRows = keys.map((k) =>
-    h('div.setting-row.stack',
+  const keyRows = keys.map((k) => {
+    const text = h('span.mono', opdsUrl(k.key));
+    urlFields.push({ text, key: k.key });
+    return h('div.setting-row.stack',
       h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
         icon('key'),
         h('div.text', h('div', k.name), h('div.s', t('Created {value} · last used {value2}', { value: timeAgo(k.createdAt), value2: timeAgo(k.lastUsedAt) }))),
@@ -622,11 +659,11 @@ async function opdsPanel(panel, stale) {
         }),
       ),
       h('div.label-medium.muted', t('OPDS URL')),
-      h('div.copy-field', h('span.mono', opdsUrl(k.key)), iconButton('content_copy', t('Copy OPDS URL'), () => copyText(opdsUrl(k.key)))),
+      h('div.copy-field', text, iconButton('content_copy', t('Copy OPDS URL'), () => copyText(opdsUrl(k.key)))),
       h('div.label-medium.muted', t('Auth key')),
       h('div.copy-field', h('span.mono', k.key), iconButton('content_copy', t('Copy key'), () => copyText(k.key))),
-    ),
-  );
+    );
+  });
 
   panel.append(
     h('div.sub-head', t('OPDS settings')),
@@ -635,7 +672,7 @@ async function opdsPanel(panel, stale) {
       row('play_circle', t('Include “Continue from” entry'), t('Put a “Continue reading: Vol. 3” entry at the top of each series feed.'), toggleSwitch(p.opdsContinueFrom, (v) => setPref('opdsContinueFrom', v), t('Include continue from entry'))),
     ),
     h('div.sub-head', t('Auth keys & OPDS URL')),
-    keys.length ? group(...keyRows) : h('p.note', t('You don’t have an auth key yet. Create one to connect a reading app.')),
+    keys.length ? group(h('div.setting-row.stack', address), ...keyRows) : h('p.note', t('You don’t have an auth key yet. Create one to connect a reading app.')),
     h('div', { style: { marginTop: '12px' } }, button(t('Create auth key'), { variant: 'tonal', icon: 'add', onclick: async () => {
       const name = field(t('Name'), { value: 'My reading app', required: true, support: t('e.g. “Panels on iPad”, “KOReader”') });
       await formDialog({ title: t('New auth key'), fields: [name], submit: t('Create'), onSubmit: () => api.createApiKey(name.input.value) });
@@ -647,7 +684,7 @@ async function opdsPanel(panel, stale) {
       row('tablet_android', t('KOReader, Moon+ Reader, Librera (Android / e-ink)'), t('Add a catalog / network library with the OPDS URL. Leave username and password empty – the key is in the URL.')),
       row('desktop_windows', t('Thorium, Calibre and others'), t('Any OPDS 1.2 client works. Search is supported.')),
     ),
-    h('p.note', server ? t('URLs use {base}. Set a public URL in Settings → Server if you reach Flyleaf through a domain or reverse proxy.', { base: base }) : t('Treat the OPDS URL like a password – anyone with it can browse and download your library.')),
+    h('p.note', t('Treat the OPDS URL like a password – anyone with it can browse and download your library.')),
   );
 }
 

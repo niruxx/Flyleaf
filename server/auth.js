@@ -48,6 +48,7 @@ const PREF_DEFAULTS = {
   spoilerSafe: false,
   einkMode: false,
   koboCollectionId: null,
+  koboAutoAdd: false,
   blurUnreadSummaries: false,
   promptOnDownload: true,
   disableAnimations: false,

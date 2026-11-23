@@ -227,4 +227,4 @@ function reset() {
   });
 }
 
-module.exports = { indexPending, isRunning: () => state.running, status, search, reset, FORMATS, ENABLED };
+module.exports = { indexPending, isRunning: () => state.running, status, search, reset, ftsQuery, FORMATS, ENABLED };

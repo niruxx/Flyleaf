@@ -5,13 +5,14 @@ import { t } from './i18n.js';
 // same URLs: its /reader data, the file (EPUB, PDF…) or every page image, the page count and
 // the cover. The service worker answers those URLs from the cache when the network can't.
 // What's saved is listed in localStorage (flyleaf.offline). Reading progress made while
-// offline is queued (flyleaf.pendingProgress) and sent when the connection comes back.
+// offline is queued per account and sent when the connection comes back.
 
 import { api, fileUrl, pageUrl, localDay, request } from './api.js';
+import { session } from './router.js';
 
 const CACHE = 'flyleaf-offline';
 const INDEX = 'flyleaf.offline';
-const QUEUE = 'flyleaf.pendingProgress';
+const queueKey = (userId) => `flyleaf.pendingProgress.${userId}`;
 
 export const offlineSupported = () => 'caches' in window && 'serviceWorker' in navigator && window.isSecureContext;
 
@@ -180,35 +181,55 @@ export async function storageEstimate() {
 // Progress made while offline
 
 /** Keep a progress save that couldn't reach the server; seconds for the same book and day add up. */
-export function queueProgress(bookId, body) {
-  const queue = readJson(QUEUE, []);
+let replaying = null;
+
+export function queueProgress(userId, bookId, body) {
+  if (userId == null) return;
+  const key = queueKey(userId);
+  const queue = readJson(key, []);
   const day = body.day || localDay();
-  const prev = queue.find((x) => x.bookId === bookId && x.body.day === day);
-  if (prev) prev.body = { ...prev.body, ...body, seconds: (prev.body.seconds || 0) + (body.seconds || 0), day };
-  else queue.push({ bookId, body: { ...body, day } });
-  writeJson(QUEUE, queue);
+  const prev = queue.findLast((x) => x.bookId === bookId && x.body.day === day && x.id !== replaying);
+  if (prev) {
+    const latest = body.position != null && (prev.body.position == null || body.recordedAt >= prev.body.recordedAt) ? body : prev.body;
+    prev.body = { ...latest, seconds: (prev.body.seconds || 0) + (body.seconds || 0), day };
+  } else queue.push({ id: `${Date.now()}-${Math.random()}`, bookId, body: { ...body, day } });
+  writeJson(key, queue);
+}
+
+/** A pending position can be newer than the saved reader data on this device. */
+export function pendingPosition(userId, book) {
+  if (userId == null) return null;
+  const latest = readJson(queueKey(userId), []).filter((entry) => entry.bookId === book.id && entry.body.position != null)
+    .reduce((newest, entry) => !newest || entry.body.recordedAt > newest.recordedAt ? entry.body : newest, null);
+  if (!latest || latest.recordedAt <= (book.progress?.updatedAt || 0)) return null;
+  return { position: latest.position, page: latest.page, percent: latest.percent,
+    finished: Boolean(book.progress?.finished || latest.finished || latest.percent >= 0.999), updatedAt: latest.recordedAt };
 }
 
 let flushing = false;
 /** Send queued progress (oldest first). Stops at the first failure and tries again later. */
 export async function flushProgress() {
-  if (flushing || !navigator.onLine) return;
+  const userId = session.user?.id;
+  if (userId == null || flushing || !navigator.onLine) return;
+  const key = queueKey(userId);
   flushing = true;
   try {
-    let queue = readJson(QUEUE, []);
-    while (queue.length) {
-      const { bookId, body } = queue[0];
+    while (session.user?.id === userId) {
+      const entry = readJson(key, [])[0];
+      if (!entry) break;
+      const { id, bookId, body } = entry;
+      replaying = id;
       try {
-        await request('PUT', `/api/books/${bookId}/progress`, body);
+        await request('PUT', `/api/books/${bookId}/progress`, { ...body, syncUserId: userId }, { signal: AbortSignal.timeout(5000) });
       } catch (e) {
-        // Gone or not allowed any more: drop it. Unreachable: keep it for next time.
-        if (!e.status) break;
+        // A removed book can be discarded. Keep the save if the session changed or the service failed.
+        if (![400, 404, 410].includes(e.status)) break;
       }
-      queue = queue.slice(1);
-      writeJson(QUEUE, queue);
+      writeJson(key, readJson(key, []).filter((entry) => entry.id !== id));
     }
   } finally {
     flushing = false;
+    replaying = null;
   }
 }
 

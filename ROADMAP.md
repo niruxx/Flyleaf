@@ -87,6 +87,13 @@ is still being verified. [Setup, supported formats and limitations](docs/device-
 - ⬜ **Additional activity sources**: device sync, reader conversions, backup
   downloads, and restore operations.
 
+## BookLore parity
+
+- **Added** · BookDrop for reviewing files before import, Magic Shelves in OPDS 1 and 2, and optional Kobo auto-add for newly scanned EPUBs.
+- **Pending** · BookDrop bulk editing and filename patterns. [BookLore BookDrop documentation](https://github.com/booklore-app/booklore-docs/blob/master/docs/bookdrop-advanced.md)
+- **Pending** · Per-book session history, metadata sidecars, and automatic Amazon metadata. [BookLore metadata documentation](https://github.com/booklore-app/booklore-docs/blob/master/docs/metadata/metadata-center.md)
+- **Pending** · Hardcover progress sync. [BookLore device documentation](https://github.com/booklore-app/booklore-docs/blob/master/docs/tools/devices.md)
+
 ---
 
 ## A distinctive reading experience

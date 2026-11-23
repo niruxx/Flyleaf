@@ -117,6 +117,11 @@ and [KOReader file checksum](https://github.com/koreader/koreader/blob/master/fr
    `api_endpoint=https://your-flyleaf-server/api/kobo/YOUR_FULL_ACCESS_KEY`.
 5. Safely eject the Kobo and run its sync.
 
+**Add new EPUBs to the Kobo shelf** is optional. After you enable it, scans add
+new EPUBs from libraries you can access to the selected Kobo shelf. Turning it
+off stops future auto-additions. You can still remove an individual book on the
+Kobo. Flyleaf rechecks library access at each sync.
+
 The endpoint provides initialization, device authentication, EPUB metadata and
 downloads, cover images, a collection tag, incremental entitlements and removed
 entitlements, plus reading-state GET/PUT. Sync tokens are opaque and scoped to

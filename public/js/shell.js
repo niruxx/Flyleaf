@@ -11,17 +11,24 @@ import { t } from './i18n.js';
 
 let drawerData = { libraries: [], collections: [], genres: [], filters: [] };
 let showAllGenres = false;
+let drawerTrigger;
 
-function setDrawer(open, { focus = false } = {}) {
+function setDrawer(open, { trigger, restoreFocus = true } = {}) {
   const drawer = document.querySelector('.drawer');
-  const toggle = document.querySelector('.menu-toggle');
   const modal = matchMedia('(max-width: 1023px)').matches;
   const expanded = modal && open;
+  const wasOpen = document.body.classList.contains('drawer-open') || Boolean(drawerTrigger);
   document.body.classList.toggle('drawer-open', expanded);
-  toggle?.setAttribute('aria-expanded', String(expanded));
+  for (const control of document.querySelectorAll('.menu-toggle, .mobile-menu-toggle')) control.setAttribute('aria-expanded', String(expanded));
+  for (const el of document.querySelectorAll('.app-bar, .bottom-nav, #view, .skip-link')) el.inert = expanded;
   drawer.inert = modal && !expanded;
-  if (expanded && focus) drawer.querySelector('a[href], button, summary')?.focus();
-  else if (!expanded && modal && drawer.contains(document.activeElement)) toggle?.focus();
+  if (expanded && trigger) {
+    drawerTrigger = trigger;
+    (drawer.querySelector('[aria-current="page"]') || drawer.querySelector('.drawer-close'))?.focus();
+  } else if (!expanded && wasOpen) {
+    if (restoreFocus && drawerTrigger?.getClientRects().length) drawerTrigger.focus();
+    drawerTrigger = null;
+  }
 }
 
 /** `again`: the language changed – redraw the shell's text without adding listeners twice. */
@@ -32,9 +39,17 @@ export function initShell({ again = false } = {}) {
     if (session.user) refreshShell();
     return;
   }
-  const bar = document.querySelector('.app-bar');
-  bar.querySelector('.menu-toggle').addEventListener('click', () => setDrawer(!document.body.classList.contains('drawer-open'), { focus: true }));
+  for (const control of document.querySelectorAll('.menu-toggle, .mobile-menu-toggle')) {
+    control.addEventListener('click', () => {
+      closeNotes();
+      setDrawer(true, { trigger: control });
+    });
+  }
   document.querySelector('.scrim').addEventListener('click', () => setDrawer(false));
+  document.querySelector('.drawer').addEventListener('click', (event) => {
+    const link = event.target.closest('a[data-to]');
+    if (drawerTrigger && link?.hash === (location.hash || '#/')) setDrawer(false);
+  });
   const drawerMedia = matchMedia('(max-width: 1023px)');
   drawerMedia.addEventListener('change', () => setDrawer(false));
   setDrawer(false);
@@ -55,8 +70,10 @@ export function initShell({ again = false } = {}) {
   });
   buildSearch(document.querySelector('.app-search'));
   onRoute(({ r, full }) => {
-    setDrawer(false);
+    const fromDrawer = Boolean(drawerTrigger);
+    setDrawer(false, { restoreFocus: false });
     if (r.bare) return;
+    if (fromDrawer) document.getElementById('view').focus({ preventScroll: true });
     highlight(full);
     // New genres, libraries and collections show up without a reload (after scans,
     // metadata edits, uploads…): re-check on navigation, at most every 10 seconds.
@@ -75,10 +92,10 @@ export function initShell({ again = false } = {}) {
 function translateStatic() {
   const skip = document.querySelector('.skip-link');
   if (skip) skip.textContent = t('Skip to content');
-  const labels = { home: t('Home'), library: t('Library'), want: t('Want to read'), bookmarks: t('Bookmarks') };
-  for (const a of document.querySelectorAll('.bottom-nav a[data-nav]')) {
+  const labels = { home: t('Home'), library: t('Library'), want: t('Want to read'), bookmarks: t('Bookmarks'), more: t('More') };
+  for (const a of document.querySelectorAll('.bottom-nav > *')) {
     const text = [...a.childNodes].find((n) => n.nodeType === Node.TEXT_NODE);
-    if (text && labels[a.dataset.nav]) text.textContent = labels[a.dataset.nav];
+    if (text) text.textContent = labels[a.dataset.nav || 'more'];
   }
   document.querySelector('.menu-toggle')?.setAttribute('aria-label', t('Open navigation'));
   document.querySelector('.menu-toggle')?.setAttribute('title', t('Menu'));
@@ -262,6 +279,7 @@ function closeNotes() {
 export async function signOut() {
   await api.logout().catch(() => {});
   session.user = null;
+  import('./offline.js').then(({ rememberUser }) => rememberUser(null));
   navigate('/login', { replace: true });
 }
 
@@ -367,7 +385,7 @@ function buildSearch(host) {
   });
   // "/" focuses search from anywhere.
   document.addEventListener('keydown', (e) => {
-    if (e.key === '/' && !e.target.closest('input, textarea, select, [contenteditable]') && !document.body.classList.contains('bare')) {
+    if (e.key === '/' && !e.target.closest('input, textarea, select, [contenteditable]') && !document.body.matches('.bare, .drawer-open')) {
       e.preventDefault();
       input.focus();
     }
@@ -387,11 +405,14 @@ function navItem(to, ic, label, count, extra = {}) {
 const drawerGroups = new Map();
 function buildDrawer() {
   const d = drawerData;
+  const drawer = document.querySelector('.drawer');
+  const active = drawer.contains(document.activeElement) ? document.activeElement : null;
+  const scrollTop = drawer.querySelector('.drawer-scroll')?.scrollTop || 0;
   const hue = (s) => [...String(s).toLowerCase()].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 360, 7);
   const mine = d.libraries.filter((l) => l.own);
   const shared = d.libraries.filter((l) => !l.personal);
   const group = (id, label, children, open = false) => {
-    const detail = h('details.drawer-group', { open: drawerGroups.get(id) ?? open },
+    const detail = h('details.drawer-group', { open: drawerGroups.get(id) ?? open, dataset: { group: id } },
       h('summary', h('span', label), icon('expand_more')),
       h('div.drawer-group-items', children.flat(Infinity).filter(Boolean)));
     detail.addEventListener('toggle', () => drawerGroups.set(id, detail.open));
@@ -407,22 +428,16 @@ function buildDrawer() {
     can(session.user, 'contentFinder') && navItem('/finder/following', 'notifications_active', t('Following')),
     can(session.user, 'contentFinder') && navItem('/finder/downloads', 'download', t('Downloads')),
     can(session.user, 'upload') && navItem('/upload', 'upload', t('Upload')),
+    isAdmin() && navItem('/admin/book-drop', 'move_to_inbox', t('BookDrop')),
   ].filter(Boolean);
-  document.querySelector('.drawer').replaceChildren(
+  drawer.replaceChildren(
+    h('div.drawer-mobile-head', h('span', t('Menu')), iconButton('close', t('Close'), () => setDrawer(false), 'drawer-close')),
     h('div.drawer-scroll',
-      h('div.drawer-caption', t('Your space')),
       h('div.drawer-primary',
         navItem('/', 'home', t('Home')),
         navItem('/library', 'local_library', t('Library')),
         navItem('/want-to-read', 'bookmark_heart', t('Want to read')),
-        navItem('/reading-lists', 'format_list_numbered', t('Reading lists'))),
-      h('div.drawer-secondary',
-        navItem('/bookmarks', 'bookmarks', t('Bookmarks & notes')),
-        navItem('/stats', 'insights', t('Reading stats')),
-        navItem('/tonight', 'bedtime', t('Fits tonight')),
-        navItem('/journal', 'edit_note', t('Reading journal')),
-        navItem('/activity', 'pending_actions', t('Activity center')),
-        offlineSupported() && navItem('/offline', 'offline_pin', t('Saved offline'))),
+        navItem('/bookmarks', 'bookmarks', t('Bookmarks & notes'))),
       (mine.length + shared.length > 0) && group('libraries', t('Libraries'), [
         mine.length > 0 && h('div.drawer-sublabel', t('My libraries')),
         mine.map((l) => navItem(`/library/${l.id}`, KIND_ICON[l.kind], l.name, l.seriesCount)),
@@ -431,24 +446,40 @@ function buildDrawer() {
       ], true),
       group('collections', t('Collections'), [
         navItem('/collections', 'grid_view', t('All collections')),
+        navItem('/reading-lists', 'format_list_numbered', t('Reading lists')),
         d.collections.map((c) => navItem(`/collection/${c.id}`, c.promoted ? 'public' : 'collections_bookmark', c.name, c.count)),
         newCollection,
       ]),
       d.filters.some((f) => f.inDrawer) && group('shelves', t('Shelves'), d.filters.filter((f) => f.inDrawer).map((f) => navItem(`/shelf/${f.id}`, 'filter_alt', f.name))),
+      group('reading', t('Reading'), [
+        navItem('/tonight', 'bedtime', t('Fits tonight')),
+        navItem('/journal', 'edit_note', t('Reading journal')),
+        navItem('/stats', 'insights', t('Reading stats')),
+        offlineSupported() && navItem('/offline', 'offline_pin', t('Saved offline')),
+      ], true),
+      discovery.length > 0 && group('discover', t('Discover'), discovery),
       d.genres.length > 0 && group('genres', t('Genres'), [
         (showAllGenres ? d.genres : d.genres.slice(0, GENRE_LIMIT)).map((g) => navItem(`/genre/${encodeURIComponent(g.name)}`, null, g.name, g.count, { style: { '--dot': `oklch(0.7 0.13 ${hue(g.name)})` } })),
         d.genres.length > GENRE_LIMIT && h('button.nav-item.more-toggle', { type: 'button', onclick: () => {
           showAllGenres = !showAllGenres;
           buildDrawer();
         } }, icon(showAllGenres ? 'expand_less' : 'expand_more'), h('span.label', showAllGenres ? t('Show fewer') : t('Show all {n} genres', { n: d.genres.length }))),
-      ]),
-      discovery.length > 0 && group('discover', t('Discover'), discovery)),
+      ])),
     h('div.drawer-footer',
+      navItem('/activity', 'pending_actions', t('Activity center')),
       navItem('/settings', 'settings', t('Settings')),
       isAdmin() && navItem('/settings/libraries', 'admin_panel_settings', t('Manage libraries')),
       !isAdmin() && session.user?.homeDir && navItem('/settings/mylibs', 'folder_special', t('My libraries'))),
   );
   highlight(location.hash.replace(/^#/, '') || '/');
+  drawer.querySelector('.drawer-scroll').scrollTop = scrollTop;
+  if (active) {
+    const replacement = active.dataset.to
+      ? [...drawer.querySelectorAll('[data-to]')].find((item) => item.dataset.to === active.dataset.to)
+      : active.tagName === 'SUMMARY' ? drawer.querySelector(`[data-group="${active.parentElement.dataset.group}"] > summary`)
+      : active.classList.contains('more-toggle') ? drawer.querySelector('.more-toggle') : drawer.querySelector('.drawer-close');
+    if (replacement?.getClientRects().length) replacement.focus();
+  }
   refreshDownloadsBadge();
 }
 
@@ -498,7 +529,10 @@ function highlight(path) {
 export function afterSignIn() {
   import('./prefs.js').then(({ applyUserPrefs }) => applyUserPrefs());
   // Remembered so the app can still open (to saved books) without a connection.
-  import('./offline.js').then(({ rememberUser }) => rememberUser(session.user));
+  import('./offline.js').then(({ rememberUser, flushProgress }) => {
+    rememberUser(session.user);
+    flushProgress();
+  });
   refreshShell();
   // After an update: a small card with what changed (once per version).
   setTimeout(() => import('./whatsnew.js').then((m) => m.maybeShowWhatsNew()).catch(() => {}), 1500);

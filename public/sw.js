@@ -10,6 +10,7 @@ const SHELL = [
   '/css/reading-room.css',
   '/css/ambience.css',
   '/css/expressive.css',
+  '/css/workspace.css',
   '/css/motion.css',
   '/js/motion.js',
   '/js/main.js',

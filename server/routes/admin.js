@@ -27,7 +27,12 @@ router.put('/settings', (req, res) => {
   for (const k of ['comicvineKey', 'googleBooksKey', 'malClientId']) if (b[k] !== undefined) settings.set(k, String(b[k]).trim());
   if (b.publicUrl !== undefined) {
     const url = String(b.publicUrl).trim().replace(/\/+$/, '');
-    if (url && !/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'Public URL must start with http:// or https://' });
+    if (url) {
+      const address = URL.parse(url);
+      if (!address || !['http:', 'https:'].includes(address.protocol) || address.username || address.password || address.search || address.hash) {
+        return res.status(400).json({ error: 'Enter an HTTP or HTTPS address without credentials, a query, or a fragment.' });
+      }
+    }
     settings.set('publicUrl', url);
   }
   if (b.opdsEnabled !== undefined) settings.set('opdsEnabled', Boolean(b.opdsEnabled));

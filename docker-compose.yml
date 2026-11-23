@@ -19,9 +19,14 @@ services:
       # SECURE_COOKIES: "true"
       # SCAN_INTERVAL_MINUTES: "60"
       # FLYLEAF_USER_STORAGE_ROOTS: "/personal-ssd"
+      # Optional reader translations via DeepL:
+      DEEPL_AUTH_KEY: ${DEEPL_AUTH_KEY:-}
+      # To enable BookDrop, uncomment this line and the matching volume below.
+      # BOOKDROP_DIR: /bookdrop
     volumes:
       - ./data:/data
       - /path/to/your/books:/books
+      # - ./bookdrop:/bookdrop:ro
       # - /path/on/ssd/flyleaf-users:/personal-ssd
     # The container runs as uid 1000. If your folders belong to someone else, set it here:
     # user: "1000:1000"

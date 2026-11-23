@@ -44,7 +44,9 @@ export async function editSeries(seriesId) {
   const publisher = field(t('Publisher'), { value: s.publisher || '' });
   const age = field(t('Age rating'), { value: s.ageRating ?? '', options: AGE_RATINGS });
   const language = field(t('Language'), { value: s.language || '' });
-  const general = h('div', name, localized, sortName, summary, h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0 12px' } }, status, age, year, publisher, language));
+  const externalRating = field(t('External rating (out of 5)'), { value: s.externalRating?.average ?? '', type: 'number', min: 1, max: 5, step: 'any' });
+  const ratingCount = field(t('External rating count'), { value: s.externalRating?.count ?? '', type: 'number', min: 1, step: 1 });
+  const general = h('div', name, localized, sortName, summary, h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0 12px' } }, status, age, year, publisher, language, externalRating, ratingCount));
 
   // Tags
   const genres = chipInput(t('Genres'), s.genres, { suggestions: allGenres });
@@ -187,11 +189,15 @@ export async function editSeries(seriesId) {
         onClick: async () => {
           err.replaceChildren();
           try {
+            const average = externalRating.input.value ? Number(externalRating.input.value) : null;
+            const count = ratingCount.input.value ? Number(ratingCount.input.value) : null;
+            const ratingChanged = average !== (s.externalRating?.average ?? null) || count !== (s.externalRating?.count ?? null);
             await api.updateSeries(seriesId, {
               name: name.input.value,
               localizedName: localized.input.value,
               sortName: sortName.input.value,
               summary: summary.input.value,
+              externalRating: ratingChanged ? (average == null ? null : { average, count }) : undefined,
               status: status.input.value,
               year: year.input.value,
               publisher: publisher.input.value,
@@ -222,6 +228,7 @@ const FIELD_LABELS = {
   get name() { return t('Title'); },
   get localized_name() { return t('Original title'); },
   get summary() { return t('Summary'); },
+  get external_rating() { return t('External rating'); },
   get status() { return t('Publication status'); },
   get year() { return t('Year'); },
   get publisher() { return t('Publisher'); },
@@ -280,6 +287,7 @@ export async function fetchMetadata(series) {
                 h('div', { style: { minWidth: '0' } },
                   h('div.t', r.title),
                   h('div.m', [r.year, r.status && STATUS_LABEL[r.status], r.format, r.people?.[0]?.name].filter(Boolean).join(' · ')),
+                  r.externalRating && h('div.m', t('{rating} / 5', { rating: r.externalRating.average.toFixed(1) })),
                   r.genres?.length && h('div.m', r.genres.slice(0, 5).join(', ')),
                   r.summary && h('div.d', r.summary),
                 ),

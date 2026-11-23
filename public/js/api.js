@@ -72,6 +72,7 @@ export const api = {
   status: () => GET('/api/status'),
   setup: (b) => POST('/api/setup', b),
   login: (b) => POST('/api/login', b),
+  linkOidc: () => POST('/api/oidc/link'),
   register: (b) => POST('/api/register', b),
   logout: () => POST('/api/logout'),
 
@@ -83,6 +84,10 @@ export const api = {
   uploadBackground: (file) => request('PUT', '/api/me/background', file, { headers: { 'Content-Type': 'application/octet-stream' } }),
   removeBackground: () => DEL('/api/me/background'),
   shareInfo: () => GET('/api/share-info'),
+  bookShares: (id) => GET(`/api/books/${id}/shares`),
+  createBookShare: (id, options) => POST(`/api/books/${id}/shares`, options),
+  revokeBookShare: (id) => DEL(`/api/book-shares/${id}`),
+  sharedReader: (token) => GET(`${sharedBookUrl(token)}/reader`),
   changePassword: (current, next) => POST('/api/me/password', { current, next }),
 
   positionHistory: (id) => GET(`/api/books/${id}/positions`),
@@ -105,6 +110,9 @@ export const api = {
   duplicates: () => GET('/api/admin/duplicates'),
   ignoreDuplicates: (key) => POST('/api/admin/duplicates/ignore', { key }),
   mergeDuplicates: (keep, remove) => POST('/api/admin/duplicates/merge', { keep, remove }),
+  bookDrop: () => GET('/api/admin/book-drop'),
+  importBookDrop: (id, body) => POST(`/api/admin/book-drop/${encodeURIComponent(id)}/import`, body),
+  dismissBookDrop: (id) => POST(`/api/admin/book-drop/${encodeURIComponent(id)}/dismiss`),
   calibreImport: (libraryId) => POST(`/api/libraries/${libraryId}/calibre`),
   rebuildFulltext: () => POST('/api/admin/fulltext/rebuild'),
   genres: () => GET('/api/genres'),
@@ -156,8 +164,8 @@ export const api = {
   refreshBook: (id) => POST(`/api/books/${id}/refresh`),
   setCover: (id, blob) => request('PUT', `/api/books/${id}/cover`, blob),
   generatedCover: (id, blob) => request('POST', `/api/books/${id}/cover/generated`, blob),
-  pages: (id) => GET(`/api/books/${id}/pages`),
-  audioTracks: (id) => GET(`/api/books/${id}/tracks`),
+  pages: (id, token) => GET(`${bookUrl({ id, shareToken: token })}/pages`),
+  audioTracks: (id, token) => GET(`${bookUrl({ id, shareToken: token })}/tracks`),
   setFinished: (id, finished) => POST(`/api/books/${id}/finished`, { finished }),
   saveProgress: (id, b, opts) => request('PUT', `/api/books/${id}/progress`, { day: localDay(), ...b }, opts),
 
@@ -177,7 +185,7 @@ export const api = {
   sendToReadwise: (token, book) => POST('/api/annotations/readwise', { token, book }),
   lookupDefine: (word, lang) => GET(`/api/lookup/define${qs({ word, lang })}`),
   lookupWiki: (q, lang) => GET(`/api/lookup/wiki${qs({ q, lang })}`),
-  lookupTranslate: (q, from, to) => GET(`/api/lookup/translate${qs({ q, from, to })}`),
+  lookupTranslate: (q, from, to) => POST('/api/lookup/translate', { q, from, to }),
   changelog: (limit) => GET(`/api/me/changelog${qs({ limit })}`),
   smartFilters: () => GET('/api/filters'),
   createSmartFilter: (b) => POST('/api/filters', b),
@@ -214,6 +222,8 @@ export const api = {
   deleteDevice: (id) => DEL(`/api/devices/${id}`),
   sendBook: (id, deviceId) => POST(`/api/books/${id}/send`, { deviceId }),
   sendSeries: (id, deviceId) => POST(`/api/series/${id}/send`, { deviceId }),
+  emailBook: (id, email) => POST(`/api/books/${id}/send`, { email }),
+  emailSeries: (id, email) => POST(`/api/series/${id}/send`, { email }),
 
   fonts: () => GET('/api/fonts'),
   uploadFont: (name, file, { private: own = false } = {}) => request('POST', '/api/fonts', file, { headers: { 'X-Font-Name': name, 'Content-Type': 'application/octet-stream', ...(own ? { 'X-Font-Private': '1' } : {}) } }),
@@ -313,6 +323,7 @@ export const api = {
   // `user` (admin only): just that person's downloads.
   retryFailedDownloads: (user) => POST(`/api/finder/downloads/retry${qs({ user })}`),
   clearDownloads: (what = 'history', user) => DEL(`/api/finder/downloads${qs({ what, user })}`),
+  clearBookDownloads: (id, what) => DEL(`/api/finder/downloads/${id}/book${qs({ what })}`),
   downloadsSummary: () => GET('/api/finder/downloads/summary'),
 
   follows: () => GET('/api/finder/follows'),
@@ -374,7 +385,9 @@ export const api = {
 /** Whether the signed-in user has a permission (admins have all). */
 export const can = (user, perm) => Boolean(user && (user.role === 'admin' || user.permissions?.[perm]));
 
-export const fileUrl = (book) => `/api/books/${book.id}/file?v=${book.version}`;
-export const pageUrl = (book, n, width) => `/api/books/${book.id}/pages/${n}?v=${book.version}${width ? `&w=${width}` : ''}`;
-export const downloadUrl = (book) => `/api/books/${book.id}/download`;
+export const sharedBookUrl = (token) => `/api/shared/${encodeURIComponent(token)}`;
+export const bookUrl = (book) => book.shareToken ? sharedBookUrl(book.shareToken) : `/api/books/${book.id}`;
+export const fileUrl = (book) => `${bookUrl(book)}/file?v=${book.version}`;
+export const pageUrl = (book, n, width) => `${bookUrl(book)}/pages/${n}?v=${book.version}${width ? `&w=${width}` : ''}`;
+export const downloadUrl = (book) => `${bookUrl(book)}/download`;
 export const seriesDownloadUrl = (id) => `/api/series/${id}/download`;

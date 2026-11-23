@@ -200,7 +200,10 @@ Set these in `/etc/flyleaf/flyleaf.env` (service install) or a `.env` file next 
 | `FLYLEAF_DATA_DIR` | `./data` | Database, covers, caches and logs |
 | `SCAN_INTERVAL_MINUTES` | `60` | Automatic rescans (`0` = only on start / manual) |
 | `WATCH_FOLDERS` | `1` | Watch library folders and pick up changes within seconds (`0` turns it off) |
-| `LOOKUP` | `1` | Dictionary, Wikipedia and translation look-ups in the reader (the server asks Wiktionary, Wikipedia and MyMemory; `0` turns it off) |
+| `BOOKDROP_DIR` | | Optional watched inbox directory for files awaiting import |
+| `BOOKDROP_ONLINE_METADATA` | `true` | Look for matches in Google Books and Open Library for eligible inbox files. Set to `false` to preview embedded metadata only. |
+| `LOOKUP` | `1` | Enables Wiktionary definitions, Wikipedia search and translation in the reader. Set to `0` to turn off these lookups. |
+| `DEEPL_AUTH_KEY` | | DeepL API Free or Pro key for in-reader translation. Flyleaf uses MyMemory when the key is blank. |
 | `WATCH_DELAY_SECONDS` | `5` | How long a folder must be quiet before it is scanned (so copies can finish) |
 | `FULLTEXT` | `1` | Index book text for *search inside books* (`0` turns it off) |
 | `FOLLOW_CHECK_HOURS` | `6` | How often followed series are checked for new chapters (`0` = only when you press *Check now*) |
@@ -264,6 +267,14 @@ Books/
 
 Comics and manga default to Komga style. You can switch at any time and Flyleaf regroups on the next scan.
 
+Drop files into a configured library folder and Flyleaf queues a scan after the folder goes quiet. The scan reads embedded metadata and artwork. Turn on **Automatically fetch metadata & artwork** for the library to also queue online matching for new titles.
+
+### Shelves and full-text search
+
+Create a **Collection** to choose its titles by hand. For an automatically updated **Smart Shelf** (also called a Magic Shelf), open the library, choose filters such as genre or reading status, and select **Save as a shelf on Home**. Set where the shelf appears in its settings.
+
+Under **Filters**, enter words or a quoted phrase in **Text inside books** and select **Apply**. You can combine this with the other filters and save it as a shelf. Use the regular Search page to see matching passages in indexed books.
+
 ### 🔎 Metadata sources
 
 | Source | Best for | Key needed? |
@@ -279,6 +290,7 @@ Comics and manga default to Komga style. You can switch at any time and Flyleaf 
 - **Manual:** on a series page, open **Edit ▾ → Fetch metadata online**, pick a result and tick the fields to apply.
 - **Automatic:** in **Settings → Libraries → Edit**, enable *Automatically fetch metadata & artwork*. Only confident title matches are applied.
 - Anything you edit by hand is **locked**, so scans and auto-matching never overwrite it.
+- Google Books and Open Library provide covers, descriptions, and aggregate ratings when available. Edit the imported rating or count under **Edit metadata**. The **Ratings & reviews** section shows source links alongside the editable reviews written in Flyleaf. Add an Amazon book page under **Edit metadata → Links** to include it there.
 
 ### 📡 OPDS & reading apps
 
@@ -287,6 +299,8 @@ Comics and manga default to Komga style. You can switch at any time and Flyleaf 
 3. Add it as a catalog in **Panels**, **Chunky**, **KOReader**, **Moon+ Reader**, **Thorium**…
 
 Comics stream page-by-page (OPDS-PSE) and your position syncs back to Flyleaf. Toggle **Embed progress indicator** and **Include "Continue from" entry** to taste. Set a **Public URL** in *Settings → Server* if you use a domain.
+
+Choose **Magic Shelves** in the OPDS catalog to browse your saved filters. Both OPDS 1 and OPDS 2 evaluate the same rules as the web library, including reading status and full-text filters, for the account that owns the key.
 
 ### ℹ️ Book details
 
@@ -319,6 +333,8 @@ Only transform and opacity are animated, so it stays smooth on phones. To turn i
 3. Drag in files, or a whole folder. A folder of images becomes one chapter, for example `Series/Chapter 1/001.jpg…`. You can also use **Choose files** or **Choose a folder**.
 
 Supported: EPUB, KEPUB, MOBI/AZW3, PDF, DOCX, RTF, FB2, TXT, CBZ, CBR, CB7, CBT and images. The admin can always upload. Guests need **Upload** turned on in *Settings → Users*, and can only upload into libraries they can see. Existing files are never overwritten; a second copy gets a ` (2)` suffix. If Flyleaf runs as a service and the library is under `/home`, run `flyleaf allow-write /path/to/library` first.
+
+**BookDrop** gives admins a review queue for files copied onto the server. Create a separate folder outside your libraries, set `BOOKDROP_DIR`, and restart Flyleaf. With Docker Compose, uncomment the BookDrop environment entry and its matching folder mount. Copy individual book files into the top level and open **Settings → Libraries → BookDrop**. Review the detected metadata and choose a destination library and optional subfolder. Copies with the same name get a suffix. The source file stays in the inbox folder when you import or dismiss it. The destination filesystem must support hard links so a complete copy can be published safely under a new name.
 
 Uploading from a script uses a **full-access** API key. Send each file as the raw request body, then finish the batch so the library rescans:
 
@@ -435,7 +451,17 @@ The same page lists every endpoint (also served as an OpenAPI 3.1 spec at `/api/
 2. Each user: **Settings → Send-to devices** – add your `@kindle.com` address.
 3. For Kindle, approve the *From* address in Amazon's **Personal Document Settings**.
 
-Then use **⋮ → Send to…** on any book or series.
+Then use **⋮ → Send to…** to pick a saved e-reader or enter a one-time email address. Kindle accepts EPUB, PDF, DOCX, RTF, and TXT. If a book exceeds your mail provider's attachment limit, use a reading link.
+
+### Browser annotations
+
+Open an EPUB, PDF, or comic to read it in the browser. Progress and bookmarks follow your account. Select text in an EPUB to highlight it, or select **Highlight an area** in a PDF or comic and drag over the page. Open **Contents & annotations** to revisit highlights or add notes.
+
+Turn on **Parallel reading** in the reader settings to open a second part of the same book. Each pane scrolls independently. Use the second pane’s chapter selector or page field to jump elsewhere while the main pane keeps saving your progress.
+
+Select ebook text to highlight it, add a note, look up a word on Wiktionary, translate a passage, or search and preview Wikipedia articles. Use the reader’s bookmark button to save a location. To enable DeepL translation, set `DEEPL_AUTH_KEY` in the server environment and restart Flyleaf.
+
+Sign in to the same Flyleaf server and account on another device, then reopen the book to resume at your saved location. If you read offline in Flyleaf, your device sends its pending progress when it reconnects. A newer location saved by another device takes precedence.
 
 ### 🖼️ Profile pictures & backgrounds
 
@@ -459,7 +485,9 @@ Pictures are stored in `data/avatars` and `data/backgrounds`. Large still images
 
 - The first visit creates the **admin**. Add **guests** in *Settings → Users*. Guests can read, bookmark, highlight and keep their own progress, collections and stats, but can't change libraries, metadata or other users.
 - Per guest, set an **age restriction** (Everyone / 13+ / 17+ / 18+), **which libraries** they see, and whether they may **download**, **upload**, use **Content Finder** or create **API keys**. Everything they can't see is hidden everywhere: the app, search, OPDS and the API.
-- **Share links:** *Send to… → Copy home-network link* copies the server's address on your LAN, which works for anyone on your Wi-Fi even if you opened Flyleaf as `localhost` or through a public address. If you set a **Public URL** in *Settings → Server*, *Copy internet link* is offered too. (No home-network link is shown when Flyleaf only listens on `127.0.0.1`.)
+- **OpenID Connect:** set `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` for a confidential client, and `OIDC_BASE_URL` to Flyleaf's HTTPS origin. Register `https://your-flyleaf-host/api/oidc/callback` with the provider and restart Flyleaf. Local password sign-in remains available. In **Settings → Account**, use **Link account** to keep your existing shelves and progress when using OIDC. By default, other OIDC identities become new guests with no library access until an admin assigns it. Set `OIDC_ALLOW_SIGNUP=false` to require explicit linking.
+- **Share one book:** choose **Send to… → Share book** or use the reader's share icon to start the link at the current page or section. Set the expiration and whether the recipient gets a download button. Anyone with the link can open that book without an account. Open **Share book** again to revoke a link. The browser still receives the content it needs to display.
+- **Public and private addresses:** set **Public URL** in **Settings → Server & email** to the public IP or hostname where Flyleaf is reachable. The share dialog selects that address by default and offers available private addresses for recipients on your network. Sharing a series page requires the recipient to have their own Flyleaf account and library access.
 - To share over the internet, **port-forward** the Flyleaf port on your router, or better, put it behind **HTTPS**:
 
 ```bash

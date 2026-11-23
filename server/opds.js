@@ -14,8 +14,9 @@ const auth = require('./auth');
 const archive = require('./archive');
 const settings = require('./settings');
 const { listSeries, getSeries, seriesBooks, getBook, BOOK_SELECT, toBook } = require('./serialize');
-const { accessFilter, listsLibrary, likeArg } = require('./util');
+const { accessFilter, listsLibrary, likeArg, json } = require('./util');
 const { ORIGINAL_MIME } = require('./routes/books');
+const { seriesQuery } = require('./routes/series');
 
 const router = express.Router();
 
@@ -115,14 +116,15 @@ router.get('/:key', (req, res) => {
     navEntry('recent', 'Recently added', `${b}/recent`, 'Newest series'),
     navEntry('libraries', 'Libraries', `${b}/libraries`, 'Browse by library'),
     navEntry('collections', 'Collections', `${b}/collections`, 'Your collections'),
+    navEntry('magic-shelves', 'Magic Shelves', `${b}/magic-shelves`, 'Your saved filters'),
     navEntry('all', 'All series', `${b}/all`, 'Everything, A–Z'),
   ];
   send(res, feed(req, { id: 'root', title: 'Flyleaf', entries, up: false }));
 });
 
-function seriesFeed(req, res, { id, title, where = [], args = [], sort }) {
+function seriesFeed(req, res, { id, title, ...filters }) {
   const page = Math.max(Number(req.query.page) || 0, 0);
-  const { items, hasMore } = listSeries(req.user, { where, args, sort, limit: PAGE_SIZE, offset: page * PAGE_SIZE });
+  const { items, hasMore } = listSeries(req.user, { ...filters, limit: PAGE_SIZE, offset: page * PAGE_SIZE });
   const u = new URL(req.originalUrl, 'http://x');
   u.searchParams.set('page', String(page + 1));
   send(res, feed(req, { id, title, entries: items.map((s) => seriesEntry(req, s)), next: hasMore ? u.pathname + u.search : null }));
@@ -157,6 +159,20 @@ router.get('/:key/collections/:id', (req, res) => {
     where: ['s.id IN (SELECT series_id FROM collection_items WHERE collection_id = ?)'],
     args: [Number(req.params.id)],
   });
+});
+
+const magicShelves = (user) => q('SELECT id, name FROM smart_filters WHERE user_id = ? ORDER BY position, id').all(user.id);
+const magicShelf = (req) => q('SELECT id, name, filter FROM smart_filters WHERE user_id = ? AND id = ?').get(req.user.id, Number(req.params.id));
+
+router.get('/:key/magic-shelves', (req, res) => {
+  const entries = magicShelves(req.user).map((s) => navEntry(`magic-shelf:${s.id}`, s.name, `${req.base}/magic-shelves/${s.id}`));
+  send(res, feed(req, { id: 'magic-shelves', title: 'Magic Shelves', entries }));
+});
+
+router.get('/:key/magic-shelves/:id', (req, res) => {
+  const shelf = magicShelf(req);
+  if (!shelf) return res.status(404).end();
+  seriesFeed(req, res, { id: `magic-shelf:${shelf.id}`, title: shelf.name, ...seriesQuery(req.user, json(shelf.filter, {})) });
 });
 
 router.get('/:key/on-deck', (req, res) => {
@@ -310,9 +326,9 @@ function publication2(req, book, raw) {
   };
 }
 
-function seriesFeed2(req, res, { title, where = [], args = [], sort }) {
+function seriesFeed2(req, res, { title, ...filters }) {
   const page = Math.max(Number(req.query.page) || 0, 0);
-  const { items, hasMore, total } = listSeries(req.user, { where, args, sort, limit: PAGE_SIZE, offset: page * PAGE_SIZE });
+  const { items, hasMore, total } = listSeries(req.user, { ...filters, limit: PAGE_SIZE, offset: page * PAGE_SIZE });
   const u = new URL(req.originalUrl, 'http://x');
   u.searchParams.set('page', String(page + 1));
   const prefix = (s) => (req.user.prefs.opdsEmbedProgress ? progressMark(s.progress) : '');
@@ -335,6 +351,7 @@ router.get('/:key/v2', (req, res) => {
       nav2('Recently added', `${b}/recent`),
       nav2('Libraries', `${b}/libraries`),
       nav2('Collections', `${b}/collections`),
+      nav2('Magic Shelves', `${b}/magic-shelves`),
       nav2('All series', `${b}/all`),
     ],
   });
@@ -361,6 +378,16 @@ router.get('/:key/v2/collections/:id', (req, res) => {
   const c = q('SELECT name FROM collections WHERE id = ? AND (user_id = ? OR promoted = 1)').get(Number(req.params.id), req.user.id);
   if (!c) return res.status(404).end();
   seriesFeed2(req, res, { title: c.name, where: ['s.id IN (SELECT series_id FROM collection_items WHERE collection_id = ?)'], args: [Number(req.params.id)] });
+});
+
+router.get('/:key/v2/magic-shelves', (req, res) => {
+  send2(req, res, { title: 'Magic Shelves', navigation: magicShelves(req.user).map((s) => nav2(s.name, `${req.base}/v2/magic-shelves/${s.id}`)) });
+});
+
+router.get('/:key/v2/magic-shelves/:id', (req, res) => {
+  const shelf = magicShelf(req);
+  if (!shelf) return res.status(404).end();
+  seriesFeed2(req, res, { title: shelf.name, ...seriesQuery(req.user, json(shelf.filter, {})) });
 });
 
 router.get('/:key/v2/on-deck', (req, res) => {

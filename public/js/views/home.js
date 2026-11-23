@@ -38,51 +38,39 @@ export async function homeView(view, params, stale) {
   const totalItems = data.libraries.reduce((a, l) => a + l.bookCount, 0);
   const totalSeries = data.libraries.reduce((a, l) => a + l.seriesCount, 0);
   const current = data.continueReading[0];
-  const actions = [
-    current && h('a.btn.filled.state', { href: `#/read/${current.id}`, title: t('Continue {title}', { title: current.series || current.title }) },
-      icon('play_arrow', 'filled'), h('span.btn-label', t('Continue reading'))),
-    h(`a.btn.${current ? 'tonal' : 'filled'}.state`, { href: '#/library' }, icon('local_library'), t('Browse library')),
-  ];
   const progress = Math.round(Math.max(0, Math.min(1, Number(current?.progress?.percent) || 0)) * 100);
-  const spotlight = current ? h('a.reading-spotlight.state', { href: `#/read/${current.id}`, 'aria-label': t('Continue {title}', { title: current.series || current.title }) },
-    h('div.spotlight-art', cover(catalogPrefs(session.user).showCovers ? current : { ...current, coverUrl: null }, { showProgress: false })),
-    h('div.spotlight-info',
-      h('span.spotlight-kicker', icon('auto_stories'), t('On your bedside table')),
-      h('h2', current.series || current.title),
-      h('p', current.series && current.label !== current.series ? current.label : current.author || ''),
-      h('div.spotlight-progress',
+  const currentTitle = current?.series || current?.title;
+  const currentDetail = current && (current.series && current.label !== current.series ? current.label : current.author);
+  const continueLink = current && h('a.btn.filled.state', { href: `#/read/${current.id}`, 'aria-label': t('Continue {title}', { title: currentTitle }) },
+    icon('play_arrow', 'filled'), t('Continue reading'));
+  const browseLink = h(`a.btn.${current ? 'text' : 'filled'}.state`, { href: '#/library' }, icon('local_library'), t('Browse library'));
+  const spotlight = h('section.home-feature', { hidden: !layout.hero, class: current ? 'has-book' : '' },
+    current && h('div.home-feature-cover', cover(catalogPrefs(session.user).showCovers ? current : { ...current, coverUrl: null }, { showProgress: false, eager: true })),
+    h('div.home-feature-body',
+      current && h('div.home-feature-label', icon('auto_stories'), t('Currently reading')),
+      h('h2', current?.seriesId ? h('a', { href: `#/series/${current.seriesId}` }, currentTitle) : currentTitle || t('Your library')),
+      currentDetail && h('p', currentDetail),
+      current && h('div.home-feature-progress',
         h('div.progress', { role: 'progressbar', 'aria-label': t('Reading progress'), 'aria-valuenow': progress, 'aria-valuemin': 0, 'aria-valuemax': 100 }, h('span', { style: { width: `${progress}%` } })),
         h('span', t('{percent}% read', { percent: progress }))),
-      h('span.spotlight-resume', t('Pick up where you left off'), icon('arrow_forward'))))
-    : h('div.reading-invitation', icon('auto_stories'), h('span', t('There is a story for every mood.')));
+      h('div.home-feature-actions', continueLink, browseLink)));
+  const shortcuts = h('nav.home-links', { 'aria-label': t('Reading shortcuts'), hidden: !layout.shortcuts },
+    [
+      ['bookmark_heart', t('Want to read'), '#/want-to-read'],
+      ['format_list_numbered', t('Reading lists'), '#/reading-lists'],
+      ['collections_bookmark', t('Collections'), '#/collections'],
+      ['bedtime', t('Fits tonight'), '#/tonight'],
+      ['edit_note', t('Reading journal'), '#/journal'],
+      ['insights', t('Reading stats'), '#/stats'],
+    ].map(([ic, title, href]) => h('a.home-link.state', { href }, icon(ic), h('span', title), icon('chevron_right'))));
   page.append(
-    h('div.home-welcome',
-      h('span', t('{greeting}, {name}', { greeting: greet, name: session.user.displayName })),
-      button(t('Customize home'), { variant: 'text', icon: 'dashboard_customize', onclick: customizeHome }),
-      h('span.home-date', new Date().toLocaleDateString(currentLanguage(), { weekday: 'long', month: 'long', day: 'numeric' }))),
-    h('section.hero.home-hero.enter',
-      h('div.hero-text',
-        h('div.hero-eyebrow', icon('local_library'), t('Your personal reading room')),
-        h('h1', t('Your next chapter starts here.')),
-        h('p', current ? t('A familiar story, or a new favourite. Make a little time for yourself.') : t('Your library is ready when you are.')),
-        h('div.hero-actions', actions.filter(Boolean)),
-        h('div.home-library-count',
-          plural(totalSeries, '{n} series', '{n} series'), h('span', { 'aria-hidden': 'true' }, ' / '),
-          plural(totalItems, '{n} book', '{n} books'), scan)),
-      spotlight),
-    h('nav.home-shortcuts', { 'aria-label': t('Reading shortcuts') },
-      [
-        ['bookmark_heart', t('Want to read'), t('Your next great read'), '#/want-to-read'],
-        ['format_list_numbered', t('Reading lists'), t('A story in the right order'), '#/reading-lists'],
-        ['collections_bookmark', t('Collections'), t('Your shelves, your way'), '#/collections'],
-        ['bedtime', t('Fits tonight'), t('A story for the time you have'), '#/tonight'],
-        ['edit_note', t('Reading journal'), t('Keep what stays with you'), '#/journal'],
-        ['insights', t('Reading stats'), t('A little progress, every day'), '#/stats'],
-      ].map(([ic, title, sub, href]) => h('a.home-shortcut.state', { href },
-        h('span.shortcut-icon', icon(ic)), h('div', h('span.shortcut-title', title), h('span.shortcut-sub', sub)), icon('arrow_outward')))),
+    h('header.home-heading', h('div',
+      h('p.home-today', new Date().toLocaleDateString(currentLanguage(), { weekday: 'long', month: 'long', day: 'numeric' })),
+      h('h1', t('{greeting}, {name}', { greeting: greet, name: session.user.displayName })),
+      h('div.home-totals', plural(totalSeries, '{n} series', '{n} series'), h('span', { 'aria-hidden': 'true' }, '·'), plural(totalItems, '{n} book', '{n} books'), scan)),
+    button(t('Customize home'), { variant: 'outlined', icon: 'dashboard_customize', onclick: customizeHome })),
+    h('div.home-overview', { hidden: !layout.hero && !layout.shortcuts, class: layout.hero && layout.shortcuts ? 'has-shortcuts' : '' }, spotlight, shortcuts),
   );
-  page.querySelector('.home-hero').hidden = !layout.hero;
-  page.querySelector('.home-shortcuts').hidden = !layout.shortcuts;
   // Streak, this week, yearly goal: filled in when the stats arrive.
   const glance = h('section.glance', { hidden: true });
   if (!layout.hidden.includes('glance')) api.stats(7).then((s) => glance.isConnected && fillGlance(glance, s, data)).catch(() => {});

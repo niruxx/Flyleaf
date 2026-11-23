@@ -20,11 +20,35 @@ export async function apiPanel(panel, stale) {
   const [me, collections] = await Promise.all([api.me(), api.collections()]);
   if (stale()) return;
   const user = me.user || me;
-  const koboShelf = field(t('Kobo shelf'), { value: user.prefs?.koboCollectionId || '', options: [
+  let savedShelf = user.prefs?.koboCollectionId || '';
+  const koboShelf = field(t('Kobo shelf'), { value: savedShelf, options: [
     { value: '', label: t('Sync disabled') }, ...collections.filter((c) => c.owned).map((c) => ({ value: c.id, label: c.name }))] });
+  const autoAddLabel = t('Add new EPUBs to the Kobo shelf');
+  const autoAdd = toggleSwitch(user.prefs?.koboAutoAdd === true, async (on) => {
+    autoAddInput.disabled = true;
+    try { await api.savePrefs({ koboAutoAdd: on }); } catch (err) {
+      autoAddInput.checked = !on;
+      snackbar(err.message);
+    } finally {
+      autoAddInput.disabled = !koboShelf.input.value;
+    }
+  }, autoAddLabel);
+  const autoAddInput = autoAdd.querySelector('input');
+  autoAddInput.disabled = !koboShelf.input.value;
   koboShelf.input.addEventListener('change', async () => {
-    await api.savePrefs({ koboCollectionId: koboShelf.input.value ? Number(koboShelf.input.value) : null });
-    snackbar(t('Kobo shelf updated'));
+    const id = koboShelf.input.value ? Number(koboShelf.input.value) : null;
+    koboShelf.input.disabled = autoAddInput.disabled = true;
+    try {
+      await api.savePrefs({ koboCollectionId: id });
+      savedShelf = id || '';
+      snackbar(t('Kobo shelf updated'));
+    } catch (error) {
+      koboShelf.input.value = savedShelf;
+      snackbar(error.message);
+    } finally {
+      koboShelf.input.disabled = false;
+      autoAddInput.disabled = !koboShelf.input.value;
+    }
   });
 
   panel.append(
@@ -43,6 +67,7 @@ export async function apiPanel(panel, stale) {
       codeBlock(`${base}/kosync`),
       h('p', t('KOReader matches original files by checksum. Page-based books sync both ways. Ebook imports resume by percentage in Flyleaf; returning to KOReader uses the nearest native position it has previously sent.')),
       koboShelf,
+      row('playlist_add', autoAddLabel, t('Includes newly scanned EPUBs from libraries you can access.'), autoAdd),
       h('p', t('Kobo sync is experimental. Only EPUBs in your selected collection sync. Set api_endpoint in the Kobo configuration to this URL, using a full-access key:')),
       codeBlock(`${base}/kobo/<full-access-key>`),
     )),

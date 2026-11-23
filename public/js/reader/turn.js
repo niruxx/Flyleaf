@@ -36,7 +36,9 @@ function copyOf(el) {
   return el.cloneNode(true);
 }
 
-const pagesOf = (wrap) => [...(wrap?.children || [])].filter((e) => e.matches('img, canvas'));
+const pagesOf = (wrap) => [...(wrap?.children || [])]
+  .map((el) => el.classList.contains('annotated-page') ? el.firstElementChild : el)
+  .filter((el) => el.matches('img, canvas'));
 
 /**
  * Turn from the spread on screen (`oldWrap`, already out of the page) to `newWrap` (in place).

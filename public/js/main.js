@@ -53,7 +53,9 @@ route('/activity', (...a) => import('./views/activity.js').then(m => m.activityV
 route('/settings/:tab?', settingsView);
 route('/admin/users/:id/files', (...a) => import('./views/settings-admin.js').then((m) => m.userFilesView(...a)));
 route('/admin/duplicates', (...a) => import('./views/settings-admin.js').then((m) => m.duplicatesView(...a)));
+route('/admin/book-drop', (...a) => import('./views/book-drop.js').then((m) => m.bookDropView(...a)));
 route('/read/:id', readerView, { bare: true });
+route('/shared/:token', readerView, { bare: true, auth: false });
 // Old links from v1.
 route('/book/:id', async (view, params) => {
   const b = await api.book(params.id).catch(() => null);
@@ -104,13 +106,19 @@ async function boot() {
     initShell({ again: true });
   }
   const hash = location.hash.replace(/^#/, '');
-  if (status.needsSetup) {
+  const path = hash.split('?')[0];
+  if (hash.startsWith('/shared/')) {
+    render();
+    return;
+  } else if (status.needsSetup) {
     history.replaceState(null, '', '#/setup');
-  } else if (!status.user && hash !== '/login' && !(hash === '/register' && status.registration)) {
+  } else if (!status.user && path !== '/login' && !(path === '/register' && status.registration)) {
     sessionStorage.setItem('flyleaf.after-login', hash);
     history.replaceState(null, '', '#/login');
-  } else if (status.user && (!hash || hash === '/login' || hash === '/setup' || hash === '/register')) {
-    history.replaceState(null, '', `#${startPage(status.user)}`);
+  } else if (status.user && (!hash || ['/login', '/setup', '/register'].includes(path))) {
+    const next = sessionStorage.getItem('flyleaf.after-login');
+    sessionStorage.removeItem('flyleaf.after-login');
+    history.replaceState(null, '', `#${next?.startsWith('/') && !['/login', '/setup', '/register'].includes(next.split('?')[0]) ? next : startPage(status.user)}`);
   }
   if (session.user) afterSignIn();
   render();

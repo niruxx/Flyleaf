@@ -101,7 +101,7 @@ function browse(kind) {
         if (!shelf) return page.append(emptyState('search_off', t('Shelf not found'), t('It may have been deleted.')));
         const f = shelf.filter;
         for (const k of ['library', 'kind', 'tag', 'userTag', 'person', 'want', 'collection', 'q']) if (f[k] != null) fixed[k] = f[k];
-        initial = { read: f.read || '', status: f.status || '', userStatus: f.userStatus || '', genres: f.genre || [], sort: f.sort };
+        initial = { read: f.read || '', status: f.status || '', userStatus: f.userStatus || '', genres: f.genre || [], text: f.text || '', sort: f.sort };
         title = shelf.name;
         sub = describeFilter(f);
         headActions.push(iconButton('edit', t('Edit shelf'), () => editShelf(shelf)));
@@ -158,6 +158,7 @@ function browse(kind) {
       status: initial.status || '',
       userStatus: initial.userStatus || '',
       genres: initial.genres || [],
+      text: initial.text || '',
       offset: 0,
       ...restored?.state,
     };
@@ -226,6 +227,28 @@ function browse(kind) {
       genreChip.setAttribute('aria-pressed', String(state.genres.length > 0));
     };
     updateGenreChip();
+    const bookText = field(t('Text inside books'), { type: 'search', value: state.text, maxlength: 200 });
+    const resetFilters = button(t('Clear filters'), { variant: 'text', icon: 'filter_alt_off', onclick: clearFilters });
+    function clearFilters() {
+      Object.assign(state, { read: '', status: '', userStatus: '', genres: [], text: '' });
+      for (const [i, item] of [...readRow.children].entries()) item.setAttribute('aria-pressed', String(!READ_FILTERS[i].value));
+      for (const [chip, label] of [[statusChip, t('Publication')], [userStatusChip, t('My status')]]) {
+        chip.firstChild.textContent = label;
+        chip.setAttribute('aria-pressed', 'false');
+      }
+      updateGenreChip();
+      bookText.input.value = '';
+      load().catch((error) => snackbar(error.message));
+    }
+    function applyBookText(e) {
+      e.preventDefault();
+      const text = bookText.input.value.trim();
+      if (text === state.text) return;
+      state.text = text;
+      load().catch((error) => snackbar(error.message));
+    }
+    const textFilter = h('form.library-filter-options.book-text-filter', { onsubmit: applyBookText },
+      bookText, button(t('Apply'), { type: 'submit', variant: 'tonal' }));
     // The current choices as a saved query (what GET /series takes).
     const currentFilter = () => ({
       ...fixed,
@@ -233,12 +256,17 @@ function browse(kind) {
       status: state.status || undefined,
       userStatus: state.userStatus || undefined,
       genre: fixed.genre ? [fixed.genre, ...state.genres] : state.genres,
+      text: state.text || undefined,
       sort: state.sort,
     });
     const saveShelf = shelf
       ? iconButton('save', t('Save these filters to the shelf'), async () => {
-        await api.updateSmartFilter(shelf.id, { filter: { ...currentFilter(), genre: state.genres } });
-        snackbar(t('Shelf updated'));
+        try {
+          await api.updateSmartFilter(shelf.id, { filter: { ...currentFilter(), genre: state.genres } });
+          snackbar(t('Shelf updated'));
+        } catch (e) {
+          snackbar(e.message);
+        }
       })
       : iconButton('bookmark_add', t('Save as a shelf on Home'), () => newShelf(currentFilter(), title));
     // The label is its own node: clicks append a ripple, so lastChild isn't the text.
@@ -259,10 +287,10 @@ function browse(kind) {
     );
     const count = h('span.label-large.muted');
     const filterText = h('span', t('Filters'));
-    const filters = h('details.library-filters', { open: restored?.filtersOpen ?? Boolean(state.status || state.userStatus || state.genres.length) },
+    const filters = h('details.library-filters', { open: restored?.filtersOpen ?? Boolean(state.status || state.userStatus || state.genres.length || state.text) },
       h('summary', icon('tune'), filterText, icon('expand_more')),
-      h('div.library-filter-options', statusChip, userStatusChip, kind !== 'genre' && genreChip));
-    page.append(h('div.library-controls', h('div.toolbar.enter', readRow, h('div.spacer'), count, sortBtn, saveShelf), filters));
+      h('div.library-filter-panel', h('div.library-filter-options', statusChip, userStatusChip, kind !== 'genre' && genreChip, resetFilters), textFilter));
+    page.append(h('div.library-controls', h('div.toolbar.enter', readRow, h('div.spacer'), sortBtn, saveShelf), filters));
 
     // A–Z jump bar, shown while sorted by title.
     const letterBar = h('nav.letter-bar.enter', { 'aria-label': t('Jump to letter') },
@@ -317,9 +345,12 @@ function browse(kind) {
       } }));
     function updateSelection() { selectionCount.textContent = t('{count} selected', { count: selected.size }); }
     const selectButton = button(t('Select series'), { variant: 'text', icon: 'checklist', onclick: () => {
-      selecting = !selecting; selectionBar.hidden = !selecting; selected.clear(); updateSelection(); load(true);
-    } });
-    page.append(selectButton, selectionBar);
+      selecting = !selecting; selectionBar.hidden = !selecting; selectButton.setAttribute('aria-pressed', String(selecting));
+      selected.clear(); updateSelection(); load(true);
+    }, 'aria-pressed': 'false' });
+    const resultsBar = h('div.library-results-bar', count, selectButton);
+    count.setAttribute('aria-live', 'polite');
+    page.append(resultsBar, selectionBar);
     function card(s) {
       const content = seriesCard(s, { onChange: () => load(true) });
       if (!selecting) return content;
@@ -342,19 +373,15 @@ function browse(kind) {
     onLeave(() => io.disconnect());
 
     const query = () => ({
-      ...fixed,
-      sort: state.sort,
+      ...currentFilter(),
       letter: state.letter || undefined,
-      read: state.read,
-      status: state.status,
-      userStatus: state.userStatus,
-      genre: fixed.genre ? [fixed.genre, ...state.genres] : state.genres,
       limit: PAGE,
     });
 
     async function load(quiet = false) {
-      const activeFilters = Number(Boolean(state.status)) + Number(Boolean(state.userStatus)) + state.genres.length;
+      const activeFilters = Number(Boolean(state.status)) + Number(Boolean(state.userStatus)) + state.genres.length + Number(Boolean(state.text));
       filterText.textContent = activeFilters ? t('Filters ({n})', { n: activeFilters }) : t('Filters');
+      resetFilters.disabled = !(activeFilters || state.read);
       const id = ++reqId;
       state.offset = 0;
       hasMore = false;
@@ -362,7 +389,7 @@ function browse(kind) {
       const data = await api.seriesList(query());
       if (id !== reqId || stale()) return;
       results.replaceChildren();
-      count.textContent = data.items.length ? t('{length}{value} series', { length: data.items.length, value: data.hasMore ? '+' : '' }) : '';
+      count.textContent = t('{length}{value} series', { length: data.items.length, value: data.hasMore ? '+' : '' });
       if (!state.offset && !banner.dataset.art) {
         banner.dataset.art = '1';
         if (catalog.showCovers) banner.setArt(data.items.filter((s) => !s.blur).map((s) => s.coverUrl));
@@ -386,8 +413,10 @@ function browse(kind) {
     }
 
     const noResults = () => {
-      if (state.letter) return emptyState('sort_by_alpha', t('Nothing under “{letter}”', { letter: state.letter }), t('Pick another letter, or All.'));
-      if (state.read || state.status || state.userStatus || state.genres.length) return emptyState('filter_alt_off', t('No matches'), t('Try removing some filters.'));
+      if (state.letter) return emptyState('sort_by_alpha', t('Nothing under “{letter}”', { letter: state.letter }), t('Pick another letter, or All.'),
+        button(t('Show all'), { variant: 'tonal', onclick: () => pickLetter('') }));
+      if (state.read || state.status || state.userStatus || state.genres.length || state.text) return emptyState('filter_alt_off', t('No matches'), t('Try removing some filters.'),
+        button(t('Clear filters'), { variant: 'tonal', icon: 'filter_alt_off', onclick: clearFilters }));
       switch (kind) {
         case 'want':
           return emptyState('bookmark_heart', t('Nothing saved yet'), t('Use “Want to read” on any series to save it here.'));
@@ -461,6 +490,7 @@ const READ_LABEL = { get unread() { return t('Unread'); }, get reading() { retur
 function describeFilter(f) {
   return [
     f.q && `“${f.q}”`,
+    f.text && t('Book text: {text}', { text: f.text }),
     f.want && t('Want to read'),
     f.person,
     f.userTag && `#${f.userTag}`,
@@ -481,7 +511,7 @@ async function shelfFields(s) {
 async function newShelf(filter, title) {
   const hasFilter = Object.entries(filter).some(([k, v]) => k !== 'sort' && v != null && v !== '' && !(Array.isArray(v) && !v.length));
   if (!hasFilter) return snackbar(t('Pick some filters first – unread, a status or genres – then save them as a shelf.'), { duration: 5000 });
-  const suggested = [title !== 'All series' ? title : null, READ_LABEL[filter.read], STATUS_LABEL[filter.status], filter.genre?.length ? filter.genre.slice(0, 2).join(' & ') : null].filter(Boolean).join(' · ');
+  const suggested = [title !== 'All series' ? title : null, READ_LABEL[filter.read], STATUS_LABEL[filter.status], filter.genre?.length ? filter.genre.slice(0, 2).join(' & ') : null, filter.text].filter(Boolean).join(' · ');
   const f = await shelfFields({ name: suggested.slice(0, 80), onHome: true, inDrawer: true });
   let created = null;
   await formDialog({

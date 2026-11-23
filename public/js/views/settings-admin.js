@@ -12,6 +12,7 @@ import { scanIndicator } from './scan.js';
 import { movePersonalFolderDialog } from '../components/storage-migration.js';
 import { storageNotice } from '../components/library-storage.js';
 import { rescanFinderLinks } from '../components/finder-links.js';
+import { shareAddressField } from '../components/book-sharing.js';
 
 const KIND_ICON = { books: 'menu_book', manga: 'auto_stories', comics: 'photo_library' };
 const KIND_OPTIONS = [
@@ -107,6 +108,7 @@ export async function librariesPanel(panel, stale) {
       button(t('Add library'), { icon: 'create_new_folder', onclick: () => libraryDialog(null, providers) }),
       button(t('Scan all'), { variant: 'text', icon: 'sync', onclick: async () => { await api.scanAll(); snackbar(t('Scanning all libraries…')); } }),
       button(t('Find duplicates'), { variant: 'text', icon: 'content_copy', onclick: () => navigate('/admin/duplicates') }),
+      button(t('BookDrop'), { variant: 'text', icon: 'move_to_inbox', onclick: () => navigate('/admin/book-drop') }),
       scanIndicator(() => {
         refreshShell();
         reload('libraries');
@@ -716,10 +718,10 @@ export async function metadataPanel(panel, stale) {
 
 export async function serverPanel(panel, stale) {
   panel.append(h('h2', t('Server & email')), loading());
-  const s = await api.adminSettings();
+  const [s, shareInfo] = await Promise.all([api.adminSettings(), api.shareInfo().catch(() => ({}))]);
   if (stale()) return;
   panel.lastChild.remove();
-  const publicUrl = field(t('Public URL'), { value: s.publicUrl || '', type: 'url', support: t('How people reach Flyleaf from outside, e.g. https://books.example.com – used for OPDS links.') });
+  const publicUrl = field(t('Public URL'), { value: s.publicUrl || '', type: 'url', support: t('Public IP or hostname, such as https://books.example.com. Used for share and OPDS links.') });
   const opds = h('input', { type: 'checkbox', checked: s.opdsEnabled !== false });
   const host = field(t('SMTP host'), { value: s.smtp.host });
   const port = field(t('Port'), { value: s.smtp.port, type: 'number' });
@@ -756,7 +758,7 @@ export async function serverPanel(panel, stale) {
     h('div.sub-head', t('Storage')),
     storageGroup(),
     h('div.sub-head', t('Sign-up')),
-    registrationGroup(s),
+    registrationGroup(s, { public: s.publicUrl, ...shareInfo }),
     h('p.note', t('Run as a service with install.sh, and see the README for HTTPS reverse-proxy examples. Logs live in data/logs/flyleaf.log.')),
   );
 }
@@ -790,7 +792,7 @@ function storageGroup() {
 }
 
 /** Let people create their own accounts (for a publicly hosted Flyleaf). */
-function registrationGroup(s) {
+function registrationGroup(s, shareInfo) {
   const reg = { enabled: false, inviteCode: '', sharedLibraries: 'all', permissions: null, ...(s.registration || {}) };
   const enabled = h('input', { type: 'checkbox', checked: reg.enabled });
   const invite = field(t('Invite code'), { value: reg.inviteCode || '', autocomplete: 'off', support: t('Optional, but recommended on a public server: only people you give the code to can sign up. Leave empty to let anyone sign up.') });
@@ -809,17 +811,20 @@ function registrationGroup(s) {
     input.dataset.key = p.key;
     return h('label.perm-row', icon(p.icon), h('div', h('div.body-large', p.label), h('div.body-small.muted', p.sub)), input);
   });
-  const base = (s.publicUrl || location.origin).replace(/\/+$/, '');
-  const link = `${base}/#/register`;
+  const address = shareAddressField(shareInfo);
+  const link = () => `${address.input.value.replace(/\/+$/, '')}/#/register`;
+  const url = h('span.mono', link());
+  address.input.addEventListener('change', () => (url.textContent = link()));
   const details = h('div', { hidden: !reg.enabled },
     invite, h('div', { style: { margin: '-4px 0 8px' } }, generate),
     shared,
     h('p.label-large', { style: { margin: '12px 0 4px' } }, t('What new accounts can do')),
     h('div.perm-list', permRows),
     h('p.body-small.muted', { style: { marginTop: '8px' } }, t('You can change any account later in Settings → Users.')),
+    address,
     h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '12px' } },
-      h('span.body-medium', t('Sign-up link: '), h('span.mono', link)),
-      button(t('Copy'), { variant: 'text', icon: 'content_copy', onclick: () => copyText(link) })),
+      h('span.body-medium', t('Sign-up link: '), url),
+      button(t('Copy'), { variant: 'text', icon: 'content_copy', onclick: () => copyText(link()) })),
   );
   enabled.addEventListener('change', () => (details.hidden = !enabled.checked));
   const err = h('div');

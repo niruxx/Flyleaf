@@ -374,8 +374,16 @@ const comicvine = {
 // ---------------------------------------------------------------------------
 // Open Library (books, no key)
 
+const OPEN_LIBRARY_FIELDS = 'key,title,author_name,first_publish_year,cover_i,subject,publisher,ratings_average,ratings_count';
+
+function externalRating(average, count, source) {
+  if (!Number.isFinite(average) || average < 1 || average > 5) return null;
+  return { average, count: Number.isSafeInteger(count) && count > 0 ? count : null, source };
+}
+
 function fromOpenLibrary(d, work) {
   const desc = work?.description;
+  const coverId = d.cover_i > 0 ? d.cover_i : work?.covers?.find((id) => id > 0);
   return {
     provider: 'openlibrary',
     id: d.key.replace('/works/', ''),
@@ -383,6 +391,7 @@ function fromOpenLibrary(d, work) {
     altTitles: [],
     localizedName: null,
     summary: typeof desc === 'string' ? desc : desc?.value || null,
+    externalRating: externalRating(d.ratings_average, d.ratings_count, 'Open Library'),
     status: 'completed',
     year: d.first_publish_year || null,
     genres: (d.subject || work?.subjects || []).slice(0, 8),
@@ -391,8 +400,8 @@ function fromOpenLibrary(d, work) {
     publisher: d.publisher?.[0] || null,
     ageRating: null,
     links: [{ source: 'Open Library', url: `https://openlibrary.org${d.key}` }],
-    coverUrl: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-L.jpg` : null,
-    thumbUrl: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : null,
+    coverUrl: coverId ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg` : null,
+    thumbUrl: coverId ? `https://covers.openlibrary.org/b/id/${coverId}-M.jpg` : null,
     format: 'Book',
     volumes: null,
     chapters: null,
@@ -404,14 +413,14 @@ const openlibrary = {
   name: 'Open Library',
   kinds: ['books'],
   async search(query) {
-    const fields = 'key,title,author_name,first_publish_year,cover_i,subject,publisher';
-    const data = await http('OpenLibrary', 400, `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=12&fields=${fields}`);
+    const data = await http('OpenLibrary', 400, `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=12&fields=${OPEN_LIBRARY_FIELDS}`);
     return (data.docs || []).map((d) => fromOpenLibrary(d));
   },
   async details(id) {
     const work = await http('OpenLibrary', 400, `https://openlibrary.org/works/${encodeURIComponent(id)}.json`);
-    const search = await http('OpenLibrary', 400, `https://openlibrary.org/search.json?q=key:/works/${encodeURIComponent(id)}&fields=key,title,author_name,first_publish_year,cover_i,subject,publisher`);
-    const doc = search.docs?.[0] || { key: `/works/${id}`, title: work.title, cover_i: work.covers?.[0] };
+    const key = work.key || `/works/${id}`;
+    const search = await http('OpenLibrary', 400, `https://openlibrary.org/search.json?q=${encodeURIComponent(`key:${key}`)}&fields=${OPEN_LIBRARY_FIELDS}`).catch(() => null);
+    const doc = search?.docs?.find((d) => d.key === key) || { key, title: work.title };
     return fromOpenLibrary(doc, work);
   },
 };
@@ -430,6 +439,7 @@ function fromGoogle(item) {
     altTitles: [],
     localizedName: null,
     summary: stripHtml(v.description),
+    externalRating: externalRating(v.averageRating, v.ratingsCount, 'Google Books'),
     status: 'completed',
     year: v.publishedDate ? Number(v.publishedDate.slice(0, 4)) || null : null,
     genres: v.categories || [],
@@ -437,7 +447,7 @@ function fromGoogle(item) {
     people: (v.authors || []).map((name) => ({ name, role: 'Writer' })),
     publisher: v.publisher || null,
     ageRating: v.maturityRating === 'MATURE' ? 3 : null,
-    links: v.infoLink ? [{ source: 'Google Books', url: https(v.infoLink) }] : [],
+    links: [{ source: 'Google Books', url: https(v.canonicalVolumeLink || v.infoLink) || `https://books.google.com/books?id=${encodeURIComponent(item.id)}` }],
     coverUrl: https(img) || null,
     thumbUrl: https(v.imageLinks?.thumbnail) || null,
     format: 'Book',

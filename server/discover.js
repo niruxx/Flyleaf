@@ -78,7 +78,7 @@ async function compute(user, opts, imager) {
   const owned = ownedTitles(user);
   const found = new Map();
   for (const res of results) {
-    if (!res?.r?.items) continue;
+    if (!Array.isArray(res?.r?.items)) continue;
     const img = await imager(res.src.id).catch(() => (u) => u);
     res.r.items.slice(0, 12).forEach((raw, rank) => {
       if (!raw || raw.id == null || raw.folder) return;
