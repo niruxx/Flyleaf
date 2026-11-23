@@ -455,7 +455,8 @@ router.get('/books/:id/cover', (req, res) => {
 async function readerFile(req, res, book, cache = 'private, max-age=86400') {
   if (isDirBook(book)) return res.status(400).json({ error: 'Not a single file.' });
   let file = book.path;
-  if (formats.CONVERTIBLE.has(book.format)) file = await formats.toEpub(book.path, book.format, book.title);
+  if (formats.CONVERTIBLE.has(book.format)) file = await formats.toEpub(book.path, book.format, book.title,
+    req.user ? { userId: req.user.id, libraryId: book.library_id } : undefined);
   res.set('Cache-Control', cache);
   res.type(FILE_MIME[book.format] || 'application/octet-stream');
   res.sendFile(file, { dotfiles: 'allow' }, (err) => err && !res.headersSent && res.status(404).end());

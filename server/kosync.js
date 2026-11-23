@@ -88,6 +88,7 @@ router.put('/syncs/progress', async (req, res) => {
   anchors.push({ percentage: b.percentage, progress: b.progress });
   sync.store(req.user, 'kosync', document, book.id, { progress: b.progress, percentage: b.percentage,
     device: String(b.device || '').slice(0, 200), device_id: String(b.device_id || '').slice(0, 200), anchors: anchors.slice(-500) }, now);
+  require('./tasks').record('device-sync', `KOReader · ${book.title}`, { userId: req.user.id, libraryId: book.library_id });
   res.json({ document, timestamp: Math.floor(now / 1000) });
 });
 

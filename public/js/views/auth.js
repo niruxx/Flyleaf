@@ -172,8 +172,12 @@ export function setupView(view) {
 }
 
 export function loginView(view, params) {
+  const oidcChallenge = params.query.get('oidc') === 'authenticator';
   const user = field(t('Username or email'), { autocomplete: 'username', required: true, autocapitalize: 'none', autocorrect: 'off', spellcheck: 'false' });
   const pass = field(t('Password'), { type: 'password', autocomplete: 'current-password', required: true });
+  const code = field(t('Authenticator code'), { inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: 6 });
+  code.hidden = !oidcChallenge;
+  code.input.required = oidcChallenge;
   const err = h('div');
   if (params.query.get('oidc') === 'failed') err.append(formError(t('OpenID Connect sign-in failed. Try again or sign in with your password.')));
   const submit = button(t('Sign in'), { type: 'submit', icon: 'login' });
@@ -188,7 +192,8 @@ export function loginView(view, params) {
         submit.disabled = true;
         submit.classList.add('busy');
         try {
-          const { user: u } = await api.login({ username: user.input.value.trim(), password: pass.input.value });
+          const value = code.input.value.trim();
+          const { user: u } = oidcChallenge ? await api.finishOidc(value) : await api.login({ username: user.input.value.trim(), password: pass.input.value, code: value });
           session.user = u;
           root.classList.add('leaving');
           afterSignIn();
@@ -199,26 +204,29 @@ export function loginView(view, params) {
           fail(err, e2.message, root.querySelector('.auth-card'));
           submit.disabled = false;
           submit.classList.remove('busy');
-          pass.input.select();
+          if (e2.status === 428 || !code.hidden) { code.hidden = false; code.input.select(); code.input.focus(); }
+          else pass.input.select();
         }
       },
     },
     err,
-    user,
-    pass,
-    capsHint(pass),
+    !oidcChallenge && user,
+    !oidcChallenge && pass,
+    !oidcChallenge && capsHint(pass),
+    code,
     submit,
   );
   // "Create an account" only when the admin has turned sign-up on.
   const signup = h('div.auth-alt');
+  if (oidcChallenge) signup.append(h('a', { href: '#/login' }, t('Back to sign in')));
   api.status().then((st) => {
     if (st.oidc) signup.append(h('a.btn.tonal', { href: st.oidc }, icon('key'), t('Sign in with OpenID Connect')), h('br'));
     if (st.registration) signup.append(h('span.muted', `${t('New here?')} `), h('a', { href: '#/register' }, t('Create an account')));
   }).catch(() => {});
-  root = shell(t('Welcome back'), t('Sign in to your library.'), h('div', form, signup,
+  root = shell(t('Welcome back'), oidcChallenge ? t('Enter the code from your authenticator app.') : t('Sign in to your library.'), h('div', form, signup,
     h('p.auth-fine.body-small', icon('lock'), t('You stay signed in on this device until you sign out.'))));
   view.append(root);
-  user.input.focus();
+  (oidcChallenge ? code : user).input.focus();
 }
 
 export async function registerView(view) {

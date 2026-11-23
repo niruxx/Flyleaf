@@ -4,8 +4,8 @@ import { h, icon, button, field, pageHeader, emptyState, snackbar, formatBytes, 
 import { t } from '../i18n.js';
 import { migrationStage, movePersonalFolderDialog } from '../components/storage-migration.js';
 
-const KINDS = { download: 'Download', upload: 'Upload', scan: 'Library scan', metadata: 'Metadata', index: 'Search indexing', backup: 'Backup', 'storage-migration': 'Personal folder migration', 'finder-relink': 'Content Finder source scan' };
-const ICONS = { download: 'download', upload: 'upload', scan: 'sync', metadata: 'auto_awesome', index: 'manage_search', backup: 'backup', 'storage-migration': 'drive_file_move' };
+const KINDS = { download: 'Download', upload: 'Upload', scan: 'Library scan', metadata: 'Metadata', index: 'Search indexing', backup: 'Backup', 'backup-download': 'Backup download', restore: 'Backup restore', conversion: 'Reader conversion', 'device-sync': 'Device sync', 'storage-migration': 'Personal folder migration', 'finder-relink': 'Content Finder source scan' };
+const ICONS = { download: 'download', upload: 'upload', scan: 'sync', metadata: 'auto_awesome', index: 'manage_search', backup: 'backup', 'backup-download': 'download', restore: 'restore', conversion: 'menu_book', 'device-sync': 'sync', 'storage-migration': 'drive_file_move' };
 const STATUS = { queued: 'Queued', running: 'In progress', done: 'Completed', failed: 'Failed', cancelled: 'Cancelled', retried: 'Retried' };
 export async function activityView(view, params, stale) {
   const page = h('div.page.activity-page');

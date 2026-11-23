@@ -113,10 +113,12 @@ test('OIDC binds callbacks to the initiating browser, separates identities from 
   const sessions = [];
   let count = 0;
   let subject = 'one';
+  let groups = ['flyleaf-admins'];
   const issuer = 'https://id.example.test';
   const auth = {
     requireUser: (req, res, next) => req.user ? next() : res.status(401).end(),
     hashPassword: () => 'random-password-hash',
+    toUser: (row) => ({ id: row.id }),
     createSession: (res, id) => sessions.push(id),
     destroySession() {},
   };
@@ -127,12 +129,13 @@ test('OIDC binds callbacks to the initiating browser, separates identities from 
     buildAuthorizationUrl: (config, params) => new URL('/authorize?' + new URLSearchParams(params), issuer),
     authorizationCodeGrant: (config, url, checks) => {
       exchanges.push({ url, checks });
-      return { claims: () => ({ iss: issuer, sub: subject, email: 'reader@example.test', name: 'Reader' }) };
+      return { claims: () => ({ iss: issuer, sub: subject, email: 'reader@example.test', name: 'Reader', groups }) };
     },
   };
   const { router, loginUrl } = load('server/routes/oidc.js', {
     '../db': db, '../auth': auth, '../log': { logger: () => ({ warn() {} }) }, 'openid-client': client,
-  }, { process: { env: { OIDC_ISSUER: issuer, OIDC_BASE_URL: 'https://books.example.test', OIDC_CLIENT_ID: 'app' } } });
+    './auth': { publicUser: (user) => user }, '../totp': { verify: (...args) => require('../server/totp').verify(...args, 59_000) },
+  }, { process: { env: { OIDC_ISSUER: issuer, OIDC_BASE_URL: 'https://books.example.test', OIDC_CLIENT_ID: 'app', OIDC_ADMIN_GROUP: 'flyleaf-admins' } } });
   assert.equal(loginUrl(), 'https://books.example.test/api/oidc/login');
   const start = async (user) => {
     const res = user
@@ -151,16 +154,62 @@ test('OIDC binds callbacks to the initiating browser, separates identities from 
   assert.equal(exchanges[0].checks.expectedState, attempt.state);
   assert.equal(exchanges[0].checks.pkceCodeVerifier, 'verifier');
   assert.deepEqual(sessions, [3]);
+  assert.equal(db.q('SELECT role FROM users WHERE id = 3').get().role, 'admin');
   assert.equal(db.q('SELECT library_ids FROM users WHERE id = 3').get().library_ids, '[]');
   assert.match((await callback(attempt)).destination, /oidc=failed$/);
+  groups = [];
   await callback(await start());
   assert.deepEqual(sessions, [3, 3]);
+  assert.equal(db.q('SELECT role FROM users WHERE id = 3').get().role, 'guest');
 
   const local = { id: 1 };
   subject = 'two';
+  groups = ['flyleaf-admins'];
   assert.match((await callback(await start(local), local)).destination, /oidc=linked$/);
   await callback(await start());
   assert.deepEqual(sessions, [3, 3, 1]);
+  assert.equal(db.q('SELECT role FROM users WHERE id = 1').get().role, 'guest');
+  db.q('UPDATE users SET totp_secret = ? WHERE id = 1').run('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ');
+  const secondFactor = await callback(await start());
+  assert.match(secondFactor.destination, /oidc=authenticator$/);
+  assert.deepEqual(sessions, [3, 3, 1]);
+  const finish = (cookie, code) => request(router, 'POST', '/oidc/totp', { body: { code }, headers: { origin: 'https://books.example.test', 'X-Flyleaf': '1', cookie } });
+  const cookie = secondFactor.cookies.at(-1).split(';')[0];
+  assert.equal((await finish('', '287082')).code, 410);
+  assert.equal((await finish(cookie, '000000')).code, 401);
+  assert.equal((await finish(cookie, '287082')).data.user.id, 1);
+  assert.equal((await finish(cookie, '287082')).code, 410);
+  assert.deepEqual(sessions, [3, 3, 1, 1]);
+});
+
+test('admin authenticator enrollment gates local login, rejects replay and supports recovery', async (t) => {
+  const db = database(t);
+  const auth = load('server/auth.js', { './db': db, './config': {} }, { Buffer });
+  const totp = require('../server/totp');
+  const running = [];
+  auth.createSession = (_, id) => running.push(id);
+  const password = 'test-password';
+  db.q("UPDATE users SET password_hash = ?, role = 'admin' WHERE id = 1").run(auth.hashPassword(password));
+  const user = auth.toUser(db.q('SELECT * FROM users WHERE id = 1').get());
+  let now = 59_000;
+  const { router, me } = load('server/routes/auth.js', { '../db': db, '../auth': auth, '../config': {}, '../settings': {},
+    '../totp': { ...totp, verify: (...args) => totp.verify(...args, now) } });
+  const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
+  assert.equal(totp.verify(secret, '287082', null, now), 1);
+  const configure = (action, code) => request(me, 'POST', '/totp', { user, body: { action, password, code, secret } });
+  const login = (code) => request(router, 'POST', '/login', { body: { username: 'reader', password, code } });
+  assert.equal((await configure('enable', '287082')).data.enabled, true);
+  assert.equal((await login()).code, 428);
+  assert.equal((await login('287082')).code, 401);
+  now = 1_111_111_109_000;
+  assert.equal((await login('081804')).code, 200);
+  assert.equal((await login('081804')).code, 401);
+  load('scripts/reset-password.js', { '../server/db': db, '../server/auth': auth }, {
+    process: { argv: ['node', 'reset-password.js', 'reader', password, '--clear-totp'], exit: (code) => { throw new Error(`Recovery exited ${code}`); } },
+    console: { log() {} },
+  });
+  assert.equal((await login()).code, 200);
+  assert.deepEqual(running, [1, 1]);
 });
 
 test('the OIDC client exchanges a PKCE code and validates a signed provider ID token', async (t) => {

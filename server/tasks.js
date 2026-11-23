@@ -23,4 +23,12 @@ function list(user) {
   return q(`SELECT * FROM background_tasks WHERE ${admin ? '1 = 1' : 'user_id = ?'}
     ORDER BY status = 'running' DESC, id DESC LIMIT 500`).all(...(admin ? [] : [user.id]));
 }
-module.exports = { start, progress, finish, recover, list };
+function record(kind, title, scope, error) {
+  // Device clients may send the same update repeatedly while syncing.
+  if (kind === 'device-sync' && q(`SELECT 1 FROM background_tasks
+    WHERE kind = ? AND user_id = ? AND title = ? AND created_at >= ? LIMIT 1`)
+    .get(kind, scope.userId, title, Date.now() - 60_000)) return;
+  finish(start(kind, title, scope), error);
+}
+
+module.exports = { start, progress, finish, recover, list, record };

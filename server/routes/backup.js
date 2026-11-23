@@ -15,6 +15,25 @@ const express = require('express');
 const { q } = require('../db');
 const { requireAdmin } = require('../auth');
 const backup = require('../backup');
+const tasks = require('../tasks');
+
+function trackDownload(res) {
+  const record = (error) => tasks.record('backup-download', 'Backup download', {}, error);
+  res.once('finish', () => record(res.statusCode >= 400 ? 'Backup download failed.' : null));
+  res.once('close', () => { if (!res.writableFinished) record('Backup download interrupted.'); });
+}
+
+async function restore(file, options) {
+  // The restore replaces the activity database. Record the result in the database that survives.
+  try {
+    const result = await backup.restore(file, options);
+    tasks.record('restore', 'Backup restore', {}, result.failed?.length ? 'Some book files could not be restored.' : null);
+    return result;
+  } catch (error) {
+    tasks.record('restore', 'Backup restore', {}, 'Backup restore failed.');
+    throw error;
+  }
+}
 
 const pending = new Map(); // id → { file, manifest, timer }
 const PENDING_TTL = 30 * 60_000;
@@ -57,7 +76,7 @@ async function apply(req, res) {
   pending.delete(req.params.id);
   clearTimeout(p.timer);
   try {
-    const result = await backup.restore(p.file, { includeBooks: Boolean(req.body?.books), includeExtensions: Boolean(req.body?.extensions) });
+    const result = await restore(p.file, { includeBooks: Boolean(req.body?.books), includeExtensions: Boolean(req.body?.extensions) });
     res.json({ ok: true, ...result });
   } finally {
     fsp.rm(p.file, { force: true }).catch(() => {});
@@ -68,6 +87,7 @@ const admin = express.Router();
 admin.use(requireAdmin);
 admin.get('/backup/estimate', async (req, res) => res.json(await backup.estimate()));
 admin.get('/backup', async (req, res) => {
+  trackDownload(res);
   const books = req.query.books === '1';
   const stamp = new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-');
   res.attachment(`flyleaf-backup-${stamp}${books ? '-with-books' : ''}.zip`);
@@ -81,14 +101,18 @@ admin.get('/backups', async (req, res) => {
 });
 admin.put('/backups/schedule', (req, res) => res.json(backup.setSchedule(req.body || {})));
 admin.post('/backups/run', async (req, res) => res.json(await backup.runScheduled({ manual: true })));
-admin.get('/backups/:name', (req, res) => res.download(backup.storedPath(req.params.name)));
+admin.get('/backups/:name', (req, res) => {
+  const file = backup.storedPath(req.params.name);
+  trackDownload(res);
+  res.download(file);
+});
 admin.delete('/backups/:name', async (req, res) => {
   await fsp.rm(backup.storedPath(req.params.name), { force: true });
   res.json({ ok: true });
 });
 /** Restore a stored backup directly: { books } */
 admin.post('/backups/:name/restore', async (req, res) => {
-  const result = await backup.restore(backup.storedPath(req.params.name), { includeBooks: Boolean(req.body?.books), includeExtensions: Boolean(req.body?.extensions) });
+  const result = await restore(backup.storedPath(req.params.name), { includeBooks: Boolean(req.body?.books), includeExtensions: Boolean(req.body?.extensions) });
   res.json({ ok: true, ...result });
 });
 

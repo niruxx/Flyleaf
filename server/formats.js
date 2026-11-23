@@ -374,13 +374,15 @@ const convertJobs = new Map();
 const CONVERTIBLE = new Set(['txt', 'docx', 'rtf']);
 
 /** Returns the path of a cached EPUB generated from a TXT, DOCX or RTF file. */
-async function toEpub(file, format, title) {
+async function toEpub(file, format, title, activityScope) {
   if (!CONVERTIBLE.has(format)) throw new Error(`Can't convert ${format} to EPUB`);
   const stat = await fsp.stat(file);
   const hash = crypto.createHash('sha1').update(`v2:${file}:${stat.mtimeMs}`).digest('hex').slice(0, 20);
   const out = path.join(config.cacheDir, 'converted', `${hash}.epub`);
   if (fs.existsSync(out)) return out;
   if (convertJobs.has(out)) return convertJobs.get(out);
+  const tasks = activityScope && require('./tasks');
+  const task = tasks?.start('conversion', title || path.basename(file), activityScope);
   const job = (async () => {
     const fallbackTitle = title || path.basename(file, path.extname(file));
     let doc;
@@ -402,7 +404,12 @@ async function toEpub(file, format, title) {
   })();
   convertJobs.set(out, job);
   try {
-    return await job;
+    const result = await job;
+    if (tasks) tasks.finish(task);
+    return result;
+  } catch (error) {
+    if (tasks) tasks.finish(task, 'Could not convert the file to EPUB.');
+    throw error;
   } finally {
     convertJobs.delete(out);
   }

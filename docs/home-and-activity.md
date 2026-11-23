@@ -38,9 +38,10 @@ and the latest 100 completed/cancelled entries. Interrupted background tasks are
 marked failed after a server restart. The downloader retains its existing restart
 recovery behavior.
 
-Device sync, on-demand reader conversions, backup downloads, and restore operations
-are not yet represented in this center. The security audit log remains under
-**Settings → Activity**.
+Readers also see their Kobo and KOReader updates and uncached EPUB conversions
+started by their reader. Admins see backup downloads and restore results. A
+restore result is recorded after the operation so it appears in the restored
+database. The security audit log is under **Settings → Activity**.
 
 Validation includes the home-layout and task tests plus the frontend module check:
 

@@ -167,7 +167,31 @@ async function accountPanel(panel, stale, params) {
   );
   const tracking = h('section');
   const oidc = h('div');
-  panel.append(oidc, tracking);
+  const security = h('div');
+  panel.append(security, oidc, tracking);
+  if (isAdmin()) {
+    const draw = ({ enabled }) => {
+      if (stale()) return;
+      security.replaceChildren(group(row('verified_user', t('Two-factor authentication'), enabled ? t('Enabled') : t('Disabled'),
+        button(enabled ? t('Disable') : t('Enable'), { variant: 'tonal', onclick: async () => {
+          const password = field(t('Current password'), { type: 'password', required: true, autocomplete: 'current-password' });
+          const code = field(t('Authenticator code'), { required: true, inputmode: 'numeric', autocomplete: 'one-time-code', pattern: '[0-9]{6}', maxlength: 6 });
+          let secret;
+          const title = t('Two-factor authentication');
+          if (!enabled) {
+            await formDialog({ title, fields: [password], onSubmit: async () => { ({ secret } = await api.configureTotp({ action: 'prepare', password: password.input.value })); } });
+            if (!secret || stale()) return;
+          }
+          const setup = !enabled && field(t('Authenticator setup key'), { value: secret, readOnly: true, support: t('Add this key to your app as a time-based code.') });
+          try {
+            await formDialog({ title, fields: enabled ? [password, code] : [setup, code], onSubmit: async () => {
+              draw(await api.configureTotp({ action: enabled ? 'disable' : 'enable', password: password.input.value, code: code.input.value, secret }));
+            } });
+          } finally { password.input.value = ''; }
+        } }))));
+    };
+    api.totpStatus().then(draw).catch((error) => { if (!stale()) security.append(formError(error.message)); });
+  }
   const oidcStatus = params.query.get('oidc');
   if (oidcStatus === 'linked') snackbar(t('OpenID Connect account linked'));
   if (oidcStatus === 'failed') snackbar(t('Could not link your OpenID Connect account'));

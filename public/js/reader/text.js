@@ -7,6 +7,7 @@ import { isDark } from '../theme.js';
 import { TEXT_THEMES, LOOKS, PAPER_GRAIN } from '../components/reader-settings.js';
 import { fallingLeaf, reducedMotion } from './turn.js';
 import { HIGHLIGHT_COLORS } from '../views/bookmarks.js';
+import { SpeechPlayer, sentences, readAloudControls } from './read-aloud.js';
 
 const EXT = { epub: 'epub', txt: 'epub', mobi: 'mobi', azw3: 'azw3', fb2: 'fb2' };
 const MIME = { epub: 'application/epub+zip', mobi: 'application/x-mobipocket-ebook', azw3: 'application/vnd.amazon.ebook', fb2: 'application/x-fictionbook+xml' };
@@ -142,7 +143,7 @@ export class TextEngine {
       value: Math.round(this.fraction * 1000),
       rtl: view.book.dir === 'rtl',
       onInput: (v) => this.shell.setPosition(`${(v / 10).toFixed(1)}%`),
-      onChange: (v) => view.goToFraction(v / 1000),
+      onChange: (v) => { this.speech?.stop(); return view.goToFraction(v / 1000); },
     });
 
     const saved = this.book.progress && !this.book.progress.finished ? this.book.progress.position : null;
@@ -172,6 +173,8 @@ export class TextEngine {
 
   destroy() {
     this.destroyed = true;
+    this.speech?.destroy();
+    this.speechBar?.remove();
     clearTimeout(this.navigationTimer);
     this.turnLift?.cancel();
     this.closeFootnote();
@@ -182,6 +185,57 @@ export class TextEngine {
       this.view?.close();
     } catch {}
     this.view?.remove();
+  }
+
+  get canReadAloud() {
+    return Boolean(globalThis.speechSynthesis && globalThis.SpeechSynthesisUtterance && globalThis.Intl?.Segmenter
+      && this.view?.renderer?.scrollToAnchor);
+  }
+
+  openReadAloud() {
+    if (!this.canReadAloud || this.destroyed) return;
+    if (!this.speech) {
+      const key = 'foliate-search:flyleaf-read-aloud';
+      const language = this.view.book.metadata?.language;
+      const adapter = {
+        language: Array.isArray(language) ? language[0] : language,
+        load: async next => {
+          if (next) {
+            let index = this.speechSection + 1;
+            while (this.view.book.sections[index]?.linear === 'no') index++;
+            if (index >= this.view.book.sections.length) return null;
+            adapter.clear();
+            await this.view.goTo(index);
+            if (this.destroyed) return null;
+            if (!this.view.renderer.getContents().some(content => content.index === index)) throw new Error('Chapter navigation failed');
+          }
+          const contents = this.view.renderer.getContents();
+          const visible = this.view.lastLocation?.range;
+          const content = contents.find(item => item.doc === visible?.startContainer.ownerDocument) || contents[0];
+          if (!content) throw new Error('No readable chapter');
+          this.speechSection = content.index;
+          const items = sentences(content.doc, adapter.language);
+          let start = 0;
+          if (!next && visible?.startContainer.ownerDocument === content.doc) {
+            start = items.findIndex(item => item.range.comparePoint(visible.startContainer, visible.startOffset) <= 0);
+            if (start < 0) start = items.length;
+          }
+          return { items, start };
+        },
+        show: async item => {
+          await this.view.renderer.scrollToAnchor(item.range);
+          adapter.clear();
+          const content = this.view.renderer.getContents().find(c => c.doc === item.range.startContainer.ownerDocument);
+          this.speechOverlay = content?.overlayer;
+          this.speechOverlay?.add(key, item.sentenceRange, this.Overlayer.highlight, { color: '#ffd54f' });
+          this.tracker.activity();
+        },
+        clear: () => { this.speechOverlay?.remove(key); this.speechOverlay = null; },
+      };
+      this.speech = new SpeechPlayer(adapter);
+    }
+    this.shell.showChrome(true);
+    if (!this.speechBar?.isConnected) this.speechBar = readAloudControls(this.speech, this.shell.root);
   }
 
   // ----- appearance -----
@@ -259,11 +313,13 @@ export class TextEngine {
   // ----- navigation -----
 
   next() {
+    this.speech?.stop();
     if (this.navigating || this.recovering || this.destroyed) return;
     if (this.view.renderer.atEnd && !this.scrollMode()) return this.shell.showEnd();
     return this.navigatePage('next');
   }
   prev() {
+    this.speech?.stop();
     if (this.navigating || this.recovering || this.destroyed) return;
     if (this.view.renderer.atStart && !this.scrollMode()) return this.shell.toast(t('Start of book'));
     return this.navigatePage('prev');
@@ -358,12 +414,15 @@ export class TextEngine {
     this.view.book.dir === 'rtl' ? this.prev() : this.next();
   }
   goToStart() {
+    this.speech?.stop();
     this.view.goToFraction(0);
   }
   goToEnd() {
+    this.speech?.stop();
     this.view.goToFraction(0.9999);
   }
   goTo(target) {
+    this.speech?.stop();
     this.view.goTo(target).catch(() => {});
   }
 
@@ -385,6 +444,7 @@ export class TextEngine {
     this.view?.clearSearch();
   }
   goToLocator(loc) {
+    this.speech?.stop();
     this.view.goTo(loc).catch(() => {});
   }
   currentLocator() {
@@ -441,6 +501,11 @@ export class TextEngine {
 
   // Each section document: taps, selection → highlight toolbar, keys, activity.
   onLoad({ doc, index }) {
+    if (this.speech?.state === 'playing' && !this.speech.moving) this.speech.stop();
+    const stopSpeech = () => { if (this.speech?.state === 'playing' || this.speech?.state === 'paused') this.speech.stop(); };
+    doc.addEventListener('wheel', stopSpeech, { passive: true });
+    doc.addEventListener('pointerdown', stopSpeech, { passive: true });
+    doc.addEventListener('keydown', stopSpeech);
     const frameOf = () => doc.defaultView?.frameElement?.getBoundingClientRect() || { left: 0, top: 0 };
     let downAt = null;
     let selectionTimer;
@@ -511,6 +576,7 @@ export class TextEngine {
   // ----- footnotes -----
 
   onLink(e) {
+    this.speech?.stop();
     const { a, href } = e.detail;
     const kind = noteRefKind(a);
     if (!kind) return; // an ordinary link: foliate follows it

@@ -25,6 +25,7 @@ const SHELL = [
   '/js/ui.js',
   '/js/router.js',
   '/js/reader/chapter-frame.js',
+  '/js/reader/read-aloud.js',
   '/js/shell.js',
   '/js/components/storage-migration.js',
   '/js/theme.js',

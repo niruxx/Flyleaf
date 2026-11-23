@@ -119,6 +119,7 @@ test('Kobo sync sends a selected EPUB shelf, incremental updates, progress and r
   const first = await request(router, 'GET', base+'/v1/library/sync');
   assert.equal(first.body.filter((v) => v.NewEntitlement).length, 1);
   assert.equal(first.body[0].NewEntitlement.BookMetadata.Title, 'Book 1');
+  assert.equal(q("SELECT user_id FROM background_tasks WHERE kind = 'device-sync' AND title = 'Kobo library sync'").get().user_id, user.id);
   assert.ok(first.body[1].NewTag);
   const headers = { 'x-kobo-synctoken': first.headers['x-kobo-synctoken'] };
   assert.equal((await request(router, 'GET', base+'/v1/library/sync', {}, headers)).body.length, 0);

@@ -1,20 +1,21 @@
 import { api } from '../api.js';
 import { t } from '../i18n.js';
 import { navigate, onLeave, session } from '../router.js';
-import { button, emptyState, field, formDialog, formatBytes, h, icon, loading, pageBanner, snackbar } from '../ui.js';
+import { button, emptyState, field, formDialog, formatBytes, h, icon, loading, pageHeader, snackbar } from '../ui.js';
 
 const bookFormats = new Set(['txt', 'docx', 'rtf', 'audio']);
 const providerName = { openlibrary: 'Open Library', googlebooks: 'Google Books' };
 
 export async function bookDropView(view, params, stale) {
+  const content = h('div.book-drop-content');
+  view.append(h('div.page', content));
   if (session.user?.role !== 'admin') {
-    view.append(emptyState('lock', t('Administrator access required')));
+    content.append(emptyState('lock', t('Administrator access required')));
     return;
   }
-  const banner = pageBanner({ icon: 'move_to_inbox', title: t('BookDrop'), sub: t('Review files from your import folder.') });
-  const folder = h('p.note.mono');
+  const folder = h('p.note.mono', { hidden: true });
   const results = h('div', loading());
-  view.append(banner, folder, results);
+  content.append(pageHeader(t('BookDrop')), h('p.muted', t('Review files from your import folder.')), folder, results);
 
   const libraries = await api.libraries('all');
   if (stale()) return;
@@ -30,6 +31,7 @@ export async function bookDropView(view, params, stale) {
       if (next === state) return;
       state = next;
       folder.textContent = inbox.folder || '';
+      folder.hidden = !inbox.folder;
       if (!inbox.enabled) {
         results.replaceChildren(emptyState('folder_off', t('BookDrop is disabled'), t('Set BOOKDROP_DIR to a separate folder on your server and restart Flyleaf.')));
       } else if (inbox.error) {

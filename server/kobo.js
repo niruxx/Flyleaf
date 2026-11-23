@@ -270,6 +270,7 @@ router.get('/:key/v1/library/sync', async (req, res) => {
     q("DELETE FROM client_positions WHERE user_id = ? AND client = 'kobo-sync' AND substr(document, 1, ?) = ? AND document NOT IN (SELECT document FROM client_positions WHERE user_id = ? AND client = 'kobo-sync' AND substr(document, 1, ?) = ? ORDER BY updated_at DESC, rowid DESC LIMIT 128)")
       .run(req.user.id, prefix.length, prefix, req.user.id, prefix.length, prefix);
   });
+  if (page.length) require('./tasks').record('device-sync', 'Kobo library sync', { userId: req.user.id });
   res.set({ 'x-kobo-synctoken': token, 'x-kobo-sync': results.length > page.length ? 'continue' : 'complete' }).json(page);
 });
 
@@ -337,6 +338,7 @@ router.put('/:key/v1/library/:id/state', async (req, res) => {
   // Complete authorization, validation and position conversion before any write.
   const writes = await Promise.all(pairs.map(([book, value]) => prepareReadingState(req, book, value)));
   const results = tx(() => writes.map(write => write()));
+  require('./tasks').record('device-sync', 'Kobo reading state sync', { userId: req.user.id });
   res.json({ RequestResult: 'Success', UpdateResults: results });
 });
 router.get('/:key/download/:id', async (req, res) => {

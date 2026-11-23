@@ -47,6 +47,10 @@ function cookie(res, value, age) {
   res.append('Set-Cookie', `${cookieName}=${value}; Path=/; Max-Age=${age}; HttpOnly; Secure; SameSite=Lax`);
 }
 
+function browserToken(req) {
+  return req.get('cookie')?.match(/(?:^|;\s*)__Host-flyleaf_oidc=([\w-]{43})(?:;|$)/)?.[1];
+}
+
 async function begin(res, userId = null) {
   const client = require('openid-client');
   const config = await discover(client);
@@ -94,11 +98,35 @@ router.post('/oidc/link', auth.requireUser, async (req, res) => {
   }
 });
 
+router.post('/oidc/totp', (req, res) => {
+  if (!ready() || req.get('origin') !== site.origin || req.get('X-Flyleaf') !== '1') return res.status(403).end();
+  const key = browserToken(req);
+  const attempt = pending.get(key);
+  res.set('Cache-Control', 'no-store');
+  if (!attempt?.secondFactor || attempt.expires <= Date.now()) return res.status(410).json({ error: 'Sign in with OpenID Connect again.' });
+  const user = q('SELECT * FROM users WHERE id = ?').get(attempt.userId);
+  const step = require('../totp').verify(user?.totp_secret, req.body?.code, user?.totp_step);
+  if (step == null) {
+    if (++attempt.failures >= 5) { pending.delete(key); cookie(res, '', 0); }
+    return res.status(401).json({ error: 'Invalid or already used authenticator code.' });
+  }
+  pending.delete(key);
+  cookie(res, '', 0);
+  q('UPDATE users SET totp_step = ?, last_seen_at = ? WHERE id = ?').run(step, Date.now(), user.id);
+  auth.destroySession(req, res);
+  auth.createSession(res, user.id, req.get('user-agent'));
+  const signedIn = auth.toUser(user);
+  res.json({ user: { ...require('./auth').publicUser(signedIn), backgroundUrl: signedIn.backgroundUrl } });
+});
+
 function account(claims, linkUser) {
   return tx(() => {
-    const existing = q('SELECT user_id FROM oidc_identities WHERE issuer = ? AND subject = ?').get(claims.iss, claims.sub);
+    const adminGroup = process.env.OIDC_ADMIN_GROUP?.trim();
+    const role = adminGroup && Array.isArray(claims.groups) && claims.groups.includes(adminGroup) ? 'admin' : 'guest';
+    const existing = q('SELECT user_id, managed_role FROM oidc_identities WHERE issuer = ? AND subject = ?').get(claims.iss, claims.sub);
     if (existing) {
       if (linkUser && existing.user_id !== linkUser) throw new Error('Identity already linked.');
+      if (!linkUser && existing.managed_role) q('UPDATE users SET role = ? WHERE id = ?').run(role, existing.user_id);
       return existing.user_id;
     }
     if (!linkUser && process.env.OIDC_ALLOW_SIGNUP === 'false') throw new Error('OIDC account creation is disabled.');
@@ -109,9 +137,9 @@ function account(claims, linkUser) {
       const libraries = process.env.OIDC_SHARED_LIBRARIES === 'all' ? null : '[]';
       const password = auth.hashPassword(randomBytes(32).toString('base64url'));
       id = Number(q(`INSERT INTO users (username, display_name, password_hash, role, library_ids, created_at)
-        VALUES (?, ?, ?, 'guest', ?, ?)`).run(username, name?.trim().slice(0, 64) || null, password, libraries, Date.now()).lastInsertRowid);
+        VALUES (?, ?, ?, ?, ?, ?)`).run(username, name?.trim().slice(0, 64) || null, password, role, libraries, Date.now()).lastInsertRowid);
     }
-    q('INSERT INTO oidc_identities (issuer, subject, user_id) VALUES (?, ?, ?)').run(claims.iss, claims.sub, id);
+    q('INSERT INTO oidc_identities (issuer, subject, user_id, managed_role) VALUES (?, ?, ?, ?)').run(claims.iss, claims.sub, id, !linkUser && adminGroup ? 1 : 0);
     return id;
   });
 }
@@ -120,11 +148,11 @@ router.get('/oidc/callback', async (req, res) => {
   if (!ready()) return res.status(404).end();
   const state = typeof req.query.state === 'string' ? req.query.state : '';
   const attempt = pending.get(state);
-  const browser = req.get('cookie')?.match(/(?:^|;\s*)__Host-flyleaf_oidc=([\w-]{43})(?:;|$)/)?.[1];
+  const browser = browserToken(req);
   const linkPath = '/#/settings/account?oidc=';
   let destination = '/#/login?oidc=failed';
   try {
-    if (!attempt || attempt.expires <= Date.now() || attempt.browser !== browser) throw new Error('Invalid login attempt.');
+    if (!attempt?.browser || attempt.expires <= Date.now() || attempt.browser !== browser) throw new Error('Invalid login attempt.');
     pending.delete(state);
     cookie(res, '', 0);
     if (attempt.userId && (req.user?.id !== attempt.userId || req.user.apiKey)) throw new Error('Sign-in changed during linking.');
@@ -138,6 +166,12 @@ router.get('/oidc/callback', async (req, res) => {
     const claims = response.claims();
     if (!claims?.iss || typeof claims.sub !== 'string' || !claims.sub) throw new Error('Invalid identity.');
     const id = account(claims, attempt.userId);
+    if (!attempt.userId && q('SELECT totp_secret FROM users WHERE id = ?').get(id)?.totp_secret) {
+      const token = randomBytes(32).toString('base64url');
+      pending.set(token, { secondFactor: true, userId: id, failures: 0, expires: Date.now() + 300_000 });
+      cookie(res, token, 300);
+      return res.set('Referrer-Policy', 'no-referrer').redirect(new URL('/#/login?oidc=authenticator', site).href);
+    }
     q('UPDATE users SET last_seen_at = ? WHERE id = ?').run(Date.now(), id);
     if (!attempt.userId) {
       auth.destroySession(req, res);

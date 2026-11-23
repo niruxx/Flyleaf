@@ -157,6 +157,11 @@ body:not(.bare) #view > .page {
 .settings-section + .settings-section { margin-top: 10px; border-top: 1px solid var(--workspace-line); padding-top: 4px; }
 .settings-page .settings-panel { min-width: 0; }
 
+.book-drop-content { max-width: 880px; margin-inline: auto; display: grid; gap: 12px; }
+.book-drop-content .page-head { min-height: 0; margin: 0; }
+.book-drop-content > p { margin: 0; overflow-wrap: anywhere; }
+.book-drop-content > p + div { margin-top: 4px; }
+
 .series-view .series-hero { padding: clamp(18px, 3vw, 34px); border-radius: var(--workspace-radius); border: 1px solid var(--workspace-line); background: color-mix(in srgb, var(--md-surface-container-low) 85%, transparent); align-items: center; }
 .series-hero .cover-col { position: static; }
 .series-hero .cover { border-radius: 7px 13px 13px 7px; }

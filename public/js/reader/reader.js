@@ -105,11 +105,13 @@ function createShell(data, tracker) {
   // Shown once the engine says it can search (EPUB-type books, PDFs with text).
   const searchBtn = iconButton('search', t('Search in book (/)'), () => openSearch());
   searchBtn.hidden = true;
+  const speechBtn = iconButton('record_voice_over', t('Read aloud'), () => shell.engine?.openReadAloud?.());
+  speechBtn.hidden = true;
 
   const top = h('div.chrome-top',
     iconButton('arrow_back', t('Close book'), () => exit()),
     h('div.titles', h('div.t', book.series && book.series !== book.label ? `${book.series} · ${book.label}` : book.title), titleSub),
-    h('div.chrome-tools', searchBtn, !data.shared && bookmarkBtn, !data.shared && highlightBtn, tocBtn, fsBtn, settingsBtn,
+    h('div.chrome-tools', searchBtn, speechBtn, !data.shared && bookmarkBtn, !data.shared && highlightBtn, tocBtn, fsBtn, settingsBtn,
       data.shared && data.allowDownload && h('a.icon-btn.state', {
         href: downloadUrl(book), download: '', title: t('Download'), 'aria-label': t('Download'),
       }, icon('download')),
@@ -165,7 +167,7 @@ function createShell(data, tracker) {
   let hideTimer = autoHide() ? setTimeout(() => shell.showChrome(false), settings.immersive ? 600 : 2500) : null;
 
   const onKey = (e) => {
-    if (e.target.closest?.('input, textarea, select, dialog, .sel-toolbar, .menu')) return;
+    if (e.target.closest?.('input, textarea, select, dialog, .sel-toolbar, .menu, .read-aloud-bar')) return;
     if (document.querySelector('dialog[open]')) return;
     shell.handleKey(e);
   };
@@ -543,6 +545,7 @@ function createShell(data, tracker) {
     engineReady() {
       readerReady = true;
       searchBtn.hidden = !shell.engine?.search;
+      speechBtn.hidden = !shell.engine?.canReadAloud;
       highlightBtn.hidden = !shell.engine?.toggleHighlight;
     },
     highlightMode(active) {

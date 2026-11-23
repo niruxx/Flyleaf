@@ -5,6 +5,7 @@ const { q } = require('../db');
 const auth = require('../auth');
 const config = require('../config');
 const settings = require('../settings');
+const totp = require('../totp');
 
 const router = express.Router();
 
@@ -104,12 +105,24 @@ router.post('/login', (req, res) => {
     res.set('Retry-After', String(throttle.retryAfter));
     return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
   }
-  const { username, password } = req.body || {};
+  const { username, password, code } = req.body || {};
   const user = typeof username === 'string' ? q('SELECT * FROM users WHERE username = ? OR (email IS NOT NULL AND email = ?)').get(username.trim(), username.trim()) : null;
   const ok = auth.verifyPassword(String(password ?? ''), user ? user.password_hash : auth.DUMMY_HASH);
   if (!user || !ok) {
     throttle.fail();
     return res.status(401).json({ error: 'Incorrect username or password.' });
+  }
+  if (user.totp_secret) {
+    if (!code) {
+      throttle.fail();
+      return res.status(428).json({ error: 'Enter the code from your authenticator app.' });
+    }
+    const step = totp.verify(user.totp_secret, code, user.totp_step);
+    if (step == null) {
+      throttle.fail();
+      return res.status(401).json({ error: 'Invalid or already used authenticator code.' });
+    }
+    q('UPDATE users SET totp_step = ? WHERE id = ?').run(step, user.id);
   }
   throttle.reset();
   q('UPDATE users SET last_seen_at = ? WHERE id = ?').run(Date.now(), user.id);
@@ -130,6 +143,36 @@ const me = express.Router();
 me.use(auth.requireUser);
 
 me.get('/', (req, res) => res.json({ ...publicUser(req.user), backgroundUrl: req.user.backgroundUrl }));
+
+me.get('/totp', (req, res) => {
+  if (req.user.role !== 'admin' || req.user.apiKey) return res.status(403).end();
+  res.json({ enabled: Boolean(q('SELECT totp_secret FROM users WHERE id = ?').get(req.user.id)?.totp_secret) });
+});
+
+me.post('/totp', (req, res) => {
+  if (req.user.role !== 'admin' || req.user.apiKey) return res.status(403).end();
+  const throttle = auth.loginThrottle(`totp:${req.user.id}`);
+  if (throttle.blocked) return res.set('Retry-After', String(throttle.retryAfter)).status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
+  const user = q('SELECT password_hash, totp_secret, totp_step FROM users WHERE id = ?').get(req.user.id);
+  const { password, code, secret, action } = req.body || {};
+  if (!auth.verifyPassword(typeof password === 'string' ? password : '', user.password_hash)) {
+    throttle.fail();
+    return res.status(403).json({ error: 'Incorrect password.' });
+  }
+  res.set('Cache-Control', 'no-store');
+  if (action === 'prepare' && !user.totp_secret) return res.json({ secret: totp.generate() });
+  const enabling = action === 'enable' && !user.totp_secret;
+  const disabling = action === 'disable' && user.totp_secret;
+  if (!enabling && !disabling) return res.status(409).json({ error: 'Invalid authenticator setup state.' });
+  const step = totp.verify(enabling ? secret : user.totp_secret, code, user.totp_step);
+  if (step == null) {
+    throttle.fail();
+    return res.status(400).json({ error: 'Invalid or already used authenticator code.' });
+  }
+  throttle.reset();
+  q('UPDATE users SET totp_secret = ?, totp_step = ? WHERE id = ?').run(enabling ? secret : null, enabling ? step : null, req.user.id);
+  res.json({ enabled: enabling });
+});
 
 me.patch('/', (req, res) => {
   const { username, email, displayName } = req.body || {};

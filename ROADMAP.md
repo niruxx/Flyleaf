@@ -43,20 +43,19 @@ is still being verified. [Setup, supported formats and limitations](docs/device-
 
 ## 📖 Reader
 
-- ⬜ **Restore and verify text-to-speech / read aloud**: the current checkout is missing
-  `public/js/reader/read-aloud.js`, which the existing test suite references. Reconcile
-  implementation, tests and documentation before marking this complete. Intended behavior:
-  current-sentence highlighting, play/pause/stop, adjustable speed, sleep timer and chapter
-  continuation, with browser voice availability and interruption behavior clearly explained.
+- ✅ **Text-to-speech / read aloud** for reflowable ebooks, with sentence highlighting,
+  play/pause/stop, speed, a sleep timer and chapter continuation. The Chromium fixture
+  uses mock speech. Installed voices and audio output depend on the reading device.
   [Usage and browser limits](docs/read-aloud.md)
 
 ---
 
 ## 👥 Accounts & security
 
-- ⬜ **Single sign-on** with OpenID Connect (Authelia, Authentik, Keycloak), including
-  explicit account linking, role mapping and a tested local-admin recovery path
-- ⬜ **Two-factor authentication** (TOTP) for the admin account
+- ✅ **OpenID Connect** includes explicit account linking and optional role mapping
+  from a verified group claim. Local password sign-in and recovery are available.
+- ✅ **Admin two-factor authentication** uses time-based authenticator codes and
+  provides local server recovery through the password reset command.
 ---
 
 ## 🛠️ Platform
@@ -84,8 +83,8 @@ is still being verified. [Setup, supported formats and limitations](docs/device-
   and recover failed moves or find original copies from Activity.
 - ✅ **Content Finder source links**: recover links from download history and review missing links on imported series.
   [Usage and current coverage](docs/home-and-activity.md)
-- ⬜ **Additional activity sources**: device sync, reader conversions, backup
-  downloads, and restore operations.
+- ✅ **Additional activity sources** include Kobo and KOReader updates, reader
+  conversions to EPUB, backup downloads, and backup restore results.
 
 ## BookLore parity
 

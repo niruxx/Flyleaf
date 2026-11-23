@@ -680,6 +680,9 @@ const migrations = [
     PRIMARY KEY (collection_id, book_id)
   );
   `,
+  `ALTER TABLE users ADD COLUMN totp_secret TEXT;
+   ALTER TABLE users ADD COLUMN totp_step INTEGER;
+   ALTER TABLE oidc_identities ADD COLUMN managed_role INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 function migrate() {
